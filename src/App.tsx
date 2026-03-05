@@ -155,7 +155,9 @@ function generateMockBets() {
 // ── ODDS API ─────────────────────────────────────────────────
 async function fetchLiveOdds(apiKey, mlModel) {
   try {
-    const res = await fetch(`https://api.the-odds-api.com/v4/sports/basketball_nba/odds/?apiKey=${apiKey}&regions=us&markets=h2h,spreads,totals&bookmakers=${SPORTSBOOKS.join(",")}&oddsFormat=american`);
+    // Fetch soft books + Pinnacle together in one call
+    const ALL_BOOKS = [...SPORTSBOOKS, "pinnacle"];
+    const res = await fetch(`https://api.the-odds-api.com/v4/sports/basketball_nba/odds/?apiKey=${apiKey}&regions=us,eu&markets=h2h,spreads,totals&bookmakers=${ALL_BOOKS.join(",")}&oddsFormat=american`);
     if(!res.ok) throw new Error(res.status);
     const data = await res.json();
     if(!Array.isArray(data)||data.length===0) return null;
@@ -164,57 +166,100 @@ async function fetchLiveOdds(apiKey, mlModel) {
     data.forEach(game => {
       const gameTime=game.commence_time, away=game.away_team, home=game.home_team;
       const gameLabel=`${away} @ ${home}`;
-      const grouped = {};
+
+      // Separate Pinnacle from soft books while grouping
+      const grouped = {};       // soft book odds per outcome
+      const pinnacleLines = {}; // pinnacle odds per outcome
+
       game.bookmakers?.forEach(book => {
-        if(!SPORTSBOOKS.includes(book.key)) return;
+        const isPinnacle = book.key === "pinnacle";
+        if(!isPinnacle && !SPORTSBOOKS.includes(book.key)) return;
         book.markets?.forEach(market => {
           market.outcomes?.forEach(outcome => {
             const key=`${gameLabel}|${market.key}|${outcome.name}|${outcome.point??''}`;
-            if(!grouped[key]) grouped[key]={game:gameLabel,gameTime,market:market.key,selection:outcome.name,point:outcome.point,books:{}};
-            grouped[key].books[book.key]=outcome.price;
+            if(isPinnacle) {
+              pinnacleLines[key] = outcome.price; // store Pinnacle's line separately
+            } else {
+              if(!grouped[key]) grouped[key]={game:gameLabel,gameTime,market:market.key,selection:outcome.name,point:outcome.point,books:{}};
+              grouped[key].books[book.key]=outcome.price;
+            }
           });
         });
       });
 
       Object.values(grouped).forEach(bet => {
-        const odds=Object.values(bet.books).filter(Boolean);
-        if(odds.length<2) return;
-        const bestOdds=Math.max(...odds);
+        const softOdds=Object.values(bet.books).filter(Boolean);
+        if(softOdds.length<2) return;
+        const bestOdds=Math.max(...softOdds);
         const bestBook=Object.keys(bet.books).find(k=>bet.books[k]===bestOdds);
 
         // Hard filter — only surface bets in our target odds range
         if(bestOdds < MIN_ODDS || bestOdds > MAX_ODDS) return;
 
-        // --- PROBABILITY MODEL ---
-        // Step 1: Remove vig from each book's odds individually, then average
-        // This gives us the "sharp consensus" no-vig probability
-        const vigFreeProbs = odds.map(o => {
-          const impl = americanToImplied(o);
-          // Estimate single-side vig removal: divide by (1 + assumed vig ~4.5%)
-          return impl / 1.045;
-        });
+        // ── LOCAL MODEL ──────────────────────────────────────────
+        // Step 1: Vig-free consensus probability from soft books
+        const vigFreeProbs = softOdds.map(o => americanToImplied(o) / 1.045);
         const consensusProb = vigFreeProbs.reduce((s,p)=>s+p,0)/vigFreeProbs.length;
 
-        // Step 2: Line shopping edge — if the best available odds are significantly
-        // better than the average book, that gap represents real edge
-        const avgImplied = odds.reduce((s,o)=>s+americanToImplied(o),0)/odds.length;
+        // Step 2: Line shopping edge — gap between avg book and best available
+        const avgImplied = softOdds.reduce((s,o)=>s+americanToImplied(o),0)/softOdds.length;
         const bestImplied = americanToImplied(bestOdds);
-        const lineShopEdge = avgImplied - bestImplied; // positive = best line is better than avg
+        const lineShopEdge = avgImplied - bestImplied;
 
-        // Step 3: Our model probability = consensus + line shopping edge
-        // This represents: "the market thinks X%, but the best available price implies Y%"
+        // Step 3: Local model probability
         let ourProb = Math.min(Math.max(consensusProb + lineShopEdge, 30), 85);
 
-        // Step 4: Apply ML adjustment if we have enough resolved bets
+        // Step 4: ML adjustment
         const tempBet = { ourProbability:ourProb, type:"Moneyline", bestOdds, edge:0, game:gameLabel };
         ourProb = applyMLAdjustment(mlModel, tempBet);
 
-        const edge = ourProb - bestImplied;
-        if(edge < MIN_EV_EDGE) return;
-        // Longshot filter: bets > +125 require >10% edge to surface
-        if(bestOdds > 125 && edge < MIN_EV_EDGE_LONGSHOT) return;
-        const ev = calcEV(ourProb, bestOdds);
-        if(ev <= 0) return;
+        const localEdge = ourProb - bestImplied;
+        if(localEdge < MIN_EV_EDGE) return;
+        if(bestOdds > 125 && localEdge < MIN_EV_EDGE_LONGSHOT) return;
+        const localEV = calcEV(ourProb, bestOdds);
+        if(localEV <= 0) return;
+
+        // ── PINNACLE VALIDATION ──────────────────────────────────
+        // Reconstruct key to look up Pinnacle's line for this outcome
+        const betKey = `${gameLabel}|${bet.market}|${bet.selection}|${bet.point??''}`;
+        const pinnacleOdds = pinnacleLines[betKey] ?? null;
+        let pinnacleAligned = false;
+        let pinnacleEdge = null;
+        let pinnacleProb = null;
+        let pinnacleNote = "Pinnacle line unavailable — local model only";
+
+        if(pinnacleOdds != null) {
+          // Pinnacle's no-vig implied probability (Pinnacle runs ~2% vig, very sharp)
+          pinnacleProb = americanToImplied(pinnacleOdds) / 1.02;
+          pinnacleEdge = pinnacleProb - bestImplied;
+
+          const localSaysValue  = localEdge > 0;   // our model sees edge
+          const pinnacleSaysValue = pinnacleEdge > 0; // Pinnacle also sees edge vs best soft line
+
+          // Both must agree: our model and Pinnacle both say the soft book is underpricing this outcome
+          // Additionally, Pinnacle's implied prob must be close to ours (within 8%) — large divergence = skip
+          const probDivergence = Math.abs(pinnacleProb - ourProb);
+
+          if(localSaysValue && pinnacleSaysValue && probDivergence < 8) {
+            pinnacleAligned = true;
+            // Compound EV: weight local model 50%, Pinnacle 50% for final probability
+            ourProb = +(ourProb * 0.5 + pinnacleProb * 0.5).toFixed(1);
+            pinnacleNote = `Pinnacle ${formatOdds(pinnacleOdds)} · sharp prob ${pinnacleProb.toFixed(1)}% · confirmed ✓`;
+          } else {
+            // Pinnacle disagrees or diverges too much — discard this bet
+            console.log(`[Skip] ${bet.selection} in ${gameLabel}: Pinnacle diverges (local ${ourProb.toFixed(1)}% vs Pinnacle ${pinnacleProb.toFixed(1)}%, pinEdge ${pinnacleEdge.toFixed(1)}%)`);
+            return;
+          }
+        }
+        // If Pinnacle has no line for this market, still allow through on local model alone
+        // (Pinnacle doesn't always price all markets)
+
+        // Recompute edge and EV with final (possibly compound) probability
+        const finalEdge = ourProb - bestImplied;
+        if(finalEdge < MIN_EV_EDGE) return;
+        if(bestOdds > 125 && finalEdge < MIN_EV_EDGE_LONGSHOT) return;
+        const finalEV = calcEV(ourProb, bestOdds);
+        if(finalEV <= 0) return;
 
         let type="Moneyline";
         if(bet.market==="spreads") type="Spread";
@@ -227,12 +272,13 @@ async function fetchLiveOdds(apiKey, mlModel) {
           id:`${gameLabel}|${bet.market}|${sel}`,
           type, game:gameLabel, selection:sel, gameTime:bet.gameTime,
           ourProbability:+ourProb.toFixed(1),
-          bookImplied:+americanToImplied(bestOdds).toFixed(1),
-          edge:+edge.toFixed(1), ev:+ev.toFixed(1),
+          bookImplied:+bestImplied.toFixed(1),
+          edge:+finalEdge.toFixed(1), ev:+finalEV.toFixed(1),
           kellyPct:+kellyFraction(ourProb,bestOdds).toFixed(1),
           bestBook, bestOdds, books:bet.books,
           newsScore:5, newsSummary:"Add your Anthropic key in Settings to enable AI news analysis.",
-          trend:"stable", lineMove:"—",
+          trend:"stable", lineMove:pinnacleNote,
+          pinnacleAligned, pinnacleOdds, pinnacleEdge:pinnacleEdge?+pinnacleEdge.toFixed(1):null,
           mlAdjusted: mlModel.totalBets >= 5,
         });
       });
@@ -244,7 +290,8 @@ async function fetchLiveOdds(apiKey, mlModel) {
     const total = Math.min(negBets.length + posBets.length, 20);
     const negTarget = Math.ceil(total * TARGET_NEG_RATIO);
     const posTarget = total - negTarget;
-    console.log(`[Odds] Total candidates: ${bets.length} | Neg odds: ${negBets.length} | Pos odds: ${posBets.length} | Target neg: ${negTarget}`);
+    const pinnacleConfirmed = bets.filter(b=>b.pinnacleAligned).length;
+    console.log(`[Odds] Candidates: ${bets.length} | Pinnacle confirmed: ${pinnacleConfirmed} | Neg: ${negBets.length} | Pos: ${posBets.length}`);
     return [...negBets.slice(0,negTarget), ...posBets.slice(0,posTarget)].sort((a,b)=>b.ev-a.ev);
   } catch(e) { console.error("Odds API",e); return null; }
 }
@@ -846,6 +893,7 @@ export default function NBAEdge() {
                       <span style={{fontSize:11,color:"#1e3040",fontWeight:700}}>#{i+1}</span>
                       <div style={s.typeBadge(bet.type)}>{bet.type}</div>
                       {bet.bestOdds<0&&<span style={{fontSize:9,color:"#00bfff",padding:"1px 6px",borderRadius:3,background:"rgba(0,191,255,0.1)",border:"1px solid rgba(0,191,255,0.2)"}}>FAVORITE</span>}
+                      {bet.pinnacleAligned&&<span style={{fontSize:9,color:"#00ff88",padding:"1px 6px",borderRadius:3,background:"rgba(0,255,136,0.1)",border:"1px solid rgba(0,255,136,0.2)"}}>⚡ SHARP</span>}
                       {bet.mlAdjusted&&<span style={{fontSize:9,color:"#b44fff",padding:"1px 6px",borderRadius:3,background:"rgba(180,79,255,0.1)",border:"1px solid rgba(180,79,255,0.2)"}}>ML✓</span>}
                       {bet.trend==="up"&&<span style={{color:"#00ff88",fontSize:11}}>↑</span>}
                       {bet.trend==="down"&&<span style={{color:"#ff6b6b",fontSize:11}}>↓</span>}
@@ -869,6 +917,18 @@ export default function NBAEdge() {
                 </div>
                 {isExpanded&&(
                   <div style={s.expandArea}>
+                    {/* Pinnacle Validation Banner */}
+                    {bet.pinnacleAligned && (
+                      <div style={{background:"rgba(0,255,136,0.05)",border:"1px solid rgba(0,255,136,0.25)",borderRadius:8,padding:"10px 14px",marginBottom:12,fontSize:11,color:"#00ff88",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                        <span>⚡ Pinnacle confirmed · sharp book aligns with local model</span>
+                        <span style={{color:"#00bfff"}}>{bet.lineMove}</span>
+                      </div>
+                    )}
+                    {!bet.pinnacleAligned && bet.pinnacleOdds == null && (
+                      <div style={{background:"rgba(255,215,0,0.04)",border:"1px solid rgba(255,215,0,0.15)",borderRadius:8,padding:"10px 14px",marginBottom:12,fontSize:11,color:"#ffd700"}}>
+                        ⚠ Pinnacle line unavailable for this market · local model only
+                      </div>
+                    )}
                     {bet.mlAdjusted&&(
                       <div style={{background:"rgba(180,79,255,0.06)",border:"1px solid rgba(180,79,255,0.2)",borderRadius:8,padding:"10px 14px",marginBottom:16,fontSize:11,color:"#b44fff"}}>
                         🧠 ML Engine active · probability adjusted based on {mlModel.totalBets} resolved bets · {mlModel.byType[bet.type]?.bets||0} {bet.type} bets learned
