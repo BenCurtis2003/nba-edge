@@ -1234,7 +1234,8 @@ export default function NBAEdge() {
             <div style={{fontSize:11,color:"#8899aa",marginTop:4}}>✅ Pre-game update 1hr before tip-off</div>
           </div>
           {[
-            {key:"odds",label:"The Odds API Key",val:oddsKey,set:setOddsKey,hint:"Free at the-odds-api.com — live lines from 6 books"},
+            {key:"odds",label:"The Odds API Key",val:oddsKey,set:setOddsKey,hint:"Free at the-odds-api.com — live game lines from 6 sportsbooks"},
+            {key:"run",label:"TheRundown API Key",val:rundownKey,set:(v)=>{setRundownKey(v);localStorage.setItem("nba_edge_rundown_key",v);},hint:"FREE player props — sign up at therundown.io/api (no credit card)"},
             {key:"anth",label:"Anthropic API Key (Recommended)",val:anthropicKey,set:setAnthropicKey,hint:"AI news agent — console.anthropic.com"},
             {key:"oai",label:"OpenAI API Key (Alternative)",val:openaiKey,set:setOpenaiKey,hint:"Alternative agent — platform.openai.com"},
           ].map(({key,label,val,set,hint})=>(
