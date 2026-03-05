@@ -187,40 +187,49 @@ async function fetchLiveOdds(apiKey, mlModel) {
         });
       });
 
+      // Debug counters per game
+      let dbg = {total:0, rangeKill:0, edgeKill:0, longshotKill:0, pinnacleKill:0, passed:0};
+
+      const pinnacleCount = Object.keys(pinnacleLines).filter(k=>k.startsWith(gameLabel)).length;
+      console.log(`[Pinnacle] ${gameLabel}: ${pinnacleCount} Pinnacle lines found`);
+
+      // Debug counters per game
+      let dbg = {total:0, rangeKill:0, edgeKill:0, longshotKill:0, pinnacleKill:0, passed:0};
+
       Object.values(grouped).forEach(bet => {
         const softOdds=Object.values(bet.books).filter(Boolean);
         if(softOdds.length<2) return;
+        dbg.total++;
         const bestOdds=Math.max(...softOdds);
         const bestBook=Object.keys(bet.books).find(k=>bet.books[k]===bestOdds);
 
         // Hard filter — only surface bets in our target odds range
-        if(bestOdds < MIN_ODDS || bestOdds > MAX_ODDS) return;
+        if(bestOdds < MIN_ODDS || bestOdds > MAX_ODDS) { dbg.rangeKill++; return; }
 
         // ── LOCAL MODEL ──────────────────────────────────────────
-        // Step 1: Vig-free consensus probability from soft books
+        // Vig-free consensus from soft books
         const vigFreeProbs = softOdds.map(o => americanToImplied(o) / 1.045);
         const consensusProb = vigFreeProbs.reduce((s,p)=>s+p,0)/vigFreeProbs.length;
 
-        // Step 2: Line shopping edge — gap between avg book and best available
+        // Line shopping edge — best available vs average
         const avgImplied = softOdds.reduce((s,o)=>s+americanToImplied(o),0)/softOdds.length;
         const bestImplied = americanToImplied(bestOdds);
         const lineShopEdge = avgImplied - bestImplied;
 
-        // Step 3: Local model probability
+        // Local model probability
         let ourProb = Math.min(Math.max(consensusProb + lineShopEdge, 30), 85);
 
-        // Step 4: ML adjustment
+        // ML adjustment
         const tempBet = { ourProbability:ourProb, type:"Moneyline", bestOdds, edge:0, game:gameLabel };
         ourProb = applyMLAdjustment(mlModel, tempBet);
 
         const localEdge = ourProb - bestImplied;
-        if(localEdge < MIN_EV_EDGE) return;
-        if(bestOdds > 125 && localEdge < MIN_EV_EDGE_LONGSHOT) return;
+        if(localEdge < MIN_EV_EDGE) { dbg.edgeKill++; return; }
+        if(bestOdds > 125 && localEdge < MIN_EV_EDGE_LONGSHOT) { dbg.longshotKill++; return; }
         const localEV = calcEV(ourProb, bestOdds);
-        if(localEV <= 0) return;
+        if(localEV <= 0) { dbg.edgeKill++; return; }
 
         // ── PINNACLE VALIDATION ──────────────────────────────────
-        // Reconstruct key to look up Pinnacle's line for this outcome
         const betKey = `${gameLabel}|${bet.market}|${bet.selection}|${bet.point??''}`;
         const pinnacleOdds = pinnacleLines[betKey] ?? null;
         let pinnacleAligned = false;
@@ -229,37 +238,28 @@ async function fetchLiveOdds(apiKey, mlModel) {
         let pinnacleNote = "Pinnacle line unavailable — local model only";
 
         if(pinnacleOdds != null) {
-          // Pinnacle's no-vig implied probability (Pinnacle runs ~2% vig, very sharp)
           pinnacleProb = americanToImplied(pinnacleOdds) / 1.02;
           pinnacleEdge = pinnacleProb - bestImplied;
-
-          const localSaysValue  = localEdge > 0;   // our model sees edge
-          const pinnacleSaysValue = pinnacleEdge > 0; // Pinnacle also sees edge vs best soft line
-
-          // Both must agree: our model and Pinnacle both say the soft book is underpricing this outcome
-          // Additionally, Pinnacle's implied prob must be close to ours (within 8%) — large divergence = skip
           const probDivergence = Math.abs(pinnacleProb - ourProb);
 
-          if(localSaysValue && pinnacleSaysValue && probDivergence < 8) {
+          if(localEdge > 0 && pinnacleEdge > 0 && probDivergence < 8) {
             pinnacleAligned = true;
-            // Compound EV: weight local model 50%, Pinnacle 50% for final probability
             ourProb = +(ourProb * 0.5 + pinnacleProb * 0.5).toFixed(1);
             pinnacleNote = `Pinnacle ${formatOdds(pinnacleOdds)} · sharp prob ${pinnacleProb.toFixed(1)}% · confirmed ✓`;
           } else {
-            // Pinnacle disagrees or diverges too much — discard this bet
-            console.log(`[Skip] ${bet.selection} in ${gameLabel}: Pinnacle diverges (local ${ourProb.toFixed(1)}% vs Pinnacle ${pinnacleProb.toFixed(1)}%, pinEdge ${pinnacleEdge.toFixed(1)}%)`);
+            dbg.pinnacleKill++;
+            console.log(`[Skip-Pinnacle] ${bet.selection} | localEdge:${localEdge.toFixed(1)}% pinEdge:${pinnacleEdge?.toFixed(1)}% divergence:${probDivergence.toFixed(1)}%`);
             return;
           }
         }
-        // If Pinnacle has no line for this market, still allow through on local model alone
-        // (Pinnacle doesn't always price all markets)
 
-        // Recompute edge and EV with final (possibly compound) probability
+        // Recompute with final probability
         const finalEdge = ourProb - bestImplied;
-        if(finalEdge < MIN_EV_EDGE) return;
-        if(bestOdds > 125 && finalEdge < MIN_EV_EDGE_LONGSHOT) return;
+        if(finalEdge < MIN_EV_EDGE) { dbg.edgeKill++; return; }
+        if(bestOdds > 125 && finalEdge < MIN_EV_EDGE_LONGSHOT) { dbg.longshotKill++; return; }
         const finalEV = calcEV(ourProb, bestOdds);
-        if(finalEV <= 0) return;
+        if(finalEV <= 0) { dbg.edgeKill++; return; }
+        dbg.passed++;
 
         let type="Moneyline";
         if(bet.market==="spreads") type="Spread";
@@ -282,9 +282,10 @@ async function fetchLiveOdds(apiKey, mlModel) {
           mlAdjusted: mlModel.totalBets >= 5,
         });
       });
+      if(dbg.total > 0) console.log(`[${gameLabel}] ${dbg.total} outcomes | range:${dbg.rangeKill} edge:${dbg.edgeKill} longshot:${dbg.longshotKill} pinnacle:${dbg.pinnacleKill} | PASSED:${dbg.passed}`);
     });
 
-    // Fix #3: Ensure 70% negative odds in final output
+    // Ensure 70% negative odds in final output
     const negBets = bets.filter(b=>b.bestOdds<0).sort((a,b)=>b.ev-a.ev);
     const posBets = bets.filter(b=>b.bestOdds>=0).sort((a,b)=>b.ev-a.ev);
     const total = Math.min(negBets.length + posBets.length, 20);
