@@ -1,6 +1,4 @@
 // @ts-nocheck
-
-// @ts-nocheck
 import { useState, useEffect, useCallback, useRef } from "react";
 
 const SPORTSBOOKS = ["draftkings","fanduel","betmgm","caesars","pointsbet","betrivers"];
