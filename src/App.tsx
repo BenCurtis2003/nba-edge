@@ -86,18 +86,14 @@ async function fetchLiveOdds(apiKey) {
 
 async function runNewsAgent(bet, anthropicKey) {
   try {
-    const res = await fetch("https://api.anthropic.com/v1/messages", {
+    const res = await fetch("/api/news", {
       method:"POST",
-      headers:{"Content-Type":"application/json","x-api-key":anthropicKey,"anthropic-version":"2023-06-01"},
-      body:JSON.stringify({
-        model:"claude-sonnet-4-20250514", max_tokens:400,
-        tools:[{type:"web_search_20250305",name:"web_search"}],
-        messages:[{role:"user",content:`NBA betting analyst. Search for latest injury reports and lineup news for this bet: "${bet.selection}" in "${bet.game}". Respond ONLY with valid JSON (no markdown): {"newsScore":7,"newsSummary":"2-3 sentence summary","lineMove":"line movement info","trend":"up"}`}]
-      })
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({ anthropicKey, bet })
     });
+    if(!res.ok) throw new Error(`Proxy error: ${res.status}`);
     const data = await res.json();
-    const text = data.content?.find(b=>b.type==="text")?.text;
-    if(text) { try { return JSON.parse(text.replace(/```json|```/g,"").trim()); } catch{} }
+    if(data.newsScore) return data;
   } catch(e) { console.error("News agent error",e); }
   return null;
 }
