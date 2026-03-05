@@ -503,6 +503,99 @@ async function fetchLiveOdds(apiKey, mlModel) {
   } catch(e) { console.error("Odds API",e); return null; }
 }
 
+// ── THERUNDOWN FREE API — player props ────────────────────────
+// Free tier: 20k data points/day, no credit card, includes props + Pinnacle
+async function fetchRundownProps(rundownKey) {
+  if(!rundownKey) return [];
+  try {
+    const today = new Date().toISOString().split("T")[0];
+    // NBA sport_id = 4, market_ids: 29=player points, 35=player rebounds, 39=player assists
+    const res = await fetch(
+      `https://therundown.io/api/v2/sports/4/events/${today}?key=${rundownKey}&market_ids=29,35,39&include=scores`,
+      { headers: { "Content-Type":"application/json" } }
+    );
+    if(!res.ok) { console.log(`[Rundown] Error ${res.status}`); return []; }
+    const data = await res.json();
+    const events = data.events || [];
+    const props = [];
+
+    events.forEach(event => {
+      const away = event.teams?.find(t=>t.is_away)?.name || "";
+      const home = event.teams?.find(t=>!t.is_away)?.name || "";
+      const gameLabel = `${away} @ ${home}`;
+      const gameTime = event.event_date;
+
+      // V2 markets structure
+      const markets = event.markets || {};
+      // market_ids 29/35/39 = player points/rebounds/assists
+      [29,35,39].forEach(mid => {
+        const mkt = markets[mid];
+        if(!mkt) return;
+        const statLabel = mid===29?"Points":mid===35?"Rebounds":"Assists";
+
+        // Group by player + line across books
+        const grouped = {};
+        mkt.forEach(entry => {
+          const book = entry.affiliate?.name || "unknown";
+          if(!["DraftKings","FanDuel","BetMGM","Caesars","Pinnacle"].includes(book)) return;
+          entry.participants?.forEach(p => {
+            if(!p.player?.full_name) return;
+            const key = `${p.player.full_name}|${p.line}|${p.side?.toLowerCase()}`;
+            if(!grouped[key]) grouped[key] = { player:p.player.full_name, line:p.line, side:p.side, books:{}, pinnacleOdds:null };
+            const price = p.money;
+            if(book === "Pinnacle") grouped[key].pinnacleOdds = price;
+            else grouped[key].books[book] = price;
+          });
+        });
+
+        Object.values(grouped).forEach(prop => {
+          const softOdds = Object.values(prop.books).filter(Boolean);
+          if(softOdds.length < 2) return;
+          const bestOdds = Math.max(...softOdds);
+          const bestBook = Object.keys(prop.books).find(k=>prop.books[k]===bestOdds);
+          if(bestOdds < MIN_ODDS || bestOdds > MAX_ODDS) return;
+
+          const avgImplied = softOdds.reduce((s,o)=>s+americanToImplied(o),0)/softOdds.length;
+          const bestImplied = americanToImplied(bestOdds);
+          const noVigProb = avgImplied / 1.07;
+          const edge = noVigProb - bestImplied;
+          if(edge < MIN_EV_EDGE_PROP) return;
+          const ev = calcEV(noVigProb, bestOdds);
+          if(ev <= 0) return;
+
+          // Pinnacle validation for props
+          let pinnacleAligned = false, pinnacleNote = "No Pinnacle line";
+          if(prop.pinnacleOdds) {
+            const pinProb = americanToImplied(prop.pinnacleOdds) / 1.02;
+            const pinEdge = pinProb - bestImplied;
+            if(edge > 0 && pinEdge > 0 && Math.abs(pinProb - noVigProb) < 8) {
+              pinnacleAligned = true;
+              pinnacleNote = `Pinnacle ${formatOdds(prop.pinnacleOdds)} · confirmed ✓`;
+            }
+          }
+
+          const direction = prop.side?.toLowerCase() === "over" ? "Over" : "Under";
+          const sel = `${prop.player} ${direction} ${prop.line} ${statLabel}`;
+          props.push({
+            id:`rundown|prop|${gameLabel}|${sel}`,
+            type:"Player Prop", game:gameLabel, selection:sel, gameTime,
+            ourProbability:+noVigProb.toFixed(1), bookImplied:+bestImplied.toFixed(1),
+            edge:+edge.toFixed(1), ev:+ev.toFixed(1),
+            kellyPct:+kellyFraction(noVigProb,bestOdds).toFixed(1),
+            bestBook, bestOdds, books:prop.books,
+            newsScore:5, newsSummary:"Add Anthropic key for AI news analysis.",
+            trend:"stable", lineMove:pinnacleNote,
+            pinnacleAligned, pinnacleOdds:prop.pinnacleOdds||null, pinnacleEdge:null,
+            mlAdjusted:false, isNearEV:false, isProp:true,
+          });
+        });
+      });
+    });
+    console.log(`[Rundown] ${events.length} games · ${props.length} prop edges found`);
+    return props;
+  } catch(e) { console.error("[Rundown]", e); return []; }
+}
+
 async function fetchScores(apiKey) {
   try {
     const res = await fetch(`https://api.the-odds-api.com/v4/sports/basketball_nba/scores/?apiKey=${apiKey}&daysFrom=1`);
@@ -797,6 +890,7 @@ function MiniChart({ history }) {
 // ── MAIN APP ─────────────────────────────────────────────────
 export default function NBAEdge() {
   const [oddsKey, setOddsKey] = useState("d6a4536a32cc8112ece4e45d3501da03");
+  const [rundownKey, setRundownKey] = useState(()=>localStorage.getItem("nba_edge_rundown_key")||"");
   const [anthropicKey, setAnthropicKey] = useState("");
   const [openaiKey, setOpenaiKey] = useState("");
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -956,15 +1050,20 @@ export default function NBAEdge() {
     let rawBets = null;
 
     if(oddsKey) {
-      const result = await fetchLiveOdds(oddsKey, currentML);
+      const [result, rundownProps] = await Promise.all([
+        fetchLiveOdds(oddsKey, currentML),
+        fetchRundownProps(rundownKey)
+      ]);
       if(result) {
-        rawBets = result.bets;
+        // Merge Rundown props into bets (replace Odds API props which are empty on free tier)
+        const gameBets = result.bets.filter(b=>!b.isProp);
+        rawBets = [...gameBets, ...rundownProps];
         setMarketBias(result.marketBias);
         setUseMock(false);
-        const props = rawBets.filter(b=>b.isProp).length;
-        const nearEV = rawBets.filter(b=>b.isNearEV).length;
-        const sharp = rawBets.filter(b=>!b.isProp&&!b.isNearEV).length;
-        if(props === 0) log(`⚠️ Props returned 0 — may require Odds API paid tier (from $79/mo)`);
+        const props = rundownProps.length;
+        const nearEV = gameBets.filter(b=>b.isNearEV).length;
+        const sharp = gameBets.filter(b=>!b.isNearEV).length;
+        if(props === 0 && !rundownKey) log(`💡 Add TheRundown key in API Setup for free player props`);
         log(`✅ ${sharp} sharp bets · ${props} props · ${nearEV} near-EV · bias ${result.marketBias?.toFixed(1)}%`);
       } else log("⚠️ Live odds unavailable, using demo data");
     }
