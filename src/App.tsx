@@ -1,5 +1,6 @@
 // @ts-nocheck
 
+// @ts-nocheck
 import { useState, useEffect, useCallback, useRef } from "react";
 
 const SPORTSBOOKS = ["draftkings","fanduel","betmgm","caesars","pointsbet","betrivers"];
@@ -7,11 +8,13 @@ const SPORTSBOOK_LABELS = { draftkings:"DraftKings", fanduel:"FanDuel", betmgm:"
 const SPORTSBOOK_COLORS = { draftkings:"#53d337", fanduel:"#1493ff", betmgm:"#d4af37", caesars:"#00a4e4", pointsbet:"#e8192c", betrivers:"#003087" };
 
 // Odds targeting: bias heavily toward negative odds favorites
-const MIN_ODDS = -450;           // allow down to -450 favorites
-const MAX_ODDS = 350;            // allow up to +350 — longshots need >10% edge
-const TARGET_NEG_RATIO = 0.70;   // 70% of surfaced bets should be negative odds
-const MIN_EV_EDGE = 1.5;         // base minimum edge — realistic for efficient markets
-const MIN_EV_EDGE_LONGSHOT = 6;  // minimum edge required for any bet > +125
+const MIN_ODDS = -450;
+const MAX_ODDS = 350;
+const TARGET_NEG_RATIO = 0.70;
+const MIN_EV_EDGE = 1.5;         // game lines threshold
+const MIN_EV_EDGE_LONGSHOT = 6;
+const MIN_EV_EDGE_PROP = 2.5;    // props threshold — props are less efficient
+const POLL_INTERVAL_MS = 60000;  // live polling every 60 seconds
 const STARTING_BANKROLL = 100;
 const STORAGE_KEY = "nba_edge_history_v2";
 const ML_KEY = "nba_edge_ml_v1";
@@ -154,11 +157,15 @@ function generateMockBets() {
 // ── ODDS API ─────────────────────────────────────────────────
 async function fetchLiveOdds(apiKey, mlModel) {
   try {
-    // Fetch soft books + Pinnacle together in one call
     const ALL_BOOKS = [...SPORTSBOOKS, "pinnacle"];
-    const res = await fetch(`https://api.the-odds-api.com/v4/sports/basketball_nba/odds/?apiKey=${apiKey}&regions=us,eu&markets=h2h,spreads,totals&bookmakers=${ALL_BOOKS.join(",")}&oddsFormat=american`);
-    if(!res.ok) throw new Error(res.status);
-    const data = await res.json();
+    // Fetch game lines and player props in parallel
+    const [gameRes, propRes] = await Promise.all([
+      fetch(`https://api.the-odds-api.com/v4/sports/basketball_nba/odds/?apiKey=${apiKey}&regions=us,eu&markets=h2h,spreads,totals&bookmakers=${ALL_BOOKS.join(",")}&oddsFormat=american`),
+      fetch(`https://api.the-odds-api.com/v4/sports/basketball_nba/odds/?apiKey=${apiKey}&regions=us&markets=player_points,player_rebounds,player_assists,player_threes&bookmakers=${SPORTSBOOKS.join(",")}&oddsFormat=american`)
+    ]);
+    if(!gameRes.ok) throw new Error(gameRes.status);
+    const data = await gameRes.json();
+    const propData = propRes.ok ? await propRes.json() : [];
     if(!Array.isArray(data)||data.length===0) return null;
 
     const bets = [];
@@ -292,6 +299,187 @@ async function fetchLiveOdds(apiKey, mlModel) {
       if(dbg.total > 0) console.log(`[${gameLabel}] ${dbg.total} outcomes | range:${dbg.rangeKill} edge:${dbg.edgeKill} longshot:${dbg.longshotKill} pinnacle:${dbg.pinnacleKill} | PASSED:${dbg.passed}`);
     });
 
+    // ── PLAYER PROPS (inefficient market — wider edges) ────────────
+    if(Array.isArray(propData)) {
+      propData.forEach(game => {
+        const gameLabel = `${game.away_team} @ ${game.home_team}`;
+        const propGrouped = {};
+        game.bookmakers?.forEach(book => {
+          if(!SPORTSBOOKS.includes(book.key)) return;
+          book.markets?.forEach(market => {
+            market.outcomes?.forEach(outcome => {
+              const key = `${gameLabel}|${market.key}|${outcome.name}|${outcome.description??''}|${outcome.point??''}`;
+              if(!propGrouped[key]) propGrouped[key] = {
+                game:gameLabel, gameTime:game.commence_time,
+                market:market.key, selection:outcome.name,
+                description:outcome.description, point:outcome.point, books:{}
+              };
+              propGrouped[key].books[book.key] = outcome.price;
+            });
+          });
+        });
+
+        Object.values(propGrouped).forEach(prop => {
+          const propOdds = Object.values(prop.books).filter(Boolean);
+          if(propOdds.length < 2) return;
+          const bestOdds = Math.max(...propOdds);
+          const bestBook = Object.keys(prop.books).find(k => prop.books[k] === bestOdds);
+          if(bestOdds < MIN_ODDS || bestOdds > MAX_ODDS) return;
+
+          // Props: use Pinnacle-style individual vig removal
+          // Props are priced independently so we use simple vig-free avg
+          const avgImplied = propOdds.reduce((s,o)=>s+americanToImplied(o),0)/propOdds.length;
+          const bestImplied = americanToImplied(bestOdds);
+          // Prop books run ~6-8% vig (less sharp than game lines)
+          const noVigProb = avgImplied / 1.07;
+          const edge = noVigProb - bestImplied;
+          if(edge < MIN_EV_EDGE_PROP) return;
+          if(bestOdds > 125 && edge < MIN_EV_EDGE_LONGSHOT) return;
+          const ev = calcEV(noVigProb, bestOdds);
+          if(ev <= 0) return;
+
+          const playerName = prop.description || prop.selection;
+          const marketLabel = {
+            player_points:"Points", player_rebounds:"Rebounds",
+            player_assists:"Assists", player_threes:"3-Pointers"
+          }[prop.market] || prop.market;
+          const overUnder = prop.selection === "Over" ? "Over" : "Under";
+          const sel = `${playerName} ${overUnder} ${prop.point} ${marketLabel}`;
+
+          bets.push({
+            id:`prop|${gameLabel}|${prop.market}|${sel}`,
+            type:"Player Prop", game:gameLabel, selection:sel,
+            gameTime:prop.gameTime,
+            ourProbability:+noVigProb.toFixed(1),
+            bookImplied:+bestImplied.toFixed(1),
+            edge:+edge.toFixed(1), ev:+ev.toFixed(1),
+            kellyPct:+kellyFraction(noVigProb,bestOdds).toFixed(1),
+            bestBook, bestOdds, books:prop.books,
+            newsScore:5, newsSummary:"Add your Anthropic key to enable AI news analysis.",
+            trend:"stable", lineMove:"Player prop · book vig removed",
+            pinnacleAligned:false, pinnacleOdds:null, pinnacleEdge:null,
+            mlAdjusted:false, isNearEV:false, isProp:true,
+          });
+        });
+      });
+    }
+
+    // ── NEAR-EV: surface best bets below threshold with clear label ──
+    // These didn't clear MIN_EV_EDGE but are the closest available
+    // Re-run game lines with no edge filter, tag as nearEV
+    const nearEVBets = [];
+    data.forEach(game => {
+      const gameLabel = `${game.away_team} @ ${game.home_team}`;
+      const tempGrouped = {};
+      const tempPinnacle = {};
+      game.bookmakers?.forEach(book => {
+        const isPinn = book.key === "pinnacle";
+        if(!isPinn && !SPORTSBOOKS.includes(book.key)) return;
+        book.markets?.forEach(market => {
+          if(!["h2h","spreads","totals"].includes(market.key)) return;
+          market.outcomes?.forEach(outcome => {
+            const key = `${gameLabel}|${market.key}|${outcome.name}|${outcome.point??''}`;
+            if(isPinn) { tempPinnacle[key] = outcome.price; return; }
+            if(!tempGrouped[key]) tempGrouped[key]={game:gameLabel,gameTime:game.commence_time,market:market.key,selection:outcome.name,point:outcome.point,books:{}};
+            tempGrouped[key].books[book.key]=outcome.price;
+          });
+        });
+      });
+
+      // For h2h: pair each outcome with its opponent to do proper devig
+      const h2hOutcomes = Object.entries(tempGrouped).filter(([k])=>k.includes("|h2h|"));
+      const pairMap = {};
+      h2hOutcomes.forEach(([key, bet]) => {
+        const [gl, mkt, sel, pt] = key.split("|");
+        // Find the opposing outcome (same game, same market, different selection)
+        const opposingKey = h2hOutcomes.find(([k2, b2]) =>
+          k2 !== key && k2.startsWith(`${gl}|${mkt}|`) && b2.game === bet.game
+        );
+        if(opposingKey) pairMap[key] = opposingKey[1];
+      });
+
+      Object.entries(tempGrouped).forEach(([key, bet]) => {
+        const softOdds = Object.values(bet.books).filter(Boolean);
+        if(softOdds.length < 2) return;
+        const bestOdds = Math.max(...softOdds);
+        const bestBook = Object.keys(bet.books).find(k=>bet.books[k]===bestOdds);
+        if(bestOdds < MIN_ODDS || bestOdds > MAX_ODDS) return;
+
+        const bestImplied = americanToImplied(bestOdds);
+        let noVigProb;
+
+        // Proper paired devig for h2h
+        const paired = pairMap[key];
+        if(paired && bet.market === "h2h") {
+          const pairedOdds = Object.values(paired.books).filter(Boolean);
+          if(pairedOdds.length >= 2) {
+            const avgThisImplied = softOdds.reduce((s,o)=>s+americanToImplied(o),0)/softOdds.length;
+            const avgPairedImplied = pairedOdds.reduce((s,o)=>s+americanToImplied(o),0)/pairedOdds.length;
+            noVigProb = avgThisImplied / (avgThisImplied + avgPairedImplied) * 100;
+          } else {
+            noVigProb = (softOdds.reduce((s,o)=>s+americanToImplied(o),0)/softOdds.length) / 1.045;
+          }
+        } else {
+          noVigProb = (softOdds.reduce((s,o)=>s+americanToImplied(o),0)/softOdds.length) / 1.045;
+        }
+
+        const edge = noVigProb - bestImplied;
+        const ev = calcEV(noVigProb, bestOdds);
+        // Only surface as near-EV if edge is between -1% and MIN_EV_EDGE and EV is reasonable
+        if(edge < -1 || edge >= MIN_EV_EDGE) return;
+        if(ev < -2) return;
+        // Skip if already in main bets
+        const id = `${gameLabel}|${bet.market}|${bet.selection}`;
+        if(bets.some(b=>b.id===id)) return;
+
+        let type = bet.market === "h2h" ? "Moneyline" : bet.market === "spreads" ? "Spread" : "Game Total";
+        let sel = bet.selection;
+        if(bet.point!=null&&bet.market==="spreads") sel+=` ${bet.point>0?"+":""}${bet.point}`;
+        if(bet.point!=null&&bet.market==="totals") sel=`${bet.selection} ${bet.point}`;
+
+        // Pinnacle lookup
+        const pKey = `${gameLabel}|${bet.market}|${bet.selection}|${bet.point??''}`;
+        const pOdds = tempPinnacle[pKey] ?? Object.entries(tempPinnacle).find(([k])=>k.startsWith(gameLabel)&&k.includes(bet.selection))?.[1] ?? null;
+        const pProb = pOdds ? americanToImplied(pOdds)/1.02 : null;
+
+        nearEVBets.push({
+          id, type, game:gameLabel, selection:sel, gameTime:bet.gameTime,
+          ourProbability:+noVigProb.toFixed(1), bookImplied:+bestImplied.toFixed(1),
+          edge:+edge.toFixed(1), ev:+ev.toFixed(1),
+          kellyPct:+kellyFraction(noVigProb,bestOdds).toFixed(1),
+          bestBook, bestOdds, books:bet.books,
+          newsScore:5, newsSummary:"Near-EV bet — edge below threshold but closest available.",
+          trend:"stable", lineMove:pOdds?`Pinnacle ${formatOdds(pOdds)} · implied ${pProb?.toFixed(1)}%`:"No Pinnacle line",
+          pinnacleAligned:false, pinnacleOdds:pOdds, pinnacleEdge:pOdds?+(pProb-bestImplied).toFixed(1):null,
+          mlAdjusted:false, isNearEV:true, isProp:false,
+        });
+      });
+    });
+
+    // Sort near-EV by edge descending, take top 5
+    nearEVBets.sort((a,b)=>b.edge-a.edge);
+    const topNearEV = nearEVBets.slice(0, 5);
+
+    // ── MARKET BIAS CALCULATION ──────────────────────────────────
+    // Compare no-vig prob vs book implied prob across all h2h favorites
+    // Positive bias = books overpricing favorites (good for us on dogs)
+    // Negative bias = books underpricing favorites (good for us on favs)
+    let biasSum = 0, biasCount = 0;
+    data.forEach(game => {
+      game.bookmakers?.forEach(book => {
+        if(!SPORTSBOOKS.includes(book.key)) return;
+        book.markets?.filter(m=>m.key==="h2h").forEach(market => {
+          const outcomes = market.outcomes || [];
+          if(outcomes.length !== 2) return;
+          const totalImpl = outcomes.reduce((s,o)=>s+americanToImplied(o.price),0);
+          const vigPct = totalImpl - 100;
+          biasSum += vigPct;
+          biasCount++;
+        });
+      });
+    });
+    const marketBias = biasCount > 0 ? biasSum / biasCount : null;
+
     // Ensure 70% negative odds in final output
     const negBets = bets.filter(b=>b.bestOdds<0).sort((a,b)=>b.ev-a.ev);
     const posBets = bets.filter(b=>b.bestOdds>=0).sort((a,b)=>b.ev-a.ev);
@@ -299,8 +487,12 @@ async function fetchLiveOdds(apiKey, mlModel) {
     const negTarget = Math.ceil(total * TARGET_NEG_RATIO);
     const posTarget = total - negTarget;
     const pinnacleConfirmed = bets.filter(b=>b.pinnacleAligned).length;
-    console.log(`[Odds] Candidates: ${bets.length} | Pinnacle confirmed: ${pinnacleConfirmed} | Neg: ${negBets.length} | Pos: ${posBets.length}`);
-    return [...negBets.slice(0,negTarget), ...posBets.slice(0,posTarget)].sort((a,b)=>b.ev-a.ev);
+    const allBets = [...negBets.slice(0,negTarget), ...posBets.slice(0,posTarget)].sort((a,b)=>b.ev-a.ev);
+    // Merge props and near-EV — props first (genuine edge), then near-EV at end
+    const propBets = bets.filter(b=>b.isProp).sort((a,b)=>b.ev-a.ev);
+    const gameBets = allBets.filter(b=>!b.isProp);
+    console.log(`[Odds] Game bets: ${gameBets.length} | Props: ${propBets.length} | Near-EV: ${topNearEV.length} | Bias: ${marketBias?.toFixed(2)}%`);
+    return { bets:[...gameBets, ...propBets, ...topNearEV], marketBias };
   } catch(e) { console.error("Odds API",e); return null; }
 }
 
@@ -427,6 +619,8 @@ export default function NBAEdge() {
   const [useMock, setUseMock] = useState(false);
   const [logs, setLogs] = useState([]);
   const [mlModel, setMlModel] = useState(()=>loadML());
+  const [marketBias, setMarketBias] = useState(null);
+  const [lastPoll, setLastPoll] = useState(null);
 
   // Fix #1: History with deduplication — one entry per bet per calendar day
   const [history, setHistory] = useState(() => {
@@ -572,9 +766,16 @@ export default function NBAEdge() {
     let rawBets = null;
 
     if(oddsKey) {
-      rawBets = await fetchLiveOdds(oddsKey, currentML);
-      if(rawBets) { setUseMock(false); log(`✅ Live odds: ${rawBets.length} +EV bets · ${rawBets.filter(b=>b.bestOdds<0).length} favorites`); }
-      else log("⚠️ Live odds unavailable, using demo data");
+      const result = await fetchLiveOdds(oddsKey, currentML);
+      if(result) {
+        rawBets = result.bets;
+        setMarketBias(result.marketBias);
+        setUseMock(false);
+        const props = rawBets.filter(b=>b.isProp).length;
+        const nearEV = rawBets.filter(b=>b.isNearEV).length;
+        const sharp = rawBets.filter(b=>!b.isProp&&!b.isNearEV).length;
+        log(`✅ ${sharp} sharp bets · ${props} props · ${nearEV} near-EV · bias ${result.marketBias?.toFixed(1)}%`);
+      } else log("⚠️ Live odds unavailable, using demo data");
     }
     if(!rawBets) { rawBets = generateMockBets(); setUseMock(true); log("ℹ️ Showing demo data"); }
     setBets(rawBets);
@@ -624,6 +825,16 @@ export default function NBAEdge() {
     const t=schedule(); return ()=>clearTimeout(t);
   }, [fetchBets]);
 
+  // Live polling every 60 seconds — catches line moves as they happen
+  useEffect(() => {
+    if(!oddsKey) return;
+    const interval = setInterval(() => {
+      setLastPoll(new Date());
+      fetchBets();
+    }, POLL_INTERVAL_MS);
+    return () => clearInterval(interval);
+  }, [oddsKey, fetchBets]);
+
   useEffect(() => {
     const timers=bets.map(bet=>{
       const ms=new Date(bet.gameTime)-new Date()-3600000;
@@ -664,7 +875,7 @@ export default function NBAEdge() {
     btn:{padding:"7px 14px",borderRadius:6,border:"1px solid #172030",background:"transparent",color:"#7a90a8",fontSize:11,cursor:"pointer"},
     btnPrimary:{padding:"7px 18px",borderRadius:6,border:"none",background:"linear-gradient(135deg,#00ff88,#00bfff)",color:"#060a10",fontSize:11,fontWeight:700,cursor:"pointer"},
     main:{maxWidth:1160,margin:"0 auto",padding:"28px 20px"},
-    statsRow:{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:14,marginBottom:28},
+    statsRow:{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:14,marginBottom:28},
     statCard:{background:"#0a1220",border:"1px solid #172030",borderRadius:10,padding:"14px 18px"},
     statLbl:{fontSize:10,color:"#3a5570",letterSpacing:"0.1em",textTransform:"uppercase",marginBottom:5},
     statVal:{fontSize:22,fontWeight:700,color:"#00ff88"},
@@ -758,8 +969,8 @@ export default function NBAEdge() {
           {useMock&&<div style={s.mockBadge}>⚠ DEMO DATA</div>}
           {agentStatus==="running"&&<div style={{fontSize:11,color:"#00bfff",display:"flex",alignItems:"center",gap:6}}><div style={{width:9,height:9,border:"2px solid #00bfff",borderTopColor:"transparent",borderRadius:"50%",animation:"spin 0.8s linear infinite"}}/>Agent scanning...</div>}
           <div style={{display:"flex",alignItems:"center",gap:7}}>
-            <div style={s.dot(!loading)}/>
-            <span style={s.statusTxt}>{loading?"Updating...":lastUpdated?lastUpdated.toLocaleTimeString():"Ready"}</span>
+            <div style={{...s.dot(!loading),animation:!loading&&oddsKey?"pulse 2s infinite":"none"}}/>
+            <span style={s.statusTxt}>{loading?"Updating...":lastUpdated?`${lastUpdated.toLocaleTimeString()} · live 60s`:"Ready"}</span>
           </div>
           <button style={s.btn} onClick={()=>setSettingsOpen(true)}>⚙ API Setup</button>
           <button style={s.btnPrimary} onClick={fetchBets} disabled={loading}>{loading?"Loading...":"↻ Refresh"}</button>
@@ -770,9 +981,12 @@ export default function NBAEdge() {
         {/* Stats */}
         <div style={s.statsRow}>
           {[
-            {lbl:"Bets Found",val:bets.length,sub:`${bets.filter(b=>b.bestOdds<0).length} favs · ${bets.filter(b=>b.bestOdds>=0).length} dogs`,c:"#00ff88"},
+            {lbl:"Bets Found",val:bets.filter(b=>!b.isNearEV).length,sub:`${bets.filter(b=>b.isProp).length} props · ${bets.filter(b=>b.isNearEV).length} near-EV`,c:"#00ff88"},
             {lbl:"Avg Edge",val:`${avgEdge}%`,sub:"vs book implied",c:"#00ff88"},
             {lbl:"Top EV",val:`+${topEV}%`,sub:bets[0]?.selection?.slice(0,22)||"—",c:"#00ff88"},
+            {lbl:"Market Bias",val:marketBias==null?"—":marketBias>4.5?"Favs Overpriced":marketBias<3.5?"Favs Underpriced":"Neutral",
+              sub:marketBias==null?"loading...":marketBias>4.5?"Books charging too much on favs · dogs have value":marketBias<3.5?"Books efficient on favs today · look at props":marketBias!=null?`Avg vig ${marketBias.toFixed(1)}% · balanced market`:"",
+              c:marketBias==null?"#3a5570":marketBias>4.5?"#ffd700":marketBias<3.5?"#00bfff":"#00ff88"},
             {lbl:"Paper Bankroll",val:fmt$(bankroll),sub:`${totalPnl>=0?"+":""}${fmt$(totalPnl)} P&L · ${winRate}% wins`,c:bankroll>=STARTING_BANKROLL?"#00ff88":"#ff6b6b"},
           ].map(({lbl,val,sub,c})=>(
             <div key={lbl} style={s.statCard}>
@@ -894,13 +1108,15 @@ export default function NBAEdge() {
             const isExpanded=expanded===bet.id;
             const ec=getEdgeColor(bet.edge);
             return(
-              <div key={bet.id} style={s.card(isExpanded)} onClick={()=>setExpanded(isExpanded?null:bet.id)}>
+              <div key={bet.id} style={{...s.card(isExpanded),opacity:bet.isNearEV?0.78:1,borderColor:isExpanded?"#00ff88":bet.isNearEV?"#2a3a28":bet.isProp?"#2d2050":"#172030"}} onClick={()=>setExpanded(isExpanded?null:bet.id)}>
                 <div style={s.cardTop}>
                   <div style={{flex:1}}>
                     <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6}}>
                       <span style={{fontSize:11,color:"#1e3040",fontWeight:700}}>#{i+1}</span>
                       <div style={s.typeBadge(bet.type)}>{bet.type}</div>
-                      {bet.bestOdds<0&&<span style={{fontSize:9,color:"#00bfff",padding:"1px 6px",borderRadius:3,background:"rgba(0,191,255,0.1)",border:"1px solid rgba(0,191,255,0.2)"}}>FAVORITE</span>}
+                      {bet.isNearEV&&<span style={{fontSize:9,color:"#ff9944",padding:"1px 6px",borderRadius:3,background:"rgba(255,153,68,0.1)",border:"1px solid rgba(255,153,68,0.3)"}}>NEAR-EV</span>}
+                      {bet.isProp&&<span style={{fontSize:9,color:"#b44fff",padding:"1px 6px",borderRadius:3,background:"rgba(180,79,255,0.1)",border:"1px solid rgba(180,79,255,0.2)"}}>PROP</span>}
+                      {!bet.isNearEV&&!bet.isProp&&bet.bestOdds<0&&<span style={{fontSize:9,color:"#00bfff",padding:"1px 6px",borderRadius:3,background:"rgba(0,191,255,0.1)",border:"1px solid rgba(0,191,255,0.2)"}}>FAVORITE</span>}
                       {bet.pinnacleAligned&&<span style={{fontSize:9,color:"#00ff88",padding:"1px 6px",borderRadius:3,background:"rgba(0,255,136,0.1)",border:"1px solid rgba(0,255,136,0.2)"}}>⚡ SHARP</span>}
                       {bet.mlAdjusted&&<span style={{fontSize:9,color:"#b44fff",padding:"1px 6px",borderRadius:3,background:"rgba(180,79,255,0.1)",border:"1px solid rgba(180,79,255,0.2)"}}>ML✓</span>}
                       {bet.trend==="up"&&<span style={{color:"#00ff88",fontSize:11}}>↑</span>}
