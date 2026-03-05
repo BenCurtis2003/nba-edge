@@ -462,9 +462,10 @@ async function fetchLiveOdds(apiKey, mlModel) {
       });
     });
 
-    // Near-EV only shows when no sharp/prop bets exist — fallback only
+    // Near-EV: always show top 5 when no real bets found
+    // These show the closest available lines — useful context even when market is efficient
     nearEVBets.sort((a,b)=>b.edge-a.edge);
-    const hasRealBets = bets.filter(b=>!b.isNearEV).length > 0;
+    const hasRealBets = bets.filter(b=>b.edge >= MIN_EV_EDGE && !b.isNearEV).length > 0;
     const topNearEV = hasRealBets ? [] : nearEVBets.slice(0, 5);
 
     // ── MARKET BIAS CALCULATION ──────────────────────────────────
@@ -905,6 +906,7 @@ export default function NBAEdge() {
   const [mlModel, setMlModel] = useState(()=>loadML());
   const [marketBias, setMarketBias] = useState(null);
   const [lastPoll, setLastPoll] = useState(null);
+  const [bestAvailableEdge, setBestAvailableEdge] = useState(null);
 
   // Fix #1: History with deduplication — one entry per bet per calendar day
   const [history, setHistory] = useState(() => {
@@ -1064,6 +1066,9 @@ export default function NBAEdge() {
         const nearEV = gameBets.filter(b=>b.isNearEV).length;
         const sharp = gameBets.filter(b=>!b.isNearEV).length;
         if(props === 0 && !rundownKey) log(`💡 Add TheRundown key in API Setup for free player props`);
+        // Track best available edge for display
+        const nearEVList = result.bets.filter(b=>b.isNearEV);
+        if(nearEVList.length>0) setBestAvailableEdge(nearEVList[0].edge);
         log(`✅ ${sharp} sharp bets · ${props} props · ${nearEV} near-EV · bias ${result.marketBias?.toFixed(1)}%`);
       } else log("⚠️ Live odds unavailable, using demo data");
     }
@@ -1286,11 +1291,13 @@ export default function NBAEdge() {
         <div style={s.statsRow}>
           {[
             {lbl:"Bets Found",val:bets.filter(b=>!b.isNearEV).length,sub:`${bets.filter(b=>b.isProp).length} props · ${bets.filter(b=>b.isNearEV).length} near-EV`,c:"#00ff88"},
-            {lbl:"Avg Edge",val:`${avgEdge}%`,sub:"vs book implied",c:"#00ff88"},
+            {lbl:"Avg Edge",val:bets.filter(b=>!b.isNearEV).length>0?`${avgEdge}%`:bestAvailableEdge!=null?`${bestAvailableEdge.toFixed(1)}%`:"—",
+              sub:bets.filter(b=>!b.isNearEV).length>0?"vs book implied":bestAvailableEdge!=null?"best available (below threshold)":"no lines yet",
+              c:bets.filter(b=>!b.isNearEV).length>0?"#00ff88":"#ffd700"},
             {lbl:"Top EV",val:`+${topEV}%`,sub:bets[0]?.selection?.slice(0,22)||"—",c:"#00ff88"},
-            {lbl:"Market Bias",val:marketBias==null?"—":marketBias>4.5?"Favs Overpriced":marketBias<3.5?"Favs Underpriced":"Neutral",
-              sub:marketBias==null?"loading...":marketBias>4.5?"Books charging too much on favs · dogs have value":marketBias<3.5?"Books efficient on favs today · look at props":marketBias!=null?`Avg vig ${marketBias.toFixed(1)}% · balanced market`:"",
-              c:marketBias==null?"#3a5570":marketBias>4.5?"#ffd700":marketBias<3.5?"#00bfff":"#00ff88"},
+            {lbl:"Market Bias",val:marketBias==null?"—":marketBias>6?"High Vig":marketBias>4.8?"Normal":marketBias>3.5?"Sharp Market":"Very Sharp",
+              sub:marketBias==null?"loading...":marketBias>6?"Soft market · more pricing errors likely · good day for props":marketBias>4.8?"Standard book vig · look for props & line moves":marketBias>3.5?"Sharp action present · tight lines today":marketBias!=null?"Near-Pinnacle efficiency · hardest day to find edges":"",
+              c:marketBias==null?"#3a5570":marketBias>6?"#00ff88":marketBias>4.8?"#ffd700":marketBias>3.5?"#ff9944":"#ff6b6b"},
             {lbl:"Paper Bankroll",val:fmt$(bankroll),sub:`${totalPnl>=0?"+":""}${fmt$(totalPnl)} P&L · ${winRate}% wins`,c:bankroll>=STARTING_BANKROLL?"#00ff88":"#ff6b6b"},
           ].map(({lbl,val,sub,c})=>(
             <div key={lbl} style={s.statCard}>
@@ -1460,9 +1467,19 @@ export default function NBAEdge() {
               <div style={{fontSize:12}}>Calculating expected values...</div>
             </div>
           ):filtered.length===0?(
-            <div style={{textAlign:"center",padding:"60px 0",color:"#3a5570"}}>
-              <div style={{fontSize:28,marginBottom:12}}>📭</div>
-              <div style={{fontSize:12}}>No +EV bets found · try refreshing</div>
+            <div style={{textAlign:"center",padding:"50px 20px",color:"#3a5570"}}>
+              <div style={{fontSize:32,marginBottom:12}}>📭</div>
+              <div style={{fontSize:15,color:"#dde3ee",marginBottom:10,fontWeight:600}}>No +EV edges right now</div>
+              <div style={{fontSize:12,color:"#3a5570",maxWidth:420,margin:"0 auto",lineHeight:1.9}}>
+                Lines tighten as sharp money moves in during the day.<br/>
+                <span style={{color:"#ffd700"}}>Best edges open early morning</span> when books first post, or within minutes of injury news.<br/>
+                <span style={{color:"#00bfff"}}>Auto-refreshing every 60s</span> — edges appear here the moment they open.
+              </div>
+              {!rundownKey&&(
+                <div style={{marginTop:16,display:"inline-block",padding:"8px 16px",borderRadius:8,background:"rgba(0,255,136,0.06)",border:"1px solid rgba(0,255,136,0.2)",fontSize:11,color:"#00ff88"}}>
+                  💡 Add a TheRundown key in API Setup for free player props
+                </div>
+              )}
             </div>
           ):filtered.map((bet,i)=>{
             const isExpanded=expanded===bet.id;
