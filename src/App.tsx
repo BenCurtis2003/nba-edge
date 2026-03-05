@@ -10,8 +10,8 @@ const SPORTSBOOK_COLORS = { draftkings:"#53d337", fanduel:"#1493ff", betmgm:"#d4
 const MIN_ODDS = -450;           // allow down to -450 favorites
 const MAX_ODDS = 350;            // allow up to +350 — longshots need >10% edge
 const TARGET_NEG_RATIO = 0.70;   // 70% of surfaced bets should be negative odds
-const MIN_EV_EDGE = 3;           // base minimum edge for all bets
-const MIN_EV_EDGE_LONGSHOT = 10; // minimum edge required for any bet > +125
+const MIN_EV_EDGE = 1.5;         // base minimum edge — realistic for efficient markets
+const MIN_EV_EDGE_LONGSHOT = 6;  // minimum edge required for any bet > +125
 const STARTING_BANKROLL = 100;
 const STORAGE_KEY = "nba_edge_history_v2";
 const ML_KEY = "nba_edge_ml_v1";
@@ -226,8 +226,18 @@ async function fetchLiveOdds(apiKey, mlModel) {
         if(localEV <= 0) { dbg.edgeKill++; return; }
 
         // ── PINNACLE VALIDATION ──────────────────────────────────
+        // Try exact key first, then fallback to partial match within game
         const betKey = `${gameLabel}|${bet.market}|${bet.selection}|${bet.point??''}`;
-        const pinnacleOdds = pinnacleLines[betKey] ?? null;
+        let pinnacleOdds = pinnacleLines[betKey] ?? null;
+        // Fallback: search all Pinnacle keys for same market + selection within this game
+        if(pinnacleOdds == null) {
+          const fallbackKey = Object.keys(pinnacleLines).find(k =>
+            k.startsWith(gameLabel) &&
+            k.includes(`|${bet.market}|`) &&
+            k.includes(`|${bet.selection}|`)
+          );
+          if(fallbackKey) pinnacleOdds = pinnacleLines[fallbackKey];
+        }
         let pinnacleAligned = false;
         let pinnacleEdge = null;
         let pinnacleProb = null;
@@ -249,12 +259,13 @@ async function fetchLiveOdds(apiKey, mlModel) {
           }
         }
 
-        // Recompute with final probability
+        // Recompute edge/EV with final (possibly Pinnacle-blended) probability
         const finalEdge = ourProb - bestImplied;
-        if(finalEdge < MIN_EV_EDGE) { dbg.edgeKill++; return; }
-        if(bestOdds > 125 && finalEdge < MIN_EV_EDGE_LONGSHOT) { dbg.longshotKill++; return; }
         const finalEV = calcEV(ourProb, bestOdds);
         if(finalEV <= 0) { dbg.edgeKill++; return; }
+        // Only re-check edge threshold if Pinnacle blended (which may have shifted ourProb)
+        if(pinnacleAligned && finalEdge < MIN_EV_EDGE) { dbg.edgeKill++; return; }
+        if(bestOdds > 125 && finalEdge < MIN_EV_EDGE_LONGSHOT) { dbg.longshotKill++; return; }
         dbg.passed++;
 
         let type="Moneyline";
