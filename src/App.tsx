@@ -531,6 +531,188 @@ async function runNewsAgent(bet, anthropicKey) {
   return null;
 }
 
+
+// ── NBA STATS API ─────────────────────────────────────────────
+// Free, unofficial — stats.nba.com game logs and team stats
+async function fetchPlayerGameLog(playerName) {
+  try {
+    // Search for player in current season game log via nba stats
+    const encoded = encodeURIComponent(playerName);
+    const res = await fetch(
+      `https://stats.nba.com/stats/commonallplayers?LeagueID=00&Season=2025-26&IsOnlyCurrentSeason=1`,
+      { headers: { "Referer":"https://www.nba.com", "x-nba-stats-origin":"stats", "x-nba-stats-token":"true" } }
+    );
+    if(!res.ok) return null;
+    const data = await res.json();
+    const players = data.resultSets?.[0]?.rowSet || [];
+    const headers = data.resultSets?.[0]?.headers || [];
+    const nameIdx = headers.indexOf("DISPLAY_FIRST_LAST");
+    const idIdx = headers.indexOf("PERSON_ID");
+    const nameLower = playerName.toLowerCase();
+    const player = players.find(p => p[nameIdx]?.toLowerCase().includes(nameLower));
+    if(!player) return null;
+    return { id: player[idIdx], name: player[nameIdx] };
+  } catch { return null; }
+}
+
+async function fetchPlayerStats(playerId) {
+  try {
+    const res = await fetch(
+      `https://stats.nba.com/stats/playergamelog?PlayerID=${playerId}&Season=2025-26&SeasonType=Regular+Season&LastNGames=10`,
+      { headers: { "Referer":"https://www.nba.com", "x-nba-stats-origin":"stats", "x-nba-stats-token":"true" } }
+    );
+    if(!res.ok) return null;
+    const data = await res.json();
+    const rows = data.resultSets?.[0]?.rowSet || [];
+    const hdrs = data.resultSets?.[0]?.headers || [];
+    if(!rows.length) return null;
+    const get = (row, col) => row[hdrs.indexOf(col)];
+    return rows.slice(0,10).map(r => ({
+      pts: +get(r,"PTS")||0, reb: +get(r,"REB")||0, ast: +get(r,"AST")||0,
+      fg3m: +get(r,"FG3M")||0, min: +get(r,"MIN")||0,
+      date: get(r,"GAME_DATE"), wl: get(r,"WL"),
+      matchup: get(r,"MATCHUP"),
+    }));
+  } catch { return null; }
+}
+
+async function fetchTeamDef(teamAbbr) {
+  try {
+    const res = await fetch(
+      `https://stats.nba.com/stats/leaguedashteamstats?Season=2025-26&SeasonType=Regular+Season&PerMode=PerGame&MeasureType=Defense`,
+      { headers: { "Referer":"https://www.nba.com", "x-nba-stats-origin":"stats", "x-nba-stats-token":"true" } }
+    );
+    if(!res.ok) return null;
+    const data = await res.json();
+    const rows = data.resultSets?.[0]?.rowSet || [];
+    const hdrs = data.resultSets?.[0]?.headers || [];
+    const nameIdx = hdrs.indexOf("TEAM_NAME");
+    const rtgIdx = hdrs.indexOf("DEF_RATING");
+    const paceIdx = hdrs.indexOf("PACE");
+    // Find by abbr or partial name
+    const team = rows.find(r => r[nameIdx]?.toLowerCase().includes(teamAbbr?.toLowerCase()));
+    if(!team) return null;
+    return { defRating: +team[rtgIdx], pace: +team[paceIdx], rank: rows.indexOf(team)+1 };
+  } catch { return null; }
+}
+
+// ── CONFIDENCE ENGINE ─────────────────────────────────────────
+// Returns 0-100 confidence score + breakdown for a given bet
+async function scoreConfidence(bet, newsScore) {
+  const factors = [];
+  let totalScore = 0;
+  let totalWeight = 0;
+
+  const addFactor = (label, score, weight, note) => {
+    factors.push({ label, score: Math.round(score), weight, note });
+    totalScore += score * weight;
+    totalWeight += weight;
+  };
+
+  if(bet.isProp) {
+    // ── PLAYER PROP CONFIDENCE ──────────────────────────────────
+    // Parse player name and stat from selection e.g. "LeBron James Over 27.5 Points"
+    const m = bet.selection.match(/^(.+?)\s+(Over|Under)\s+([\d.]+)\s+(.+)$/i);
+    if(!m) return null;
+    const [, playerName, direction, lineStr, statType] = m;
+    const line = parseFloat(lineStr);
+    const isOver = direction.toLowerCase() === "over";
+    const statKey = statType.toLowerCase().includes("point")?"pts":
+                    statType.toLowerCase().includes("reb")?"reb":
+                    statType.toLowerCase().includes("assist")?"ast":
+                    statType.toLowerCase().includes("3")?"fg3m":"pts";
+
+    // Fetch player game log
+    const playerInfo = await fetchPlayerGameLog(playerName);
+    if(playerInfo) {
+      const games = await fetchPlayerStats(playerInfo.id);
+      if(games && games.length >= 3) {
+        const statVals = games.map(g => g[statKey]);
+        const avg5 = statVals.slice(0,5).reduce((s,v)=>s+v,0)/Math.min(5,statVals.length);
+        const avg10 = statVals.reduce((s,v)=>s+v,0)/statVals.length;
+        const hitRate = statVals.filter(v => isOver ? v > line : v < line).length / statVals.length;
+
+        // Factor 1: Rolling avg vs line (weight 35)
+        const avgVsLine = avg5 - line;
+        const avgScore = isOver
+          ? Math.min(100, 50 + avgVsLine * 8)
+          : Math.min(100, 50 - avgVsLine * 8);
+        addFactor("5-game avg vs line", avgScore, 35,
+          `${avg5.toFixed(1)} avg vs ${line} line (${avgVsLine > 0 ? "+" : ""}${avgVsLine.toFixed(1)})`);
+
+        // Factor 2: 10-game hit rate (weight 30)
+        const hitScore = hitRate * 100;
+        addFactor("10-game hit rate", hitScore, 30,
+          `Hit ${Math.round(hitRate*statVals.length)}/${statVals.length} games (${Math.round(hitRate*100)}%)`);
+
+        // Factor 3: Recent trend — last 3 vs prior 3 (weight 15)
+        if(statVals.length >= 6) {
+          const recent3 = statVals.slice(0,3).reduce((s,v)=>s+v,0)/3;
+          const prior3 = statVals.slice(3,6).reduce((s,v)=>s+v,0)/3;
+          const trending = isOver ? recent3 > prior3 : recent3 < prior3;
+          const trendScore = trending ? 75 : 35;
+          addFactor("Recent trend", trendScore, 15,
+            `Last 3: ${recent3.toFixed(1)} vs prior 3: ${prior3.toFixed(1)} — ${trending?"trending ✓":"trending against"}`);
+        }
+
+        // Factor 4: Minutes in last 3 (health proxy) (weight 10)
+        const avgMin = games.slice(0,3).reduce((s,g)=>s+g.min,0)/3;
+        const minScore = avgMin >= 30 ? 85 : avgMin >= 24 ? 65 : 40;
+        addFactor("Minutes (availability)", minScore, 10, `${avgMin.toFixed(0)} avg min last 3 games`);
+      }
+    }
+
+    // Factor 5: EV edge alignment (weight 10)
+    const evScore = bet.edge >= MIN_EV_EDGE_PROP ? 80 : bet.edge >= 0 ? 55 : 30;
+    addFactor("EV/line alignment", evScore, 10, `Book edge ${bet.edge >= 0 ? "+" : ""}${bet.edge}%`);
+
+  } else {
+    // ── GAME LINE CONFIDENCE ────────────────────────────────────
+    // Factor 1: EV strength (weight 40)
+    const evScore = bet.edge >= 3 ? 90 : bet.edge >= 1.5 ? 72 : bet.edge >= 0 ? 55 : 30;
+    addFactor("EV strength", evScore, 40, `${bet.edge >= 0 ? "+" : ""}${bet.edge}% edge vs book`);
+
+    // Factor 2: Pinnacle alignment (weight 30)
+    if(bet.pinnacleAligned) {
+      addFactor("Pinnacle confirmation", 90, 30, "Sharp book confirms edge ✓");
+    } else if(bet.pinnacleOdds != null) {
+      const pinScore = bet.pinnacleEdge > 0 ? 65 : 40;
+      addFactor("Pinnacle signal", pinScore, 30,
+        `Pinnacle ${formatOdds(bet.pinnacleOdds)} · edge ${bet.pinnacleEdge > 0 ? "+" : ""}${bet.pinnacleEdge}%`);
+    } else {
+      addFactor("Pinnacle data", 50, 30, "No Pinnacle line — soft books only");
+    }
+
+    // Factor 3: Line value (is the best available meaningfully better than avg?) (weight 20)
+    const bookOdds = Object.values(bet.books).filter(Boolean);
+    if(bookOdds.length >= 3) {
+      const avgOdds = bookOdds.reduce((s,o)=>s+o,0)/bookOdds.length;
+      const lineValueScore = bet.bestOdds > avgOdds ? 80 : 55;
+      addFactor("Best line vs avg", lineValueScore, 20,
+        `Best: ${formatOdds(bet.bestOdds)} vs avg: ${formatOdds(Math.round(avgOdds))}`);
+    }
+
+    // Factor 4: Odds type (favorites are more predictable) (weight 10)
+    const oddsScore = bet.bestOdds < -150 ? 75 : bet.bestOdds < 0 ? 65 : bet.bestOdds < 150 ? 52 : 40;
+    addFactor("Odds predictability", oddsScore, 10,
+      bet.bestOdds < 0 ? "Favorite — historically more predictable" : "Underdog — higher variance");
+  }
+
+  // News agent overlay (bonus factor if available)
+  if(newsScore && newsScore >= 1) {
+    const newsConf = newsScore >= 8 ? 88 : newsScore >= 6 ? 68 : newsScore >= 4 ? 48 : 30;
+    addFactor("News/injury signal", newsConf, 20,
+      `AI news score ${newsScore}/10`);
+    totalWeight += 20; // already added via addFactor
+  }
+
+  if(totalWeight === 0) return null;
+  const confidence = Math.round(totalScore / totalWeight);
+  const tier = confidence >= 72 ? "HIGH" : confidence >= 52 ? "MEDIUM" : "LOW";
+  const tierColor = confidence >= 72 ? "#00ff88" : confidence >= 52 ? "#ffd700" : "#ff6b6b";
+  return { confidence, tier, tierColor, factors };
+}
+
 // ── INFO CARDS ───────────────────────────────────────────────
 const INFO_CARDS = [
   { icon:"📊", title:"What is Expected Value (EV)?", body:"EV is the engine of this app. A +EV bet means the true probability of winning is higher than what the sportsbook's odds imply. For example: if our model says a team has a 60% chance of winning but the book implies only 54%, that 6% gap is your edge. Over hundreds of bets, consistently finding +EV lines produces long-run profit — this is how professional sports bettors operate." },
@@ -545,6 +727,7 @@ const INFO_CARDS = [
   { icon:"🤖", title:"What does the News Agent do?", body:"The AI news agent (powered by Claude or GPT) searches the web before each game for injury reports, lineup news, beat reporter updates, and player availability. It assigns a News Score (1-10) to each bet — 8+ means the news supports the bet, below 5 means there's a concern. This qualitative layer is applied on top of the statistical model to adjust confidence. Add your Anthropic API key in ⚙ API Setup to enable it." },
   { icon:"📚", title:"How to Read a Bet Card", body:"Each card shows: bet selection, game matchup, time until tip-off, EV% (expected profit per $100 bet over the long run), Edge% (our model probability minus book implied probability), best available odds, and which sportsbook has them. Click to expand: see all 6 book lines side by side, the AI news summary and score, ML adjustment status, and your recommended Kelly bet size as both a % and dollar amount." },
   { icon:"📈", title:"History Tab & Paper Bankroll", body:"The History tab tracks every recommended bet as a paper trade starting from a $100 bankroll, sized by Kelly Criterion. Moneylines, Spreads, and Game Totals auto-resolve using live scores from The Odds API. Player props remain Pending (live box score data requires a paid endpoint). The portfolio chart shows your running bankroll over time with a shaded P&L area. Reset anytime from ⚙ API Setup." },
+  { icon:"⭐", title:"Top Picks & Confidence Score", body:"Every bet is scored 0–100 for outcome confidence using real NBA Stats data and multiple signals: (1) 5-game and 10-game rolling averages vs the prop line. (2) 10-game hit rate — how often the player has cleared this exact number. (3) Recent trend — last 3 games vs prior 3. (4) Minutes played as an availability proxy. (5) EV/line alignment. (6) Pinnacle confirmation for game lines. (7) AI news score when available. Top Picks (shown above the main list) are bets where BOTH EV edge AND confidence are HIGH — the strongest possible signal." },
   { icon:"⚙️", title:"Setting Up Your API Keys", body:"Click '⚙ API Setup' (top right) to enter three keys: (1) Odds API Key — free at the-odds-api.com, pulls live lines from DraftKings, FanDuel, BetMGM, Caesars, PointsBet, and BetRivers. (2) Anthropic API Key — console.anthropic.com, powers the AI news & injury agent (recommended). (3) OpenAI API Key — platform.openai.com, alternative news agent. Without any keys the app runs on demo data so you can explore the full interface." },
   { icon:"⚠️", title:"Disclaimer", body:"This app is a statistical and analytical tool — it does not guarantee wins. Even well-researched +EV bets lose frequently in the short run due to variance. The edge only becomes reliable over hundreds of bets. Never bet money you can't afford to lose. This app is intended for entertainment and educational purposes only. Always gamble responsibly." },
 ];
@@ -800,20 +983,33 @@ export default function NBAEdge() {
       return updated;
     });
 
-    // Fix #2: News agent with better error handling
+    // Fix #2: News agent + confidence scoring in parallel pipeline
+    log("🧠 Scoring confidence for all bets...");
+    const withConf = [...rawBets];
+    // Run confidence scoring for all bets (uses NBA Stats API — free)
+    for(let i=0; i<withConf.length; i++) {
+      const conf = await scoreConfidence(withConf[i], withConf[i].newsScore||null);
+      if(conf) withConf[i] = {...withConf[i], confidenceScore:conf.confidence, confidenceTier:conf.tier, confidenceTierColor:conf.tierColor, confidenceFactors:conf.factors};
+    }
+    setBets([...withConf]);
+    log(`✅ Confidence scored ${withConf.filter(b=>b.confidenceScore).length}/${withConf.length} bets`);
+
     if(anthropicKey && rawBets.length > 0) {
       log("🤖 News agent scanning injury reports...");
       setAgentStatus("running");
-      const updated = [...rawBets];
-      for(let i=0; i<Math.min(rawBets.length,5); i++) {
-        log(`📰 Analyzing: ${rawBets[i].selection}...`);
-        const result = await runNewsAgent(rawBets[i], anthropicKey);
+      const updated = [...withConf];
+      for(let i=0; i<Math.min(updated.length,5); i++) {
+        log(`📰 Analyzing: ${updated[i].selection}...`);
+        const result = await runNewsAgent(updated[i], anthropicKey);
         if(result) {
           updated[i] = {...updated[i], ...result};
+          // Re-score confidence with news signal
+          const conf = await scoreConfidence(updated[i], result.newsScore);
+          if(conf) updated[i] = {...updated[i], confidenceScore:conf.confidence, confidenceTier:conf.tier, confidenceTierColor:conf.tierColor, confidenceFactors:conf.factors};
           setBets([...updated]);
-          log(`✅ News scored ${rawBets[i].selection}: ${result.newsScore}/10`);
+          log(`✅ News+confidence updated: ${updated[i].selection} → ${updated[i].confidenceTier}`);
         } else {
-          log(`⚠️ News agent failed for ${rawBets[i].selection}`);
+          log(`⚠️ News agent failed for ${updated[i].selection}`);
         }
       }
       setAgentStatus("done");
@@ -1100,6 +1296,62 @@ export default function NBAEdge() {
           </div>
         )}
 
+        {/* TOP PICKS — bets where EV + confidence both align */}
+        {filter!=="Info"&&filter!=="History"&&(()=>{
+          const topPicks = bets.filter(b=>!b.isNearEV&&b.confidenceTier==="HIGH"&&b.edge>=MIN_EV_EDGE).sort((a,b)=>(b.confidenceScore+b.ev)-(a.confidenceScore+a.ev)).slice(0,3);
+          if(!topPicks.length) return null;
+          return (
+            <div style={{marginBottom:28}}>
+              <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14}}>
+                <div style={{fontSize:13,fontWeight:700,color:"#fff"}}>⭐ Top Picks Today</div>
+                <div style={{fontSize:10,color:"#3a5570",padding:"2px 8px",borderRadius:10,border:"1px solid #172030"}}>EV + Confidence both HIGH</div>
+              </div>
+              <div style={{display:"grid",gridTemplateColumns:`repeat(${Math.min(topPicks.length,3)},1fr)`,gap:12}}>
+                {topPicks.map((bet,i)=>(
+                  <div key={bet.id} onClick={()=>{setFilter("All");setExpanded(bet.id);}} style={{background:"linear-gradient(135deg,#0a1f14,#0a1220)",border:"1px solid #00ff8844",borderRadius:12,padding:"16px 18px",cursor:"pointer",transition:"border-color 0.2s"}}
+                    onMouseEnter={e=>e.currentTarget.style.borderColor="#00ff88"}
+                    onMouseLeave={e=>e.currentTarget.style.borderColor="#00ff8844"}>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:8}}>
+                      <div style={{fontSize:9,color:"#00ff88",letterSpacing:"0.1em",textTransform:"uppercase"}}>#{i+1} Top Pick</div>
+                      <div style={{display:"flex",alignItems:"center",gap:4}}>
+                        <div style={{width:6,height:6,borderRadius:"50%",background:"#00ff88",boxShadow:"0 0 6px #00ff88"}}/>
+                        <span style={{fontSize:10,color:"#00ff88",fontWeight:700}}>{bet.confidenceScore}% conf.</span>
+                      </div>
+                    </div>
+                    <div style={{fontSize:15,fontWeight:700,color:"#fff",marginBottom:4,lineHeight:1.3}}>{bet.selection}</div>
+                    <div style={{fontSize:10,color:"#3a5570",marginBottom:12}}>{bet.game}</div>
+                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6}}>
+                      {[
+                        {l:"EV",v:`+${bet.ev}%`,c:"#00ff88"},
+                        {l:"Edge",v:`+${bet.edge}%`,c:"#7fff00"},
+                        {l:"Odds",v:formatOdds(bet.bestOdds),c:bet.bestOdds<0?"#00bfff":"#ffd700"},
+                      ].map(({l,v,c})=>(
+                        <div key={l} style={{background:"#060a10",borderRadius:6,padding:"6px 8px",textAlign:"center"}}>
+                          <div style={{fontSize:8,color:"#3a5570",letterSpacing:"0.08em",textTransform:"uppercase",marginBottom:2}}>{l}</div>
+                          <div style={{fontSize:13,fontWeight:700,color:c}}>{v}</div>
+                        </div>
+                      ))}
+                    </div>
+                    {/* Confidence factor mini-bars */}
+                    {bet.confidenceFactors?.slice(0,2).map(f=>(
+                      <div key={f.label} style={{marginTop:8}}>
+                        <div style={{display:"flex",justifyContent:"space-between",marginBottom:2}}>
+                          <span style={{fontSize:9,color:"#3a5570"}}>{f.label}</span>
+                          <span style={{fontSize:9,color:f.score>=70?"#00ff88":f.score>=50?"#ffd700":"#ff6b6b"}}>{f.score}%</span>
+                        </div>
+                        <div style={{height:2,background:"#172030",borderRadius:1}}>
+                          <div style={{height:"100%",width:`${f.score}%`,background:f.score>=70?"#00ff88":f.score>=50?"#ffd700":"#ff6b6b",borderRadius:1,transition:"width 0.4s"}}/>
+                        </div>
+                      </div>
+                    ))}
+                    <div style={{marginTop:10,fontSize:10,color:"#3a5570"}}>{bet.type} · {SPORTSBOOK_LABELS[bet.bestBook]} · {timeUntil(bet.gameTime)} to tip</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          );
+        })()}
+
         {/* BET CARDS */}
         {filter!=="Info"&&filter!=="History"&&(
           loading?(
@@ -1131,7 +1383,15 @@ export default function NBAEdge() {
                       {bet.trend==="down"&&<span style={{color:"#ff6b6b",fontSize:11}}>↓</span>}
                     </div>
                     <div style={s.sel}>{bet.selection}</div>
-                    <div style={s.gameLbl}>{bet.game} · {timeUntil(bet.gameTime)}</div>
+                    <div style={{display:"flex",alignItems:"center",gap:10,marginTop:2,marginBottom:1}}>
+                      <div style={s.gameLbl}>{bet.game} · {timeUntil(bet.gameTime)}</div>
+                      {bet.confidenceTier&&(
+                        <div style={{display:"flex",alignItems:"center",gap:4,padding:"1px 7px",borderRadius:10,background:`${bet.confidenceTierColor}15`,border:`1px solid ${bet.confidenceTierColor}44`}}>
+                          <div style={{width:5,height:5,borderRadius:"50%",background:bet.confidenceTierColor}}/>
+                          <span style={{fontSize:9,color:bet.confidenceTierColor,fontWeight:700}}>{bet.confidenceScore}% · {bet.confidenceTier}</span>
+                        </div>
+                      )}
+                    </div>
                   </div>
                   <div style={s.metrics}>
                     {[{lbl:"EV",val:`+${bet.ev}%`,c:ec},{lbl:"Edge",val:`${bet.edge}%`,c:ec},{lbl:"Best Odds",val:formatOdds(bet.bestOdds),c:bet.bestOdds<0?"#00bfff":"#ffd700"}].map(({lbl,val,c})=>(
@@ -1149,6 +1409,38 @@ export default function NBAEdge() {
                 </div>
                 {isExpanded&&(
                   <div style={s.expandArea}>
+                    {/* Confidence Breakdown */}
+                    {bet.confidenceFactors?.length > 0 && (
+                      <div style={{background:"#060a10",border:"1px solid #172030",borderRadius:10,padding:"14px 18px",marginBottom:16}}>
+                        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+                          <div style={{fontSize:10,color:"#3a5570",letterSpacing:"0.1em",textTransform:"uppercase"}}>🎯 Outcome Confidence</div>
+                          <div style={{display:"flex",alignItems:"center",gap:8}}>
+                            <div style={{fontSize:18,fontWeight:700,color:bet.confidenceTierColor}}>{bet.confidenceScore}%</div>
+                            <div style={{fontSize:10,padding:"2px 8px",borderRadius:4,background:`${bet.confidenceTierColor}15`,border:`1px solid ${bet.confidenceTierColor}44`,color:bet.confidenceTierColor}}>{bet.confidenceTier} CONFIDENCE</div>
+                          </div>
+                        </div>
+                        {bet.confidenceFactors.map(f=>(
+                          <div key={f.label} style={{marginBottom:10}}>
+                            <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}>
+                              <div>
+                                <span style={{fontSize:10,color:"#dde3ee"}}>{f.label}</span>
+                                <span style={{fontSize:9,color:"#3a5570",marginLeft:8}}>(weight {f.weight}%)</span>
+                              </div>
+                              <span style={{fontSize:11,fontWeight:700,color:f.score>=70?"#00ff88":f.score>=50?"#ffd700":"#ff6b6b"}}>{f.score}/100</span>
+                            </div>
+                            <div style={{height:3,background:"#172030",borderRadius:2,marginBottom:3}}>
+                              <div style={{height:"100%",width:`${f.score}%`,background:f.score>=70?"#00ff88":f.score>=50?"#ffd700":"#ff6b6b",borderRadius:2,transition:"width 0.5s"}}/>
+                            </div>
+                            <div style={{fontSize:9,color:"#3a5570"}}>{f.note}</div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {bet.confidenceScore&&!bet.confidenceFactors?.length&&(
+                      <div style={{background:"#060a10",border:"1px solid #172030",borderRadius:8,padding:"10px 14px",marginBottom:12,fontSize:11,color:"#3a5570"}}>
+                        🎯 Confidence scoring in progress...
+                      </div>
+                    )}
                     {/* Pinnacle Validation Banner */}
                     {bet.pinnacleAligned && (
                       <div style={{background:"rgba(0,255,136,0.05)",border:"1px solid rgba(0,255,136,0.25)",borderRadius:8,padding:"10px 14px",marginBottom:12,fontSize:11,color:"#00ff88",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
