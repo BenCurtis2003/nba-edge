@@ -182,25 +182,39 @@ async function fetchLiveOdds(apiKey, mlModel) {
         const bestOdds=Math.max(...odds);
         const bestBook=Object.keys(bet.books).find(k=>bet.books[k]===bestOdds);
 
-        // Fix #3: Hard filter — only surface bets in our target odds range
+        // Hard filter — only surface bets in our target odds range
         if(bestOdds < MIN_ODDS || bestOdds > MAX_ODDS) return;
 
-        const avgImplied=odds.reduce((s,o)=>s+americanToImplied(o),0)/odds.length;
-        const vigRemoved=avgImplied*0.955; // tighter vig removal for accuracy
+        // --- PROBABILITY MODEL ---
+        // Step 1: Remove vig from each book's odds individually, then average
+        // This gives us the "sharp consensus" no-vig probability
+        const vigFreeProbs = odds.map(o => {
+          const impl = americanToImplied(o);
+          // Estimate single-side vig removal: divide by (1 + assumed vig ~4.5%)
+          return impl / 1.045;
+        });
+        const consensusProb = vigFreeProbs.reduce((s,p)=>s+p,0)/vigFreeProbs.length;
 
-        // Base probability from vig-removed average
-        let ourProb = Math.min(Math.max(vigRemoved + (Math.random()*3-1), 35), 80);
+        // Step 2: Line shopping edge — if the best available odds are significantly
+        // better than the average book, that gap represents real edge
+        const avgImplied = odds.reduce((s,o)=>s+americanToImplied(o),0)/odds.length;
+        const bestImplied = americanToImplied(bestOdds);
+        const lineShopEdge = avgImplied - bestImplied; // positive = best line is better than avg
 
-        // Apply ML adjustment if we have enough data
+        // Step 3: Our model probability = consensus + line shopping edge
+        // This represents: "the market thinks X%, but the best available price implies Y%"
+        let ourProb = Math.min(Math.max(consensusProb + lineShopEdge, 30), 85);
+
+        // Step 4: Apply ML adjustment if we have enough resolved bets
         const tempBet = { ourProbability:ourProb, type:"Moneyline", bestOdds, edge:0, game:gameLabel };
         ourProb = applyMLAdjustment(mlModel, tempBet);
 
-        const edge=ourProb-americanToImplied(bestOdds);
-        if(edge<MIN_EV_EDGE) return;
+        const edge = ourProb - bestImplied;
+        if(edge < MIN_EV_EDGE) return;
         // Longshot filter: bets > +125 require >10% edge to surface
         if(bestOdds > 125 && edge < MIN_EV_EDGE_LONGSHOT) return;
-        const ev=calcEV(ourProb,bestOdds);
-        if(ev<=0) return;
+        const ev = calcEV(ourProb, bestOdds);
+        if(ev <= 0) return;
 
         let type="Moneyline";
         if(bet.market==="spreads") type="Spread";
@@ -230,6 +244,7 @@ async function fetchLiveOdds(apiKey, mlModel) {
     const total = Math.min(negBets.length + posBets.length, 20);
     const negTarget = Math.ceil(total * TARGET_NEG_RATIO);
     const posTarget = total - negTarget;
+    console.log(`[Odds] Total candidates: ${bets.length} | Neg odds: ${negBets.length} | Pos odds: ${posBets.length} | Target neg: ${negTarget}`);
     return [...negBets.slice(0,negTarget), ...posBets.slice(0,posTarget)].sort((a,b)=>b.ev-a.ev);
   } catch(e) { console.error("Odds API",e); return null; }
 }
