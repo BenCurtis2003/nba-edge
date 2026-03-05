@@ -161,11 +161,17 @@ async function fetchLiveOdds(apiKey, mlModel) {
     // Fetch game lines and player props in parallel
     const [gameRes, propRes] = await Promise.all([
       fetch(`https://api.the-odds-api.com/v4/sports/basketball_nba/odds/?apiKey=${apiKey}&regions=us,eu&markets=h2h,spreads,totals&bookmakers=${ALL_BOOKS.join(",")}&oddsFormat=american`),
-      fetch(`https://api.the-odds-api.com/v4/sports/basketball_nba/odds/?apiKey=${apiKey}&regions=us&markets=player_points,player_rebounds,player_assists,player_threes&bookmakers=${SPORTSBOOKS.join(",")}&oddsFormat=american`)
+      fetch(`https://api.the-odds-api.com/v4/sports/basketball_nba/odds/?apiKey=${apiKey}&regions=us&markets=player_points,player_rebounds,player_assists,player_threes&bookmakers=draftkings,fanduel,betmgm,caesars&oddsFormat=american`)
     ]);
     if(!gameRes.ok) throw new Error(gameRes.status);
     const data = await gameRes.json();
-    const propData = propRes.ok ? await propRes.json() : [];
+    let propData = [];
+    if(propRes.ok) {
+      propData = await propRes.json();
+      console.log(`[Props] API returned ${propData.length} games with prop markets`);
+    } else {
+      console.log(`[Props] API error ${propRes.status} — props may require paid tier`);
+    }
     if(!Array.isArray(data)||data.length===0) return null;
 
     const bets = [];
@@ -425,9 +431,9 @@ async function fetchLiveOdds(apiKey, mlModel) {
 
         const edge = noVigProb - bestImplied;
         const ev = calcEV(noVigProb, bestOdds);
-        // Only surface as near-EV if edge is between -1% and MIN_EV_EDGE and EV is reasonable
-        if(edge < -1 || edge >= MIN_EV_EDGE) return;
-        if(ev < -2) return;
+        // Only surface as near-EV if edge is 0% to MIN_EV_EDGE — never negative expected value
+        if(edge < 0 || edge >= MIN_EV_EDGE) return;
+        if(ev < 0) return;
         // Skip if already in main bets
         const id = `${gameLabel}|${bet.market}|${bet.selection}`;
         if(bets.some(b=>b.id===id)) return;
@@ -448,7 +454,7 @@ async function fetchLiveOdds(apiKey, mlModel) {
           edge:+edge.toFixed(1), ev:+ev.toFixed(1),
           kellyPct:+kellyFraction(noVigProb,bestOdds).toFixed(1),
           bestBook, bestOdds, books:bet.books,
-          newsScore:5, newsSummary:"Near-EV bet — edge below threshold but closest available.",
+          newsScore:5, newsSummary:"Near-EV bet — small positive edge below our main threshold. Use smaller Kelly sizing.",
           trend:"stable", lineMove:pOdds?`Pinnacle ${formatOdds(pOdds)} · implied ${pProb?.toFixed(1)}%`:"No Pinnacle line",
           pinnacleAligned:false, pinnacleOdds:pOdds, pinnacleEdge:pOdds?+(pProb-bestImplied).toFixed(1):null,
           mlAdjusted:false, isNearEV:true, isProp:false,
@@ -456,9 +462,10 @@ async function fetchLiveOdds(apiKey, mlModel) {
       });
     });
 
-    // Sort near-EV by edge descending, take top 5
+    // Near-EV only shows when no sharp/prop bets exist — fallback only
     nearEVBets.sort((a,b)=>b.edge-a.edge);
-    const topNearEV = nearEVBets.slice(0, 5);
+    const hasRealBets = bets.filter(b=>!b.isNearEV).length > 0;
+    const topNearEV = hasRealBets ? [] : nearEVBets.slice(0, 5);
 
     // ── MARKET BIAS CALCULATION ──────────────────────────────────
     // Compare no-vig prob vs book implied prob across all h2h favorites
@@ -774,6 +781,7 @@ export default function NBAEdge() {
         const props = rawBets.filter(b=>b.isProp).length;
         const nearEV = rawBets.filter(b=>b.isNearEV).length;
         const sharp = rawBets.filter(b=>!b.isProp&&!b.isNearEV).length;
+        if(props === 0) log(`⚠️ Props returned 0 — may require Odds API paid tier (from $79/mo)`);
         log(`✅ ${sharp} sharp bets · ${props} props · ${nearEV} near-EV · bias ${result.marketBias?.toFixed(1)}%`);
       } else log("⚠️ Live odds unavailable, using demo data");
     }
