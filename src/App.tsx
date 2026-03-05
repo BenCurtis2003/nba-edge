@@ -1,4 +1,5 @@
 // @ts-nocheck
+
 import { useState, useEffect, useCallback, useRef } from "react";
 
 const SPORTSBOOKS = ["draftkings","fanduel","betmgm","caesars","pointsbet","betrivers"];
@@ -190,9 +191,6 @@ async function fetchLiveOdds(apiKey, mlModel) {
 
       const pinnacleCount = Object.keys(pinnacleLines).filter(k=>k.startsWith(gameLabel)).length;
       console.log(`[Pinnacle] ${gameLabel}: ${pinnacleCount} Pinnacle lines found`);
-
-      // Debug counters per game
-      let dbg = {total:0, rangeKill:0, edgeKill:0, longshotKill:0, pinnacleKill:0, passed:0};
 
       Object.values(grouped).forEach(bet => {
         const softOdds=Object.values(bet.books).filter(Boolean);
