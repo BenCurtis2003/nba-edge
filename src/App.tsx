@@ -1057,7 +1057,7 @@ export default function NBAEdge() {
         fetchRundownProps(rundownKey)
       ]);
       if(result) {
-        // Merge Rundown props into bets (replace Odds API props which are empty on free tier)
+        // API succeeded — use live data even if 0 edges found today
         const gameBets = result.bets.filter(b=>!b.isProp);
         rawBets = [...gameBets, ...rundownProps];
         setMarketBias(result.marketBias);
@@ -1066,13 +1066,18 @@ export default function NBAEdge() {
         const nearEV = gameBets.filter(b=>b.isNearEV).length;
         const sharp = gameBets.filter(b=>!b.isNearEV).length;
         if(props === 0 && !rundownKey) log(`💡 Add TheRundown key in API Setup for free player props`);
-        // Track best available edge for display
         const nearEVList = result.bets.filter(b=>b.isNearEV);
         if(nearEVList.length>0) setBestAvailableEdge(nearEVList[0].edge);
         log(`✅ ${sharp} sharp bets · ${props} props · ${nearEV} near-EV · bias ${result.marketBias?.toFixed(1)}%`);
-      } else log("⚠️ Live odds unavailable, using demo data");
+      } else {
+        // API call failed entirely — set empty, don't show mock
+        rawBets = [];
+        setUseMock(false);
+        log("⚠️ Live odds fetch failed — check your Odds API key in API Setup");
+      }
     }
-    if(!rawBets) { rawBets = generateMockBets(); setUseMock(true); log("ℹ️ Showing demo data"); }
+    // Only show demo data if no API key entered at all
+    if(!rawBets) { rawBets = generateMockBets(); setUseMock(true); log("ℹ️ No API key — showing demo data"); }
     setBets(rawBets);
     setLastUpdated(new Date());
     setLoading(false);
