@@ -1686,9 +1686,9 @@ export default function NBAEdge() {
 
     const activeKey = overrideOddsKey !== undefined ? overrideOddsKey : oddsKey;
     const keyPreview = activeKey ? `key: ${activeKey.slice(0,8)}...` : "no key";
+    let rawOddsGames = null; // declared here so IIFE closure can access it after try/finally
     try {
     log(`🔍 Fetching NBA odds... ${keyPreview}`);
-    let rawOddsGames = null; // captured from Odds API, reused by conviction engine
     if(activeKey) {
       const [result, rundownProps] = await Promise.all([
         fetchLiveOdds(activeKey, currentML),
