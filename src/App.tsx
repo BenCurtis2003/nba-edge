@@ -1232,6 +1232,16 @@ function rescoreConvictionLive(play, liveGame) {
   };
 }
 
+
+// ── GAME CLEANUP ──────────────────────────────────────────────
+// Removes finished games from active views. Uses time as primary
+// signal (no API needed) + scores API for immediate confirmation.
+function isGameOver(gameTime) {
+  if(!gameTime) return false;
+  const ageHrs = (Date.now() - new Date(gameTime)) / 3600000;
+  return ageHrs > 3.2; // NBA games average ~2.5hrs; 3.2h is safe buffer
+}
+
 // ── NBA STATS API ─────────────────────────────────────────────
 // Free, unofficial — stats.nba.com game logs and team stats
 async function fetchPlayerGameLog(playerName) {
@@ -1969,7 +1979,7 @@ export default function NBAEdge() {
     }
     // Only show demo data if no API key entered at all
     if(!rawBets) { rawBets = generateMockBets(); setUseMock(true); log("ℹ️ No API key — showing demo data"); }
-    setBets(rawBets);
+    setBets(rawBets.filter(b => !isGameOver(b.gameTime)));
     } catch(err) {
       console.error('fetchBets error:', err);
       log('❌ Error: ' + err.message);
@@ -2009,7 +2019,7 @@ export default function NBAEdge() {
           log(`📊 Odds merged for ${games.filter(g=>g.bookmakers?.length>0).length}/${games.length} games`);
         }
         if(games.length > 0) {
-          const plays = await buildConvictionPlays(games, currentConvML);
+          const plays = (await buildConvictionPlays(games, currentConvML)).filter(p => !isGameOver(p.gameTime));
           // Preserve any existing live state from previous poll
           setConvictionPlays(prev => {
             return plays.map(p => {
@@ -2094,22 +2104,19 @@ export default function NBAEdge() {
         // Update bankroll from last resolved entry
         const lastResolved = [...result.history].reverse().find(h=>h.status!=="pending");
         if(lastResolved) setBankroll(lastResolved.bankrollAfter);
-        // Step 3: Remove completed games from active bet list
+        // Step 3: Remove completed games using time + scores API
         const scores = await fetchScores(activeKey);
-        if(scores) {
-          resolveConvictionPlays(scores);
-          setBets(prev => prev.filter(bet => {
-            if(bet.gameTime) {
-              const ageHrs = (Date.now() - new Date(bet.gameTime)) / 3600000;
-              if(ageHrs > 3.5) return false;
-            }
-            const gameScore = scores.find(s =>
-              (s.home_team && bet.game?.includes(s.home_team)) ||
-              (s.away_team && bet.game?.includes(s.away_team))
-            );
-            return !gameScore?.completed;
-          }));
-        }
+        if(scores) resolveConvictionPlays(scores);
+        // Time-based removal runs regardless of scores API result
+        setBets(prev => prev.filter(bet => !isGameOver(bet.gameTime) && 
+          !(scores?.find(s => (s.home_team && bet.game?.includes(s.home_team)) || 
+                              (s.away_team && bet.game?.includes(s.away_team)))?.completed)
+        ));
+        // Also remove completed conviction plays from active display
+        setConvictionPlays(prev => prev.filter(p => !isGameOver(p.gameTime) &&
+          !(scores?.find(s => (s.home_team && p.game?.includes(s.home_team)) ||
+                              (s.away_team && p.game?.includes(s.away_team)))?.completed)
+        ));
       }
     });
 
@@ -2121,7 +2128,7 @@ export default function NBAEdge() {
       const conf = await scoreConfidence(withConf[i], withConf[i].newsScore||null);
       if(conf) withConf[i] = {...withConf[i], confidenceScore:conf.confidence, confidenceTier:conf.tier, confidenceTierColor:conf.tierColor, confidenceFactors:conf.factors};
     }
-    setBets([...withConf]);
+    setBets([...withConf].filter(b => !isGameOver(b.gameTime)));
     log(`✅ Confidence scored ${withConf.filter(b=>b.confidenceScore).length}/${withConf.length} bets`);
 
     if(anthropicKey && rawBets.length > 0) {
@@ -2136,7 +2143,7 @@ export default function NBAEdge() {
           // Re-score confidence with news signal
           const conf = await scoreConfidence(updated[i], result.newsScore);
           if(conf) updated[i] = {...updated[i], confidenceScore:conf.confidence, confidenceTier:conf.tier, confidenceTierColor:conf.tierColor, confidenceFactors:conf.factors};
-          setBets([...updated]);
+          setBets([...updated].filter(b => !isGameOver(b.gameTime)));
           log(`✅ News+confidence updated: ${updated[i].selection} → ${updated[i].confidenceTier}`);
         } else {
           log(`⚠️ News agent failed for ${updated[i].selection}`);
@@ -2149,7 +2156,12 @@ export default function NBAEdge() {
     }
   }, [oddsKey, anthropicKey, bankroll, autoAddToHistory, resolveWithScores]);
 
-  useEffect(() => { fetchBets(); }, []);
+  useEffect(() => {
+    // Clear stale games immediately on mount before any API calls
+    setBets(prev => prev.filter(b => !isGameOver(b.gameTime)));
+    setConvictionPlays(prev => prev.filter(p => !isGameOver(p.gameTime)));
+    fetchBets();
+  }, []);
 
   useEffect(() => {
     const schedule = () => {
@@ -2202,6 +2214,9 @@ export default function NBAEdge() {
     if(!oddsKey) return;
     const interval = setInterval(async () => {
       setLastPoll(new Date());
+      // Immediately remove time-expired games before full refresh
+      setBets(prev => prev.filter(b => !isGameOver(b.gameTime)));
+      setConvictionPlays(prev => prev.filter(p => !isGameOver(p.gameTime)));
       fetchBets();
       // Re-attempt resolution on each poll (outside setState — no async in state updater)
       const pollML = loadML();
@@ -2444,36 +2459,72 @@ export default function NBAEdge() {
                 <div style={{padding:"40px",textAlign:"center",color:"#3a5570",fontSize:12}}>No bets yet — refresh to auto-add today's recommendations</div>
               ):(
                 <div>
-                  <div style={{display:"grid",gridTemplateColumns:"1fr 2fr 80px 80px 80px 70px 80px 70px",gap:8,padding:"10px 22px",borderBottom:"1px solid #172030",fontSize:9,color:"#3a5570",letterSpacing:"0.08em",textTransform:"uppercase"}}>
-                    <div>Date</div><div>Bet</div><div>Odds</div><div>Wager</div><div>To Win</div><div>Kelly</div><div>Bankroll</div><div>Result</div>
-                  </div>
-                  {[...history].reverse().map(h=>(
-                    <div key={h.id} style={{display:"grid",gridTemplateColumns:"1fr 2fr 80px 80px 80px 70px 80px 70px",gap:8,padding:"12px 22px",borderBottom:"1px solid #0e1a28",alignItems:"center"}}>
-                      <div>
-                        <div style={{fontSize:10,color:"#3a5570"}}>{new Date(h.date).toLocaleDateString("en-US",{month:"short",day:"numeric"})}</div>
-                        <div style={{fontSize:9,color:"#1e3040"}}>{new Date(h.date).toLocaleTimeString("en-US",{hour:"2-digit",minute:"2-digit"})}</div>
-                      </div>
-                      <div>
-                        <div style={{fontSize:11,color:"#dde3ee",fontWeight:600,marginBottom:2}}>{h.selection}</div>
-                        <div style={{fontSize:9,color:"#3a5570"}}>{h.game}</div>
-                        <div style={{display:"inline-block",marginTop:3,...s.typeBadge(h.isConviction?"Conviction Play":h.type)}}>
-                          {h.isConviction?`🎯 ${h.betType||"Conviction"}`:h.type}
+                  {[...history].reverse().map(h => {
+                    const isWon = h.status === "won";
+                    const isLost = h.status === "lost";
+                    const isPending = h.status === "pending";
+                    const pnl = isWon ? h.potentialPayout : isLost ? -h.wagerAmt : null;
+                    const accentColor = isWon ? "#00ff88" : isLost ? "#ff6b6b" : "#ffd700";
+                    const bgColor = isWon ? "rgba(0,255,136,0.04)" : isLost ? "rgba(255,107,107,0.04)" : "transparent";
+                    return (
+                      <div key={h.id} style={{borderBottom:"1px solid #0e1a28",background:bgColor,transition:"background 0.3s"}}>
+                        {/* Main row */}
+                        <div style={{display:"grid",gridTemplateColumns:"110px 1fr auto",gap:12,padding:"14px 22px",alignItems:"center"}}>
+                          {/* Left: date + status */}
+                          <div>
+                            <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:4}}>
+                              <div style={{width:6,height:6,borderRadius:"50%",background:accentColor,boxShadow:isPending?`0 0 5px ${accentColor}`:"none"}}/>
+                              <div style={{fontSize:9,fontWeight:700,color:accentColor,letterSpacing:"0.08em"}}>
+                                {isWon?"WIN ✓":isLost?"LOSS ✗":"PENDING"}
+                              </div>
+                            </div>
+                            <div style={{fontSize:10,color:"#3a5570"}}>{new Date(h.date).toLocaleDateString("en-US",{month:"short",day:"numeric"})}</div>
+                            <div style={{fontSize:9,color:"#1e3040"}}>{new Date(h.date).toLocaleTimeString("en-US",{hour:"2-digit",minute:"2-digit"})}</div>
+                          </div>
+                          {/* Middle: bet details */}
+                          <div>
+                            <div style={{fontSize:13,fontWeight:700,color:"#fff",marginBottom:2}}>{h.selection}</div>
+                            <div style={{fontSize:10,color:"#3a5570",marginBottom:5}}>{h.game}</div>
+                            <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
+                              <div style={{...s.typeBadge(h.isConviction?"Conviction Play":h.type),marginBottom:0}}>
+                                {h.isConviction?`🎯 ${h.betType||"Conviction"}`:h.type}
+                              </div>
+                              {h.bestOdds&&<div style={{fontSize:10,fontWeight:700,color:h.bestOdds<0?"#00bfff":"#ffd700"}}>{formatOdds(h.bestOdds)}</div>}
+                              {h.bestBook&&<div style={{fontSize:9,color:SPORTSBOOK_COLORS[h.bestBook]||"#3a5570"}}>{h.bestBook}</div>}
+                              {h.isConviction&&h.convictionScore&&<div style={{fontSize:9,color:"#b44fff"}}>{h.convictionScore}/100 conviction</div>}
+                            </div>
+                          </div>
+                          {/* Right: financial outcome */}
+                          <div style={{textAlign:"right",minWidth:120}}>
+                            {pnl !== null && (
+                              <div style={{fontSize:20,fontWeight:800,color:accentColor,marginBottom:2}}>
+                                {pnl > 0 ? "+" : ""}{fmt$(pnl)}
+                              </div>
+                            )}
+                            <div style={{display:"flex",gap:12,justifyContent:"flex-end",fontSize:10,color:"#3a5570"}}>
+                              <div>Wagered <span style={{color:"#ffd700"}}>{fmt$(h.wagerAmt)}</span></div>
+                              {!isPending&&<div>To win <span style={{color:"#00bfff"}}>{fmt$(h.potentialPayout)}</span></div>}
+                            </div>
+                            <div style={{fontSize:10,color:"#3a5570",marginTop:3}}>
+                              Bankroll → <span style={{color:"#dde3ee",fontWeight:600}}>{fmt$(h.bankrollAfter)}</span>
+                            </div>
+                          </div>
                         </div>
+                        {/* P&L bar for resolved bets */}
+                        {!isPending&&(
+                          <div style={{height:2,background:"#0e1a28",marginBottom:0}}>
+                            <div style={{
+                              height:"100%",
+                              width:`${Math.min(100,Math.abs(pnl||0)/h.wagerAmt*50+50)}%`,
+                              background:accentColor,
+                              opacity:0.5,
+                              transition:"width 0.6s"
+                            }}/>
+                          </div>
+                        )}
                       </div>
-                      <div style={{fontSize:12,fontWeight:600,color:SPORTSBOOK_COLORS[h.bestBook]}}>{formatOdds(h.bestOdds)}</div>
-                      <div style={{fontSize:12,color:"#ffd700"}}>{fmt$(h.wagerAmt)}</div>
-                      <div style={{fontSize:12,color:"#00bfff"}}>{fmt$(h.potentialPayout)}</div>
-                      <div style={{fontSize:11,color:h.isConviction?"#ffd700":"#b44fff"}}>
-                        {h.isConviction?`${h.convictionScore||"—"}/100`:h.kellyPct+"%"}
-                      </div>
-                      <div style={{fontSize:11,color:"#dde3ee"}}>{fmt$(h.bankrollAfter)}</div>
-                      <div>
-                        {h.status==="pending"&&<div style={{fontSize:9,color:"#ffd700",padding:"2px 7px",borderRadius:4,background:"rgba(255,215,0,0.1)",border:"1px solid rgba(255,215,0,0.2)",display:"inline-block"}}>PENDING</div>}
-                        {h.status==="won"&&<div style={{fontSize:9,color:"#00ff88",padding:"2px 7px",borderRadius:4,background:"rgba(0,255,136,0.1)",border:"1px solid rgba(0,255,136,0.2)",display:"inline-block"}}>WIN ✓</div>}
-                        {h.status==="lost"&&<div style={{fontSize:9,color:"#ff6b6b",padding:"2px 7px",borderRadius:4,background:"rgba(255,107,107,0.1)",border:"1px solid rgba(255,107,107,0.2)",display:"inline-block"}}>LOSS ✗</div>}
-                      </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>
