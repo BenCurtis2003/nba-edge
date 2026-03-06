@@ -2646,25 +2646,44 @@ function gameMatches(entryGame="", scoreHome="", scoreAway="") {
                             <div style={{fontSize:10,color:"#3a5570",marginBottom:5}}>{h.game}</div>
                             <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
                               <div style={{...s.typeBadge(h.isConviction?"Conviction Play":h.type),marginBottom:0}}>
-                                {h.isConviction?`🎯 ${h.betType||"Conviction"} · ${h.convictionScore||""}`:h.type}
+                                {h.isConviction?`🎯 ${h.betType||"Conviction"}`:h.type}
                               </div>
                               {h.bestOdds&&<div style={{fontSize:10,fontWeight:700,color:h.bestOdds<0?"#00bfff":"#ffd700"}}>{formatOdds(h.bestOdds)}</div>}
                               {h.bestBook&&<div style={{fontSize:9,color:SPORTSBOOK_COLORS[h.bestBook]||"#3a5570"}}>{h.bestBook}</div>}
-                              {h.isConviction&&h.convictionScore&&<div style={{fontSize:9,color:"#b44fff"}}>{h.convictionScore}/100 conviction</div>}
+                              {/* Kelly % — core sizing metric */}
+                              {(h.kellyPct||h.isConviction)&&(
+                                <div style={{fontSize:9,padding:"1px 6px",borderRadius:3,background:"rgba(180,79,255,0.12)",border:"1px solid rgba(180,79,255,0.25)",color:"#b44fff",fontWeight:600}}>
+                                  Kelly {h.isConviction?"2.0":h.kellyPct?.toFixed(1)}%
+                                </div>
+                              )}
+                              {/* Edge % for EV bets */}
+                              {h.edge>0&&!h.isConviction&&(
+                                <div style={{fontSize:9,padding:"1px 6px",borderRadius:3,background:"rgba(0,255,136,0.08)",border:"1px solid rgba(0,255,136,0.2)",color:"#00ff88",fontWeight:600}}>
+                                  +{h.edge?.toFixed(1)}% edge
+                                </div>
+                              )}
+                              {/* Conviction score for conviction bets */}
+                              {h.isConviction&&h.convictionScore&&(
+                                <div style={{fontSize:9,padding:"1px 6px",borderRadius:3,background:"rgba(255,215,0,0.08)",border:"1px solid rgba(255,215,0,0.2)",color:"#ffd700",fontWeight:600}}>
+                                  {h.convictionScore}/100
+                                </div>
+                              )}
                             </div>
                           </div>
                           {/* Right: financial outcome */}
-                          <div style={{textAlign:"right",minWidth:120}}>
+                          <div style={{textAlign:"right",minWidth:130}}>
                             {pnl !== null && (
                               <div style={{fontSize:20,fontWeight:800,color:accentColor,marginBottom:2}}>
                                 {pnl > 0 ? "+" : ""}{fmt$(pnl)}
                               </div>
                             )}
-                            <div style={{display:"flex",gap:12,justifyContent:"flex-end",fontSize:10,color:"#3a5570"}}>
+                            <div style={{display:"flex",gap:10,justifyContent:"flex-end",fontSize:10,color:"#3a5570",flexWrap:"wrap"}}>
                               <div>Wagered <span style={{color:"#ffd700"}}>{fmt$(h.wagerAmt)}</span></div>
-                              {!isPending&&<div>To win <span style={{color:"#00bfff"}}>{fmt$(h.potentialPayout)}</span></div>}
+                              {!isPending&&!isVoided&&<div>To win <span style={{color:"#00bfff"}}>{fmt$(h.potentialPayout)}</span></div>}
                             </div>
-                            <div style={{fontSize:10,color:"#3a5570",marginTop:3}}>
+                            <div style={{fontSize:10,color:"#3a5570",marginTop:2}}>
+                              Kelly <span style={{color:"#b44fff",fontWeight:600}}>{h.isConviction?"2.0":(h.kellyPct!=null?h.kellyPct.toFixed(1):"—")}%</span>
+                              <span style={{margin:"0 6px",opacity:0.3}}>·</span>
                               Bankroll → <span style={{color:"#dde3ee",fontWeight:600}}>{fmt$(h.bankrollAfter)}</span>
                             </div>
                           </div>
