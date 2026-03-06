@@ -14,7 +14,8 @@ const TARGET_NEG_RATIO = 0.70;
 const MIN_EV_EDGE = 1.5;         // game lines threshold
 const MIN_EV_EDGE_LONGSHOT = 6;
 const MIN_EV_EDGE_PROP = 2.5;    // props threshold — props are less efficient
-const POLL_INTERVAL_MS = 60000;  // live polling every 60 seconds
+const POLL_INTERVAL_MS = 480000; // Odds API poll every 8min — preserves free tier quota (500/month)
+const ESPN_POLL_MS = 60000;       // ESPN live scores every 60s — free, unlimited
 const STARTING_BANKROLL = 100;
 const STORAGE_KEY = "nba_edge_history_v2";
 const ML_KEY = "nba_edge_ml_v1";
@@ -602,7 +603,7 @@ async function fetchESPNScores() {
     const makeDateStr = daysAgo => new Date(Date.now()-daysAgo*86400000).toISOString().slice(0,10).replace(/-/g,"");
     const urls = [
       "https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard",
-      ...([1,2,3,4].map(d => `https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard?dates=${makeDateStr(d)}`)),
+      ...([1,2].map(d => `https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard?dates=${makeDateStr(d)}`)),
     ];
     const results = await Promise.all(urls.map(u => fetchWithTimeout(u,{},6000).catch(()=>null)));
     const scores = [];
@@ -1900,15 +1901,14 @@ function gameMatches(entryGame="", scoreHome="", scoreAway="") {
   return homeWordMatch && awayWordMatch;
 }
 
-  const resolveWithScores = useCallback(async (currentHistory, apiKey, currentML) => {
-    if(!apiKey) { console.log("[Resolve] No API key"); return { history: currentHistory, ml: currentML }; }
+  const resolveWithScores = useCallback(async (currentHistory, apiKey, currentML, prefetchedScores=null) => {
     const pending = currentHistory.filter(h=>h.status==="pending");
-    if(!pending.length) { console.log("[Resolve] No pending bets"); return { history: currentHistory, ml: currentML }; }
-    console.log(`[Resolve] Attempting to resolve ${pending.length} pending bets...`);
-    pending.forEach(p => console.log(`  - ${p.game} | ${p.selection} | kellyPct=${p.kellyPct} wagerAmt=${p.wagerAmt}`));
-    const scores = await fetchScores(apiKey);
-    if(!scores) { console.log("[Resolve] fetchScores returned null"); return { history: currentHistory, ml: currentML }; }
-    console.log(`[Resolve] Got ${scores.length} scores, ${scores.filter(s=>s.completed).length} completed`);
+    if(!pending.length) return { history: currentHistory, ml: currentML };
+    console.log(`[Resolve] ${pending.length} pending bets...`);
+    // Use pre-fetched scores if provided, otherwise fetch (ESPN fallback works without key)
+    const scores = prefetchedScores || await fetchScores(apiKey);
+    if(!scores?.length) { console.log("[Resolve] No scores available"); return { history: currentHistory, ml: currentML }; }
+    console.log(`[Resolve] ${scores.filter(s=>s.completed).length} completed games available`);
 
     let updated = [...currentHistory];
     let updatedML = {...currentML};
@@ -1924,7 +1924,7 @@ function gameMatches(entryGame="", scoreHome="", scoreAway="") {
         console.log(`[Resolve] NO MATCH for: "${entry.game}" | available: ${available}`);
         // Auto-void very old unresolvable bets (>36hrs, likely from demo/mock data)
         const ageHrs = (Date.now() - new Date(entry.gameTime||entry.date)) / 3600000;
-        if(ageHrs > 36) {
+        if(ageHrs > 20) {
           console.log(`[Resolve] Voiding stale bet: ${entry.game} (${ageHrs.toFixed(0)}h old)`);
           changed = true;
           return {...entry, status:"voided", result:"VOID", wagerAmt: entry.wagerAmt||0,
@@ -2074,8 +2074,8 @@ function gameMatches(entryGame="", scoreHome="", scoreAway="") {
         log("⚠️ Live odds fetch failed — check your Odds API key in API Setup");
       }
     }
-    // Only show demo data if no API key entered at all
-    if(!rawBets) { rawBets = generateMockBets(); setUseMock(true); log("ℹ️ No API key — showing demo data"); }
+    // No API key: show empty bets list (conviction plays from ESPN fill the screen instead)
+    if(!rawBets) { rawBets = []; setUseMock(false); log("ℹ️ No Odds API key — add one in API Setup for EV bets · Conviction plays load below"); }
     setBets(rawBets.filter(b => !isGameOver(b.gameTime)));
     } catch(err) {
       console.error('fetchBets error:', err);
@@ -2194,26 +2194,22 @@ function gameMatches(entryGame="", scoreHome="", scoreAway="") {
     setHistory(updated);
     if(updated.length > 0) setBankroll(updated[updated.length-1].bankrollAfter);
 
-    // Step 2: Resolve pending bets (async, outside setState)
-    resolveWithScores(updated, activeKey, currentML).then(async result => {
+    // Step 2: ONE scores fetch reused for both resolution + stale removal (saves API quota)
+    fetchScores(activeKey).then(async scores => {
+      const result = await resolveWithScores(updated, activeKey, currentML, scores);
       if(result?.history) {
         setHistory(result.history);
         if(result.ml) { saveML(result.ml); setMlModel(result.ml); }
-        // Update bankroll from last resolved entry
         const lastResolved = [...result.history].reverse().find(h=>h.status!=="pending");
         if(lastResolved) setBankroll(lastResolved.bankrollAfter);
-        // Step 3: Remove completed games using time + scores API
-        const scores = await fetchScores(activeKey);
-        if(scores) resolveConvictionPlays(scores);
-        // Time-based removal runs regardless of scores API result
-        setBets(prev => prev.filter(bet => !isGameOver(bet.gameTime) && 
-          !(scores?.find(s => (s.home_team && bet.game?.includes(s.home_team)) || 
-                              (s.away_team && bet.game?.includes(s.away_team)))?.completed)
+      }
+      if(scores) {
+        resolveConvictionPlays(scores);
+        setBets(prev => prev.filter(b => !isGameOver(b.gameTime) &&
+          !scores.find(s => gameMatches(b.game||"", s.home_team||"", s.away_team||""))?.completed
         ));
-        // Also remove completed conviction plays from active display
         setConvictionPlays(prev => prev.filter(p => !isGameOver(p.gameTime) &&
-          !(scores?.find(s => (s.home_team && p.game?.includes(s.home_team)) ||
-                              (s.away_team && p.game?.includes(s.away_team)))?.completed)
+          !scores.find(s => gameMatches(p.game||"", s.home_team||"", s.away_team||""))?.completed
         ));
       }
     });
@@ -2320,7 +2316,7 @@ function gameMatches(entryGame="", scoreHome="", scoreAway="") {
       const pollML = loadML();
       const pollHist = JSON.parse(localStorage.getItem(STORAGE_KEY)||"[]");
       if(pollHist.some(h=>h.status==="pending") && oddsKey) {
-        resolveWithScores(pollHist, oddsKey, pollML).then(result => {
+        fetchScores(oddsKey).then(sc => resolveWithScores(pollHist, oddsKey, pollML, sc)).then(result => {
           if(result?.history && result.history.some(h=>h.status!=="pending" && 
             !pollHist.find(p=>p.id===h.id&&p.status!=="pending"))) {
             setHistory(result.history);
@@ -2475,11 +2471,11 @@ function gameMatches(entryGame="", scoreHome="", scoreAway="") {
           </div>
         </div>
         <div style={s.hRight}>
-          {useMock&&<div style={s.mockBadge}>⚠ DEMO DATA</div>}
+          
           {agentStatus==="running"&&<div style={{fontSize:11,color:"#00bfff",display:"flex",alignItems:"center",gap:6}}><div style={{width:9,height:9,border:"2px solid #00bfff",borderTopColor:"transparent",borderRadius:"50%",animation:"spin 0.8s linear infinite"}}/>Agent scanning...</div>}
           <div style={{display:"flex",alignItems:"center",gap:7}}>
             <div style={{...s.dot(!loading),animation:!loading&&oddsKey?"pulse 2s infinite":"none"}}/>
-            <span style={s.statusTxt}>{loading?"Updating...":lastUpdated?`${lastUpdated.toLocaleTimeString()} · live 60s`:"Ready"}</span>
+            <span style={s.statusTxt}>{loading?"Updating...":lastUpdated?`${lastUpdated.toLocaleTimeString()} · live 8m`:"Ready"}</span>
           </div>
           <button style={s.btn} onClick={()=>setSettingsOpen(true)}>⚙ API Setup</button>
           <button style={s.btnPrimary} onClick={fetchBets} disabled={loading}>{loading?"Loading...":"↻ Refresh"}</button>
@@ -2579,7 +2575,10 @@ function gameMatches(entryGame="", scoreHome="", scoreAway="") {
                 </div>
               </div>
               {history.length===0?(
-                <div style={{padding:"40px",textAlign:"center",color:"#3a5570",fontSize:12}}>No bets yet — refresh to auto-add today's recommendations</div>
+                <div style={{padding:"40px",textAlign:"center",color:"#3a5570",fontSize:12}}>
+                  No bets recorded yet. Add an Odds API key to start tracking EV bets,
+                  or conviction plays with score ≥70 are auto-tracked without a key.
+                </div>
               ):(
                 <div>
                   {[...history].reverse().map(h => {
