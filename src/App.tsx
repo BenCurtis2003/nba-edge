@@ -909,6 +909,19 @@ async function buildConvictionPlays(games, convictionML) {
       }
       addSignal("restAdvantage","Rest Advantage",restScore,restNote,"😴");
 
+      // Streak (W/L run)
+      if(teamLog && teamLog.length>=3) {
+        let streak = 1;
+        const lastResult = teamLog[0].won;
+        for(let i=1;i<Math.min(8,teamLog.length);i++){
+          if(teamLog[i].won===lastResult) streak++; else break;
+        }
+        const streakLabel = `${lastResult?"W":"L"}${streak}`;
+        const streakScore = lastResult&&streak>=4?88:lastResult&&streak>=2?70:lastResult?58:!lastResult&&streak>=4?18:!lastResult&&streak>=2?36:42;
+        addSignal("paceMismatch","Current Streak",streakScore,
+          `On a ${streakLabel} streak entering this game`,"🔥");
+      }
+
       // Opponent weakness
       if(oppLog && oppLog.length>=4) {
         const oRec = oppLog.slice(0,8);
@@ -1371,11 +1384,47 @@ function ConvictionSection({ plays, loading, convictionML, expandedConviction, s
                 </div>
               </div>
 
-              <div style={{display:"flex",gap:8,marginBottom:10}}>
-                <div style={{fontSize:10,color:"#dde3ee",padding:"2px 8px",borderRadius:4,background:"#060a10"}}>{play.selection} {play.teamRecord}</div>
-                <div style={{fontSize:10,color:"#3a5570",padding:"2px 8px",borderRadius:4,background:"#060a10"}}>vs {play.oppRecord}</div>
-                {play.bestOdds&&<div style={{fontSize:10,color:play.bestOdds<0?"#00bfff":"#ffd700",padding:"2px 8px",borderRadius:4,background:"#060a10",marginLeft:"auto"}}>{formatOdds(play.bestOdds)}</div>}
+              {/* Stats row: record vs record */}
+              <div style={{display:"flex",gap:6,marginBottom:8,flexWrap:"wrap"}}>
+                {play.teamRecord&&<div style={{fontSize:10,color:"#dde3ee",padding:"2px 8px",borderRadius:4,background:"#060a10",fontWeight:600}}>{play.teamRecord}</div>}
+                {play.oppRecord&&<div style={{fontSize:10,color:"#3a5570",padding:"2px 8px",borderRadius:4,background:"#060a10"}}>vs {play.oppRecord}</div>}
               </div>
+
+              {/* Odds row: line + implied prob + best book */}
+              {play.bestOdds ? (
+                <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10,padding:"8px 12px",background:"#060a10",borderRadius:8,border:"1px solid #172030"}}>
+                  <div style={{display:"flex",flexDirection:"column"}}>
+                    <div style={{fontSize:9,color:"#3a5570",letterSpacing:"0.06em",textTransform:"uppercase",marginBottom:2}}>Best Line</div>
+                    <div style={{fontSize:18,fontWeight:800,color:play.bestOdds<-150?"#00bfff":play.bestOdds<0?"#00ff88":play.bestOdds<150?"#ffd700":"#ff9944",lineHeight:1}}>
+                      {formatOdds(play.bestOdds)}
+                    </div>
+                  </div>
+                  <div style={{width:1,height:32,background:"#172030",margin:"0 4px"}}/>
+                  <div style={{display:"flex",flexDirection:"column"}}>
+                    <div style={{fontSize:9,color:"#3a5570",letterSpacing:"0.06em",textTransform:"uppercase",marginBottom:2}}>Implied</div>
+                    <div style={{fontSize:14,fontWeight:700,color:"#dde3ee",lineHeight:1}}>
+                      {Math.round(play.bestOdds<0?(-play.bestOdds/(-play.bestOdds+100))*100:(100/(play.bestOdds+100))*100)}%
+                    </div>
+                  </div>
+                  <div style={{width:1,height:32,background:"#172030",margin:"0 4px"}}/>
+                  <div style={{display:"flex",flexDirection:"column"}}>
+                    <div style={{fontSize:9,color:"#3a5570",letterSpacing:"0.06em",textTransform:"uppercase",marginBottom:2}}>Conviction</div>
+                    <div style={{fontSize:14,fontWeight:700,color:play.tierColor,lineHeight:1}}>
+                      {play.convictionScore}%
+                    </div>
+                  </div>
+                  <div style={{marginLeft:"auto",display:"flex",flexDirection:"column",alignItems:"flex-end"}}>
+                    <div style={{fontSize:9,color:"#3a5570",marginBottom:2}}>Best at</div>
+                    <div style={{fontSize:11,fontWeight:700,color:SPORTSBOOK_COLORS[play.bestBook]||"#dde3ee"}}>
+                      {SPORTSBOOK_LABELS[play.bestBook]||play.bestBook||"—"}
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div style={{marginBottom:10,padding:"6px 12px",background:"#060a10",borderRadius:8,border:"1px solid #172030",fontSize:10,color:"#3a5570"}}>
+                  Add Odds API key for live lines
+                </div>
+              )}
 
               <div style={{fontSize:11,color:"#3a5570",lineHeight:1.8,marginBottom:isExp?12:0}}>
                 {play.topSignals?.map(s=>(
