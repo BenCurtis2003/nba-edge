@@ -1681,13 +1681,13 @@ export default function NBAEdge() {
 
   const fetchBets = useCallback(async (overrideOddsKey) => {
     setLoading(true);
-    log("🔍 Fetching NBA odds...");
-    const keyPreview = activeKey ? `key: ${activeKey.slice(0,8)}...` : "no key";
-    log(`🔑 ${keyPreview}`);
     const currentML = loadML();
     let rawBets = null;
 
     const activeKey = overrideOddsKey !== undefined ? overrideOddsKey : oddsKey;
+    const keyPreview = activeKey ? `key: ${activeKey.slice(0,8)}...` : "no key";
+    try {
+    log(`🔍 Fetching NBA odds... ${keyPreview}`);
     let rawOddsGames = null; // captured from Odds API, reused by conviction engine
     if(activeKey) {
       const [result, rundownProps] = await Promise.all([
@@ -1718,8 +1718,13 @@ export default function NBAEdge() {
     // Only show demo data if no API key entered at all
     if(!rawBets) { rawBets = generateMockBets(); setUseMock(true); log("ℹ️ No API key — showing demo data"); }
     setBets(rawBets);
-    setLastUpdated(new Date());
-    setLoading(false);
+    } catch(err) {
+      console.error('fetchBets error:', err);
+      log('❌ Error: ' + err.message);
+    } finally {
+      setLastUpdated(new Date());
+      setLoading(false);
+    }
 
     // Build conviction plays in background — non-blocking, won't freeze the main UI
     setConvictionLoading(true);
