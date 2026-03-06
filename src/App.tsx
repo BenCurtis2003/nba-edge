@@ -824,20 +824,14 @@ async function buildConvictionPlays(games, convictionML) {
   if(!games || !games.length) return [];
   const weights = getSignalWeights(convictionML);
   const allPlays = [];
-
-  // Fetch all ESPN team data once
   const espnTeams = await fetchESPNTeamData();
   if(!espnTeams) return [];
 
-  // Match any team name to ESPN entry
   const findESPN = (name) => {
     if(!name) return null;
-    const exact = espnTeams[name];
-    if(exact) return exact;
+    if(espnTeams[name]) return espnTeams[name];
     const words = name.toLowerCase().split(" ").filter(w=>w.length>3);
-    return Object.values(espnTeams).find(t =>
-      words.some(w => t.name.toLowerCase().includes(w))
-    ) || null;
+    return Object.values(espnTeams).find(t => words.some(w=>t.name.toLowerCase().includes(w))) || null;
   };
 
   for(const game of games) {
@@ -846,169 +840,208 @@ async function buildConvictionPlays(games, convictionML) {
     if(!away || !home) continue;
     const gameLabel = `${away} @ ${home}`;
     const gameTime = game.commence_time;
-
     const espnHome = findESPN(home);
     const espnAway = findESPN(away);
-    if(!espnHome || !espnAway) {
-      console.log(`[Conviction] Could not match teams: ${home} / ${away}`);
-      continue;
-    }
+    if(!espnHome || !espnAway) continue;
 
-    // Fetch game logs for both teams in parallel
     const [homeLog, awayLog] = await Promise.all([
       fetchESPNTeamStats(espnHome.id),
       fetchESPNTeamStats(espnAway.id),
     ]);
 
+    // Score a single team side, returns {finalScore, signals, topSignals}
     const scoreTeam = (espnTeam, espnOpp, teamLog, oppLog, isHome) => {
       const signals = [];
       let totalScore = 0, totalWeight = 0;
-
       const addSignal = (key, label, score, note, emoji) => {
         const s = Math.round(Math.min(100, Math.max(0, score)));
         signals.push({key, label, score:s, note, emoji});
         const w = weights[key] || DEFAULT_SIGNAL_WEIGHTS[key] || 0.1;
-        totalScore += s * w;
-        totalWeight += w;
+        totalScore += s * w; totalWeight += w;
       };
 
-      // ── SIGNAL 1: Season win rate (always available) ───────────
-      const totalGames = (espnTeam.wins||0) + (espnTeam.losses||0);
-      const seasonWR = totalGames > 0 ? espnTeam.wins / totalGames : 0.5;
-      const oppTotalGames = (espnOpp.wins||0) + (espnOpp.losses||0);
-      const oppSeasonWR = oppTotalGames > 0 ? espnOpp.wins / oppTotalGames : 0.5;
-      const wrDiff = seasonWR - oppSeasonWR;
-      const seasonScore = wrDiff>=0.15?82:wrDiff>=0.08?70:wrDiff>=0.02?58:wrDiff>=-0.02?50:wrDiff>=-0.08?40:wrDiff>=-0.15?30:20;
+      // Season win rate differential
+      const totalG = (espnTeam.wins||0)+(espnTeam.losses||0);
+      const oppTotalG = (espnOpp.wins||0)+(espnOpp.losses||0);
+      const wr = totalG>0 ? espnTeam.wins/totalG : 0.5;
+      const oppWR = oppTotalG>0 ? espnOpp.wins/oppTotalG : 0.5;
+      const diff = wr - oppWR;
+      const seasonScore = diff>=0.15?82:diff>=0.08?70:diff>=0.02?58:diff>=-0.02?50:diff>=-0.08?40:diff>=-0.15?30:20;
       addSignal("recentForm","Season Win Rate",seasonScore,
-        `${espnTeam.wins}-${espnTeam.losses} (${Math.round(seasonWR*100)}%) vs opp ${espnOpp.wins}-${espnOpp.losses} (${Math.round(oppSeasonWR*100)}%)`,"📈");
+        `${espnTeam.wins}-${espnTeam.losses} (${Math.round(wr*100)}%) vs opp ${espnOpp.wins}-${espnOpp.losses} (${Math.round(oppWR*100)})%`,"📈");
 
-      // ── SIGNAL 2: Recent form from game log ────────────────────
-      if(teamLog && teamLog.length >= 4) {
+      // Recent form last 8
+      if(teamLog && teamLog.length>=4) {
         const last8 = teamLog.slice(0,8);
-        const recentWins = last8.filter(g=>g.won).length;
-        const recentWR = recentWins / last8.length;
-        const recentScore = recentWR>=0.75?88:recentWR>=0.625?74:recentWR>=0.5?58:recentWR>=0.375?42:25;
-        addSignal("atsRecord","Recent Form (Last 8)",recentScore,
-          `${recentWins}/${last8.length} last 8 games (${Math.round(recentWR*100)}%)`,"🔥");
+        const rw = last8.filter(g=>g.won).length;
+        const rwr = rw/last8.length;
+        addSignal("atsRecord","Recent Form",rwr>=0.75?88:rwr>=0.625?74:rwr>=0.5?58:rwr>=0.375?42:25,
+          `${rw}/${last8.length} last 8 games (${Math.round(rwr*100)}%)`,"🔥");
       }
 
-      // ── SIGNAL 3: Point differential (strength of wins) ────────
-      if(teamLog && teamLog.length >= 4) {
-        const avgPtDiff = teamLog.slice(0,8).reduce((s,g)=>s+g.ptsDiff,0)/Math.min(8,teamLog.length);
-        const ptScore = avgPtDiff>=10?92:avgPtDiff>=6?80:avgPtDiff>=3?67:avgPtDiff>=0?53:avgPtDiff>=-3?40:avgPtDiff>=-7?27:15;
-        addSignal("netRating","Avg Point Margin",ptScore,
-          `${avgPtDiff>=0?"+":""}${avgPtDiff.toFixed(1)} pts/game last 8`,"⚡");
+      // Avg point margin
+      if(teamLog && teamLog.length>=4) {
+        const avgDiff = teamLog.slice(0,8).reduce((s,g)=>s+g.ptsDiff,0)/Math.min(8,teamLog.length);
+        const ptScore = avgDiff>=10?92:avgDiff>=6?80:avgDiff>=3?67:avgDiff>=0?53:avgDiff>=-3?40:avgDiff>=-7?27:15;
+        addSignal("netRating","Avg Point Margin",ptScore,`${avgDiff>=0?"+":""}${avgDiff.toFixed(1)} pts/game last 8`,"⚡");
       } else {
-        // Estimate from season record if no game log
-        const estMargin = (seasonWR - 0.5) * 12;
-        const ptScore = estMargin>=5?72:estMargin>=2?60:estMargin>=0?50:estMargin>=-2?40:30;
-        addSignal("netRating","Est. Point Margin",ptScore,
-          `Estimated ${estMargin>=0?"+":""}${estMargin.toFixed(1)} based on season record`,"⚡");
+        const est = (wr-0.5)*12;
+        addSignal("netRating","Est. Point Margin",est>=5?72:est>=2?60:est>=0?50:est>=-2?40:30,
+          `Est. ${est>=0?"+":""}${est.toFixed(1)} pts from season record`,"⚡");
       }
 
-      // ── SIGNAL 4: Home court ───────────────────────────────────
+      // Home court
       addSignal("homeAdvantage","Home Court",isHome?70:38,
-        isHome?"Home court advantage — avg +3.5 pts":"Road game — historically harder","🏠");
+        isHome?"Home court — avg +3.5 pt advantage":"Road game — historically 3-4 pt disadvantage","🏠");
 
-      // ── SIGNAL 5: Rest advantage ───────────────────────────────
-      let restScore = 52, restNote = "Similar rest";
+      // Rest advantage
+      let restScore=52, restNote="Similar rest";
       if(teamLog?.length && oppLog?.length) {
-        const lastTeamGame = new Date(teamLog[0].date);
-        const lastOppGame = new Date(oppLog[0].date);
         const tipoff = new Date(gameTime);
-        const teamRest = Math.max(0, Math.round((tipoff-lastTeamGame)/(1000*60*60*24)));
-        const oppRest = Math.max(0, Math.round((tipoff-lastOppGame)/(1000*60*60*24)));
-        const diff = teamRest - oppRest;
-        if(diff>=2){restScore=87;restNote=`${teamRest}d rest vs opp ${oppRest}d — significant advantage`;}
-        else if(diff>=1){restScore=68;restNote=`${teamRest}d rest vs opp ${oppRest}d — slight edge`;}
-        else if(diff<=-2){restScore=18;restNote=`${teamRest}d rest vs opp ${oppRest}d — back-to-back fatigue`;}
-        else if(diff<=-1){restScore=36;restNote=`${teamRest}d rest vs opp ${oppRest}d — slight fatigue`;}
-        else{restScore=52;restNote=`Both teams ${teamRest}d rest`;}
+        const tr = Math.max(0,Math.round((tipoff-new Date(teamLog[0].date))/(864e5)));
+        const or2 = Math.max(0,Math.round((tipoff-new Date(oppLog[0].date))/(864e5)));
+        const rd = tr-or2;
+        if(rd>=2){restScore=87;restNote=`${tr}d rest vs opp ${or2}d — significant advantage`;}
+        else if(rd>=1){restScore=68;restNote=`${tr}d rest vs opp ${or2}d — slight edge`;}
+        else if(rd<=-2){restScore=18;restNote=`${tr}d rest vs opp ${or2}d — fatigue risk`;}
+        else if(rd<=-1){restScore=36;restNote=`${tr}d rest vs opp ${or2}d — slight fatigue`;}
+        else{restNote=`Both teams ${tr}d rest`;}
       }
       addSignal("restAdvantage","Rest Advantage",restScore,restNote,"😴");
 
-      // ── SIGNAL 6: Opponent recent weakness ────────────────────
-      if(oppLog && oppLog.length >= 4) {
-        const oppRecent = oppLog.slice(0,8);
-        const oppRecentWins = oppRecent.filter(g=>g.won).length;
-        const oppRecentWR = oppRecentWins / oppRecent.length;
-        // Weak opponent is good for us — invert
-        const oppScore = oppRecentWR<=0.25?88:oppRecentWR<=0.375?74:oppRecentWR<=0.5?60:oppRecentWR<=0.625?46:oppRecentWR<=0.75?32:20;
-        addSignal("h2hRecord","Opponent Recent Form",oppScore,
-          `Opp ${oppRecentWins}/${oppRecent.length} last 8 (${Math.round(oppRecentWR*100)}%) — ${oppRecentWR<=0.4?"struggling ✓":"in form ✗"}`,"🔍");
+      // Opponent weakness
+      if(oppLog && oppLog.length>=4) {
+        const oRec = oppLog.slice(0,8);
+        const owr2 = oRec.filter(g=>g.won).length/oRec.length;
+        addSignal("h2hRecord","Opponent Form",owr2<=0.25?88:owr2<=0.375?74:owr2<=0.5?60:owr2<=0.625?46:owr2<=0.75?32:20,
+          `Opp ${Math.round(owr2*oRec.length)}/${oRec.length} last 8 — ${owr2<=0.4?"struggling ✓":"in form ✗"}`,"🔍");
       }
 
-      // ── ML HISTORICAL SIGNAL ───────────────────────────────────
-      const teamMLData = convictionML.byTeam?.[espnTeam.name];
-      if(teamMLData && teamMLData.plays >= 3) {
-        const mlWR = teamMLData.wins / teamMLData.plays;
-        const mlScore = mlWR>=0.7?88:mlWR>=0.6?72:mlWR>=0.5?55:35;
+      // ML team history
+      const mlData = convictionML.byTeam?.[espnTeam.name];
+      if(mlData && mlData.plays>=3) {
+        const mlwr = mlData.wins/mlData.plays;
+        const mlScore = mlwr>=0.7?88:mlwr>=0.6?72:mlwr>=0.5?55:35;
         signals.push({key:"mlHistory",label:"ML Track Record",score:mlScore,isML:true,emoji:"🧠",
-          note:`${teamMLData.wins}/${teamMLData.plays} conviction plays won (${Math.round(mlWR*100)}%)`});
-        totalScore += mlScore * 0.15; totalWeight += 0.15;
+          note:`${mlData.wins}/${mlData.plays} conviction plays won (${Math.round(mlwr*100)}%)`});
+        totalScore += mlScore*0.15; totalWeight += 0.15;
       }
 
-      if(totalWeight === 0) return null;
-      const raw = totalScore / totalWeight;
-      const calAdj = convictionML.totalPlays>=10
-        ? ((convictionML.totalWins/convictionML.totalPlays) - 0.55) * 8 : 0;
-      const finalScore = Math.min(95, Math.max(35, Math.round(raw + calAdj)));
-
-      const topSignals = [...signals]
-        .sort((a,b)=>(b.score*(weights[b.key]||0.1)) - (a.score*(weights[a.key]||0.1)))
-        .slice(0,3);
-
-      return { finalScore, signals, topSignals };
+      if(totalWeight===0) return null;
+      const calAdj = convictionML.totalPlays>=10 ? ((convictionML.totalWins/convictionML.totalPlays)-0.55)*8 : 0;
+      const finalScore = Math.min(95,Math.max(35,Math.round(totalScore/totalWeight+calAdj)));
+      const topSignals = [...signals].sort((a,b)=>(b.score*(weights[b.key]||0.1))-(a.score*(weights[a.key]||0.1))).slice(0,3);
+      return {finalScore, signals, topSignals};
     };
 
-    // Score both sides
     const homeResult = scoreTeam(espnHome, espnAway, homeLog, awayLog, true);
     const awayResult = scoreTeam(espnAway, espnHome, awayLog, homeLog, false);
 
+    // For each side, generate Moneyline + Spread conviction plays
     for(const [result, side, espnTeam, espnOpp, isHome] of [
       [homeResult, home, espnHome, espnAway, true],
       [awayResult, away, espnAway, espnHome, false],
     ]) {
       if(!result) continue;
       const {finalScore, signals, topSignals} = result;
-
       const tier = finalScore>=75?"HIGH":finalScore>=60?"MEDIUM":"WATCHLIST";
       const tierColor = finalScore>=75?"#00ff88":finalScore>=60?"#ffd700":"#ff9944";
 
-      // Get best available odds from bookmakers
-      let bestOdds=null, bestBook=null;
-      (game.bookmakers||[]).forEach(book => {
-        book.markets?.filter(m=>m.key==="h2h").forEach(mkt => {
+      // Best ML odds
+      let mlOdds=null, mlBook=null;
+      (game.bookmakers||[]).forEach(bk => {
+        bk.markets?.filter(m=>m.key==="h2h").forEach(mkt => {
           mkt.outcomes?.forEach(o => {
-            if(o.name===side&&(bestOdds===null||o.price>bestOdds)){bestOdds=o.price;bestBook=book.key;}
+            if(o.name===side&&(mlOdds===null||o.price>mlOdds)){mlOdds=o.price;mlBook=bk.key;}
           });
         });
       });
 
+      // Best spread odds
+      let sprOdds=null, sprBook=null, sprLine=null;
+      (game.bookmakers||[]).forEach(bk => {
+        bk.markets?.filter(m=>m.key==="spreads").forEach(mkt => {
+          mkt.outcomes?.forEach(o => {
+            if(o.name===side&&(sprOdds===null||o.price>sprOdds)){sprOdds=o.price;sprBook=bk.key;sprLine=o.point;}
+          });
+        });
+      });
+
+      const base = {game:gameLabel, gameTime, signals, topSignals, isHome,
+        mlCalibrated:convictionML.totalPlays>=10, learnedWeights:convictionML.learnedWeights!=null,
+        teamRecord:`${espnTeam.wins}-${espnTeam.losses}`, oppRecord:`${espnOpp.wins}-${espnOpp.losses}`};
+
+      // Moneyline conviction
+      allPlays.push({...base, id:`conviction|${gameLabel}|${side}|ML`, type:"Conviction Play",
+        betType:"Moneyline", selection:`${side} ML`,
+        convictionScore:finalScore, tier, tierColor, bestOdds:mlOdds, bestBook:mlBook});
+
+      // Spread conviction (slightly discounted — spread needs a bigger edge)
+      const sprScore = Math.max(35, Math.round(finalScore*0.93));
+      const sprTier = sprScore>=75?"HIGH":sprScore>=60?"MEDIUM":"WATCHLIST";
+      const sprColor = sprScore>=75?"#00ff88":sprScore>=60?"#ffd700":"#ff9944";
+      const sprLabel = sprLine!=null ? `${side} ${sprLine>0?"+":""}${sprLine}` : `${side} (spread)`;
+      allPlays.push({...base, id:`conviction|${gameLabel}|${side}|SPR`, type:"Conviction Play",
+        betType:"Spread", selection:sprLabel,
+        convictionScore:sprScore, tier:sprTier, tierColor:sprColor, bestOdds:sprOdds, bestBook:sprBook});
+    }
+
+    // Game Total conviction — once per game
+    if(homeLog?.length>=3 && awayLog?.length>=3) {
+      const homeAvg = homeLog.slice(0,8).reduce((s,g)=>s+g.myScore,0)/Math.min(8,homeLog.length);
+      const homeAllowed = homeLog.slice(0,8).reduce((s,g)=>s+g.oppScore,0)/Math.min(8,homeLog.length);
+      const awayAvg = awayLog.slice(0,8).reduce((s,g)=>s+g.myScore,0)/Math.min(8,awayLog.length);
+      const awayAllowed = awayLog.slice(0,8).reduce((s,g)=>s+g.oppScore,0)/Math.min(8,awayLog.length);
+      const projTotal = (homeAvg+awayAllowed)/2 + (awayAvg+homeAllowed)/2;
+
+      let bookLine=null, totalBook=null, overOdds=null;
+      (game.bookmakers||[]).forEach(bk => {
+        bk.markets?.filter(m=>m.key==="totals").forEach(mkt => {
+          mkt.outcomes?.forEach(o => {
+            if(o.name==="Over"&&bookLine===null){bookLine=o.point;totalBook=bk.key;overOdds=o.price;}
+          });
+        });
+      });
+
+      const isOver = projTotal > (bookLine||220);
+      const diff = Math.abs(projTotal-(bookLine||220));
+      const totScore = diff>=8?80:diff>=5?70:diff>=3?62:diff>=1?55:50;
+      const totTier = totScore>=75?"HIGH":totScore>=60?"MEDIUM":"WATCHLIST";
+      const totColor = totScore>=75?"#00ff88":totScore>=60?"#ffd700":"#ff9944";
+
       allPlays.push({
-        id:`conviction|${gameLabel}|${side}`,
-        type:"Conviction Play", game:gameLabel, selection:side, gameTime,
-        convictionScore:finalScore, tier, tierColor,
-        signals, topSignals,
-        bestOdds, bestBook, isHome,
-        mlCalibrated: convictionML.totalPlays>=10,
-        learnedWeights: convictionML.learnedWeights!=null,
-        teamRecord:`${espnTeam.wins}-${espnTeam.losses}`,
-        oppRecord:`${espnOpp.wins}-${espnOpp.losses}`,
+        id:`conviction|${gameLabel}|total`, type:"Conviction Play", betType:"Game Total",
+        game:gameLabel, selection:`${home} vs ${away} — ${isOver?"Over":"Under"} ${bookLine||"Total"}`,
+        gameTime, convictionScore:totScore, tier:totTier, tierColor:totColor,
+        signals:[
+          {key:"netRating",label:"Projected Total",score:totScore,emoji:"🏀",
+            note:`Projected ${projTotal.toFixed(0)} pts vs line ${bookLine||"N/A"} — lean ${isOver?"Over ↑":"Under ↓"}`},
+          {key:"recentForm",label:"Home Offense",score:Math.min(95,Math.round(homeAvg/1.2)),emoji:"📈",
+            note:`${home} avg ${homeAvg.toFixed(0)} pts/game last 8`},
+          {key:"atsRecord",label:"Away Offense",score:Math.min(95,Math.round(awayAvg/1.2)),emoji:"📈",
+            note:`${away} avg ${awayAvg.toFixed(0)} pts/game last 8`},
+          {key:"h2hRecord",label:"Defensive Allowed",score:Math.min(95,Math.round((homeAllowed+awayAllowed)/4.6)),emoji:"🛡️",
+            note:`Home allows ${homeAllowed.toFixed(0)}, Away allows ${awayAllowed.toFixed(0)} pts/game`},
+        ],
+        topSignals:[
+          {key:"netRating",label:"Projected Total",score:totScore,emoji:"🏀",
+            note:`Projected ${projTotal.toFixed(0)} pts — lean ${isOver?"Over":"Under"} ${bookLine||""}`},
+          {key:"recentForm",label:"Combined Offense",score:Math.min(95,Math.round((homeAvg+awayAvg)/2.4)),emoji:"📈",
+            note:`${home} ${homeAvg.toFixed(0)} + ${away} ${awayAvg.toFixed(0)} pts avg`},
+        ],
+        bestOdds:overOdds, bestBook:totalBook, isHome:false,
+        mlCalibrated:convictionML.totalPlays>=10, learnedWeights:convictionML.learnedWeights!=null,
+        teamRecord:"", oppRecord:"",
       });
     }
   }
 
-  // Sort all plays by score, deduplicate games (keep best side per game), return top 6
+  // Deduplicate per game+betType, sort by score, cap at 9
   const seen = new Set();
   return allPlays
     .sort((a,b) => b.convictionScore - a.convictionScore)
-    .filter(p => {
-      if(seen.has(p.game)) return false;
-      seen.add(p.game);
-      return true;
-    })
-    .slice(0, 6);
+    .filter(p => { const k=`${p.game}|${p.betType}`; if(seen.has(k)) return false; seen.add(k); return true; })
+    .slice(0, 9);
 }
 
 // ── NBA STATS API ─────────────────────────────────────────────
@@ -1315,10 +1348,19 @@ function ConvictionSection({ plays, loading, convictionML, expandedConviction, s
 
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:10}}>
                 <div>
-                  <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:4}}>
+                  <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:4,flexWrap:"wrap"}}>
                     <div style={{fontSize:9,padding:"1px 7px",borderRadius:4,background:`${play.tierColor}18`,border:`1px solid ${play.tierColor}44`,color:play.tierColor,fontWeight:700}}>{play.tier}</div>
+                    {play.betType&&(
+                      <div style={{fontSize:9,padding:"1px 7px",borderRadius:4,
+                        background:play.betType==="Moneyline"?"rgba(0,191,255,0.12)":play.betType==="Spread"?"rgba(180,79,255,0.12)":"rgba(255,215,0,0.12)",
+                        border:`1px solid ${play.betType==="Moneyline"?"rgba(0,191,255,0.4)":play.betType==="Spread"?"rgba(180,79,255,0.4)":"rgba(255,215,0,0.4)"}`,
+                        color:play.betType==="Moneyline"?"#00bfff":play.betType==="Spread"?"#b44fff":"#ffd700",
+                        fontWeight:700}}>
+                        {play.betType==="Moneyline"?"💰 ML":play.betType==="Spread"?"📊 SPR":"🏀 TOT"}
+                      </div>
+                    )}
                     {play.mlCalibrated&&<div style={{fontSize:9,color:"#b44fff",padding:"1px 6px",borderRadius:4,background:"rgba(180,79,255,0.08)",border:"1px solid rgba(180,79,255,0.2)"}}>🧠 ML</div>}
-                    {play.isHome&&<div style={{fontSize:9,color:"#00bfff",padding:"1px 6px",borderRadius:4,background:"rgba(0,191,255,0.08)",border:"1px solid rgba(0,191,255,0.2)"}}>🏠 HOME</div>}
+                    {play.isHome&&<div style={{fontSize:9,color:"#aaaaaa",padding:"1px 6px",borderRadius:4,background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.1)"}}>🏠 HOME</div>}
                   </div>
                   <div style={{fontSize:16,fontWeight:700,color:"#fff",marginBottom:2}}>{play.selection}</div>
                   <div style={{fontSize:10,color:"#3a5570"}}>{play.game} · {timeUntil(play.gameTime)} to tip</div>
@@ -1731,6 +1773,7 @@ export default function NBAEdge() {
 
   const BET_TYPES=["All","Moneyline","Spread","Game Total","Player Prop"];
   const filtered=filter==="All"?bets:bets.filter(b=>b.type===filter);
+  const filteredConviction=filter==="All"?convictionPlays:convictionPlays.filter(p=>p.betType===filter);
   const resolved=history.filter(h=>h.status!=="pending");
   const won=resolved.filter(h=>h.status==="won");
   const totalWagered=resolved.reduce((s,h)=>s+h.wagerAmt,0);
@@ -1982,7 +2025,7 @@ export default function NBAEdge() {
 
         {/* CONVICTION PLAYS — stat-driven, ML-weighted, EV-agnostic */}
         {filter!=="Info"&&filter!=="History"&&<ConvictionSection
-          plays={convictionPlays}
+          plays={filteredConviction}
           loading={convictionLoading}
           convictionML={convictionML}
           expandedConviction={expandedConviction}
