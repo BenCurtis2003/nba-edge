@@ -1907,8 +1907,8 @@ function gameMatches(entryGame="", scoreHome="", scoreAway="") {
     console.log(`[Resolve] ${pending.length} pending bets...`);
     // Use pre-fetched scores if provided, otherwise fetch (ESPN fallback works without key)
     const scores = prefetchedScores || await fetchScores(apiKey);
-    if(!scores?.length) { console.log("[Resolve] No scores available"); return { history: currentHistory, ml: currentML }; }
-    console.log(`[Resolve] ${scores.filter(s=>s.completed).length} completed games available`);
+    const safeScores = scores?.length ? scores : [];
+    console.log(`[Resolve] ${safeScores.filter(s=>s.completed).length} completed games available (${safeScores.length} total)`);
 
     let updated = [...currentHistory];
     let updatedML = {...currentML};
@@ -1918,17 +1918,20 @@ function gameMatches(entryGame="", scoreHome="", scoreAway="") {
     updated = updated.map(entry => {
       if(entry.status !== "pending") { runningBankroll = entry.bankrollAfter; return entry; }
       // Fuzzy match by normalized team nickname
-      const gameScore = scores.find(s => gameMatches(entry.game, s.home_team||"", s.away_team||""));
+      const gameScore = safeScores.find(s => gameMatches(entry.game, s.home_team||"", s.away_team||""));
       if(!gameScore) {
-        const available = scores.slice(0,8).map(s=>`${normTeam(s.away_team)}@${normTeam(s.home_team)}`).join(", ");
-        console.log(`[Resolve] NO MATCH for: "${entry.game}" | available: ${available}`);
-        // Auto-void very old unresolvable bets (>36hrs, likely from demo/mock data)
-        const ageHrs = (Date.now() - new Date(entry.gameTime||entry.date)) / 3600000;
-        if(ageHrs > 20) {
-          console.log(`[Resolve] Voiding stale bet: ${entry.game} (${ageHrs.toFixed(0)}h old)`);
+        const available = safeScores.slice(0,8).map(s=>`${normTeam(s.away_team)}@${normTeam(s.home_team)}`).join(", ");
+        // Use gameTime (when game tips) not date (when bet was recorded) for age check
+        const gameAge = (Date.now() - new Date(entry.gameTime || entry.date)) / 3600000;
+        // Void if: known mock ID, OR game should be over (started >4h ago) with no ESPN result
+        const isMockId = /^(ml-fav|sp-fav|tot-|ml-dog|sp-dog)/.test(entry.betId || entry.id || "");
+        const gameOver = gameAge > 4;
+        console.log(`[Resolve] No match: "${entry.game}" gameAge=${gameAge.toFixed(1)}h isMock=${isMockId} gameOver=${gameOver} | avail: ${available}`);
+        if(isMockId || gameOver) {
+          console.log(`[Resolve] Voiding: ${entry.game} (${isMockId?"mock data":"no result after "+gameAge.toFixed(0)+"h"})`);
           changed = true;
           return {...entry, status:"voided", result:"VOID", wagerAmt: entry.wagerAmt||0,
-            potentialPayout:0, bankrollBefore:+runningBankroll.toFixed(2), 
+            potentialPayout:0, bankrollBefore:+runningBankroll.toFixed(2),
             bankrollAfter:+runningBankroll.toFixed(2)};
         }
         return {...entry, bankrollBefore:+runningBankroll.toFixed(2), bankrollAfter:+runningBankroll.toFixed(2)};
