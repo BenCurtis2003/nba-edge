@@ -2010,7 +2010,22 @@ export default function NBAEdge() {
         }
         if(games.length > 0) {
           const plays = await buildConvictionPlays(games, currentConvML);
-          setConvictionPlays(plays);
+          // Preserve any existing live state from previous poll
+          setConvictionPlays(prev => {
+            return plays.map(p => {
+              const existing = prev.find(e => e.game === p.game && e.betType === p.betType);
+              if(existing?.isLive) {
+                // Keep live overlay but update pregame signals
+                return {...p, isLive: existing.isLive, liveGame: existing.liveGame,
+                  liveSignals: existing.liveSignals, liveWeight: existing.liveWeight,
+                  pregameWeight: existing.pregameWeight,
+                  convictionScore: existing.convictionScore,
+                  tier: existing.tier, tierColor: existing.tierColor,
+                  pregameConvictionScore: existing.pregameConvictionScore ?? p.convictionScore};
+              }
+              return p;
+            });
+          });
           log(`🎯 ${plays.length} conviction plays · ${plays.filter(p=>p.tier==="HIGH").length} HIGH`);
           // Add conviction plays to paper history
           setHistory(prev => {
@@ -2065,38 +2080,37 @@ export default function NBAEdge() {
       setConvictionLoading(false);
     })();
 
-    // Fix #1: Pass current history to deduplication function
-    setHistory(prev => {
-      const updated = autoAddToHistory(rawBets, bankroll, prev);
-      setBankroll(updated.length>0?updated[updated.length-1].bankrollAfter:bankroll);
+    // Step 1: Add new bets to history (sync)
+    const currentHist = JSON.parse(localStorage.getItem(STORAGE_KEY)||"[]");
+    const updated = autoAddToHistory(rawBets, bankroll, currentHist);
+    setHistory(updated);
+    if(updated.length > 0) setBankroll(updated[updated.length-1].bankrollAfter);
 
-      // Resolve pending bets + conviction plays
-      resolveWithScores(updated, activeKey, currentML).then(async result => {
-        if(result && result.history) {
-          setHistory(result.history);
-          if(result.ml) { saveML(result.ml); setMlModel(result.ml); }
-          // Remove completed games from main bet list
-          const scores = await fetchScores(activeKey);
-          if(scores) {
-            resolveConvictionPlays(scores);
-            // Filter out bets for completed games — use both API completed flag and gameTime
-            setBets(prev => prev.filter(bet => {
-              // Time-based: if game started >3.5 hours ago, remove from active view
-              if(bet.gameTime) {
-                const ageHrs = (Date.now() - new Date(bet.gameTime)) / 3600000;
-                if(ageHrs > 3.5) return false;
-              }
-              // API-based: check scores endpoint
-              const gameScore = scores.find(s =>
-                (s.home_team && bet.game?.includes(s.home_team)) ||
-                (s.away_team && bet.game?.includes(s.away_team))
-              );
-              return !gameScore?.completed;
-            }));
-          }
+    // Step 2: Resolve pending bets (async, outside setState)
+    resolveWithScores(updated, activeKey, currentML).then(async result => {
+      if(result?.history) {
+        setHistory(result.history);
+        if(result.ml) { saveML(result.ml); setMlModel(result.ml); }
+        // Update bankroll from last resolved entry
+        const lastResolved = [...result.history].reverse().find(h=>h.status!=="pending");
+        if(lastResolved) setBankroll(lastResolved.bankrollAfter);
+        // Step 3: Remove completed games from active bet list
+        const scores = await fetchScores(activeKey);
+        if(scores) {
+          resolveConvictionPlays(scores);
+          setBets(prev => prev.filter(bet => {
+            if(bet.gameTime) {
+              const ageHrs = (Date.now() - new Date(bet.gameTime)) / 3600000;
+              if(ageHrs > 3.5) return false;
+            }
+            const gameScore = scores.find(s =>
+              (s.home_team && bet.game?.includes(s.home_team)) ||
+              (s.away_team && bet.game?.includes(s.away_team))
+            );
+            return !gameScore?.completed;
+          }));
         }
-      });
-      return updated;
+      }
     });
 
     // Fix #2: News agent + confidence scoring in parallel pipeline
@@ -2145,7 +2159,11 @@ export default function NBAEdge() {
     const t=schedule(); return ()=>clearTimeout(t);
   }, [fetchBets]);
 
-  // Live conviction rescoring — polls ESPN every 45s during active games
+  // Ref always holds latest conviction plays — prevents stale closure in interval
+  const convictionPlaysRef = useRef([]);
+  useEffect(() => { convictionPlaysRef.current = convictionPlays; }, [convictionPlays]);
+
+  // Live conviction rescoring — polls ESPN every 45s, never stale-closes
   useEffect(() => {
     const pollLive = async () => {
       const scoreboard = await fetchLiveScoreboard();
@@ -2153,34 +2171,31 @@ export default function NBAEdge() {
       const activeGames = scoreboard.filter(g => g.state === "in");
       setLiveGames(scoreboard);
       setHasLiveGames(activeGames.length > 0);
-      if(activeGames.length === 0 || convictionPlays.length === 0) return;
+      const currentPlays = convictionPlaysRef.current;
+      if(activeGames.length === 0 || currentPlays.length === 0) return;
 
-      // Rescore each conviction play against live game state
+      // Rescore each play against live game state using latest ref value
       let anyUpdated = false;
-      const updated = convictionPlays.map(play => {
+      const updated = currentPlays.map(play => {
         const gameHome = play.game.split(" @ ")[1];
         const liveGame = activeGames.find(g =>
           g.home_team === gameHome ||
           g.home_team.toLowerCase().includes(gameHome?.toLowerCase().split(" ").pop() || "")
         );
         if(!liveGame) return play;
-
-        // Store pregame score before first live update
         const pregameScore = play.pregameConvictionScore ?? play.convictionScore;
         const live = rescoreConvictionLive({...play, pregameConvictionScore: pregameScore}, liveGame);
         if(!live) return play;
-
         anyUpdated = true;
         return { ...play, ...live, pregameConvictionScore: pregameScore };
       });
-
       if(anyUpdated) setConvictionPlays(updated);
     };
 
-    pollLive(); // run immediately
-    const interval = setInterval(pollLive, 45000); // then every 45s
+    pollLive();
+    const interval = setInterval(pollLive, 45000);
     return () => clearInterval(interval);
-  }, [convictionPlays.length]); // re-attach when play count changes, not on every rescore
+  }, []); // mount once — reads latest plays via ref, never restarts
 
   // Live polling every 60 seconds — catches line moves as they happen
   useEffect(() => {
@@ -2188,20 +2203,21 @@ export default function NBAEdge() {
     const interval = setInterval(async () => {
       setLastPoll(new Date());
       fetchBets();
-      // Also re-attempt resolution on each poll in case games finished
-      const currentML = loadML();
-      setHistory(prev => {
-        const hasPending = prev.some(h=>h.status==="pending");
-        if(hasPending && oddsKey) {
-          resolveWithScores(prev, oddsKey, currentML).then(result => {
-            if(result?.history) {
-              setHistory(result.history);
-              if(result.ml) { saveML(result.ml); setMlModel(result.ml); }
-            }
-          });
-        }
-        return prev;
-      });
+      // Re-attempt resolution on each poll (outside setState — no async in state updater)
+      const pollML = loadML();
+      const pollHist = JSON.parse(localStorage.getItem(STORAGE_KEY)||"[]");
+      if(pollHist.some(h=>h.status==="pending") && oddsKey) {
+        resolveWithScores(pollHist, oddsKey, pollML).then(result => {
+          if(result?.history && result.history.some(h=>h.status!=="pending" && 
+            !pollHist.find(p=>p.id===h.id&&p.status!=="pending"))) {
+            setHistory(result.history);
+            if(result.ml) { saveML(result.ml); setMlModel(result.ml); }
+            const lastR = [...result.history].reverse().find(h=>h.status!=="pending");
+            if(lastR) setBankroll(lastR.bankrollAfter);
+            log(`✅ Resolved bets from poll · bankroll updated`);
+          }
+        });
+      }
     }, POLL_INTERVAL_MS);
     return () => clearInterval(interval);
   }, [oddsKey, fetchBets]);
