@@ -158,20 +158,16 @@ function generateMockBets() {
 async function fetchLiveOdds(apiKey, mlModel) {
   try {
     const ALL_BOOKS = [...SPORTSBOOKS, "pinnacle"];
-    // Fetch game lines and player props in parallel
-    const [gameRes, propRes] = await Promise.all([
-      fetch(`https://api.the-odds-api.com/v4/sports/basketball_nba/odds/?apiKey=${apiKey}&regions=us,eu&markets=h2h,spreads,totals&bookmakers=${ALL_BOOKS.join(",")}&oddsFormat=american`),
-      fetch(`https://api.the-odds-api.com/v4/sports/basketball_nba/odds/?apiKey=${apiKey}&regions=us&markets=player_points,player_rebounds,player_assists,player_threes&bookmakers=draftkings,fanduel,betmgm,caesars&oddsFormat=american`)
-    ]);
-    if(!gameRes.ok) throw new Error(gameRes.status);
-    const data = await gameRes.json();
-    let propData = [];
-    if(propRes.ok) {
-      propData = await propRes.json();
-      console.log(`[Props] API returned ${propData.length} games with prop markets`);
-    } else {
-      console.log(`[Props] API error ${propRes.status} — props may require paid tier`);
+    // Single call for game lines (h2h + spreads + totals) — free tier safe
+    const gameRes = await fetch(`https://api.the-odds-api.com/v4/sports/basketball_nba/odds/?apiKey=${apiKey}&regions=us&markets=h2h,spreads,totals&bookmakers=${ALL_BOOKS.join(",")}&oddsFormat=american`);
+    if(!gameRes.ok) {
+      const errText = await gameRes.text().catch(()=>"");
+      console.error(`[OddsAPI] HTTP ${gameRes.status}: ${errText.slice(0,200)}`);
+      throw new Error(`HTTP ${gameRes.status}`);
     }
+    const data = await gameRes.json();
+    const propData = [];
+    console.log(`[OddsAPI] ${data.length} games fetched`);
     if(!Array.isArray(data)||data.length===0) return null;
 
     const bets = [];
@@ -1657,15 +1653,18 @@ export default function NBAEdge() {
     return { history: updated, ml: updatedML };
   }, []);
 
-  const fetchBets = useCallback(async () => {
+  const fetchBets = useCallback(async (overrideOddsKey) => {
     setLoading(true);
     log("🔍 Fetching NBA odds...");
+    const keyPreview = activeKey ? `key: ${activeKey.slice(0,8)}...` : "no key";
+    log(`🔑 ${keyPreview}`);
     const currentML = loadML();
     let rawBets = null;
 
-    if(oddsKey) {
+    const activeKey = overrideOddsKey !== undefined ? overrideOddsKey : oddsKey;
+    if(activeKey) {
       const [result, rundownProps] = await Promise.all([
-        fetchLiveOdds(oddsKey, currentML),
+        fetchLiveOdds(activeKey, currentML),
         fetchRundownProps(rundownKey)
       ]);
       if(result) {
@@ -1712,18 +1711,23 @@ export default function NBAEdge() {
         })).filter(g=>g.away_team&&g.home_team);
         log(`📅 ESPN: ${games.length} games today`);
       }
-      // If Odds API also works, merge bookmaker odds into games
-      if(oddsKey && games.length > 0) {
-        const oddsRes = await fetch(`https://api.the-odds-api.com/v4/sports/basketball_nba/odds/?apiKey=${oddsKey}&regions=us&markets=h2h&bookmakers=${SPORTSBOOKS.join(",")}&oddsFormat=american`);
+      // Merge bookmaker odds from already-fetched live odds (reuse result, no extra API call)
+      if(activeKey && games.length > 0) {
+        // Re-fetch with all markets for conviction plays (h2h + spreads + totals)
+        const oddsRes = await fetch(`https://api.the-odds-api.com/v4/sports/basketball_nba/odds/?apiKey=${activeKey}&regions=us&markets=h2h,spreads,totals&bookmakers=${SPORTSBOOKS.join(",")}&oddsFormat=american`);
         if(oddsRes.ok) {
           const oddsGames = await oddsRes.json();
           games = games.map(g => {
+            const hn = g.home_team.toLowerCase().split(" ").pop();
             const match = oddsGames.find(og =>
-              og.home_team.toLowerCase().includes(g.home_team.toLowerCase().split(" ").pop()) ||
+              og.home_team.toLowerCase().includes(hn) ||
               g.home_team.toLowerCase().includes(og.home_team.toLowerCase().split(" ").pop())
             );
             return match ? {...g, bookmakers: match.bookmakers} : g;
           });
+          log(`📊 Merged odds for ${games.filter(g=>g.bookmakers?.length>0).length}/${games.length} games`);
+        } else {
+          log(`⚠️ Odds merge failed HTTP ${oddsRes.status} — conviction plays will show no lines`);
         }
       }
       if(games.length > 0) {
@@ -1919,7 +1923,7 @@ export default function NBAEdge() {
               <div style={{fontSize:10,color:"#1e3040",marginTop:5}}>{hint}</div>
             </div>
           ))}
-          <button style={s.btnPrimary} onClick={()=>{setSettingsOpen(false);fetchBets();}}>Save & Refresh</button>
+          <button style={s.btnPrimary} onClick={()=>{setSettingsOpen(false);fetchBets(oddsKey);}}>Save & Refresh</button>
           <button style={{...s.btn,marginLeft:10}} onClick={()=>setSettingsOpen(false)}>Cancel</button>
           <div style={{marginTop:24,borderTop:"1px solid #172030",paddingTop:20}}>
             <div style={{fontSize:10,color:"#3a5570",marginBottom:8,letterSpacing:"0.1em",textTransform:"uppercase"}}>ML Engine Status</div>
