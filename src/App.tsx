@@ -1837,7 +1837,7 @@ export default function NBAEdge() {
         type: bet.type,
         bestOdds: bet.bestOdds,
         bestBook: bet.bestBook,
-        kellyPct: bet.kellyPct,
+        kellyPct: bet.kellyPct || +(wagerAmt / runningBankroll * 100).toFixed(2),
         wagerAmt,
         potentialPayout: payout,
         ev: bet.ev,
@@ -2650,12 +2650,16 @@ function gameMatches(entryGame="", scoreHome="", scoreAway="") {
                               </div>
                               {h.bestOdds&&<div style={{fontSize:10,fontWeight:700,color:h.bestOdds<0?"#00bfff":"#ffd700"}}>{formatOdds(h.bestOdds)}</div>}
                               {h.bestBook&&<div style={{fontSize:9,color:SPORTSBOOK_COLORS[h.bestBook]||"#3a5570"}}>{h.bestBook}</div>}
-                              {/* Kelly % — core sizing metric */}
-                              {(h.kellyPct||h.isConviction)&&(
-                                <div style={{fontSize:9,padding:"1px 6px",borderRadius:3,background:"rgba(180,79,255,0.12)",border:"1px solid rgba(180,79,255,0.25)",color:"#b44fff",fontWeight:600}}>
-                                  Kelly {h.isConviction?"2.0":h.kellyPct?.toFixed(1)}%
-                                </div>
-                              )}
+                              {/* Kelly % badge — always shown if bet was placed */}
+                              {(h.wagerAmt > 0) && (() => {
+                                const k = h.kellyPct > 0 ? h.kellyPct
+                                  : h.wagerAmt && h.bankrollBefore ? +(h.wagerAmt/h.bankrollBefore*100)
+                                  : h.isConviction ? 2 : null;
+                                if(!k) return null;
+                                return <div style={{fontSize:9,padding:"1px 6px",borderRadius:3,background:"rgba(180,79,255,0.12)",border:"1px solid rgba(180,79,255,0.25)",color:"#b44fff",fontWeight:600}}>
+                                  Kelly {k.toFixed(1)}%
+                                </div>;
+                              })()}
                               {/* Edge % for EV bets */}
                               {h.edge>0&&!h.isConviction&&(
                                 <div style={{fontSize:9,padding:"1px 6px",borderRadius:3,background:"rgba(0,255,136,0.08)",border:"1px solid rgba(0,255,136,0.2)",color:"#00ff88",fontWeight:600}}>
@@ -2682,7 +2686,16 @@ function gameMatches(entryGame="", scoreHome="", scoreAway="") {
                               {!isPending&&!isVoided&&<div>To win <span style={{color:"#00bfff"}}>{fmt$(h.potentialPayout)}</span></div>}
                             </div>
                             <div style={{fontSize:10,color:"#3a5570",marginTop:2}}>
-                              Kelly <span style={{color:"#b44fff",fontWeight:600}}>{h.isConviction?"2.0":(h.kellyPct!=null?h.kellyPct.toFixed(1):"—")}%</span>
+                              Kelly <span style={{color:"#b44fff",fontWeight:600}}>{
+                                (() => {
+                                  const k = h.kellyPct;
+                                  if(k && k > 0) return k.toFixed(1);
+                                  // Compute from actual wager if stored value is 0/null
+                                  if(h.wagerAmt && h.bankrollBefore) return (h.wagerAmt/h.bankrollBefore*100).toFixed(1);
+                                  if(h.isConviction) return "2.0";
+                                  return "—";
+                                })()
+                              }%</span>
                               <span style={{margin:"0 6px",opacity:0.3}}>·</span>
                               Bankroll → <span style={{color:"#dde3ee",fontWeight:600}}>{fmt$(h.bankrollAfter)}</span>
                             </div>
