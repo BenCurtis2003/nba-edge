@@ -170,7 +170,6 @@ async function fetchLiveOdds(apiKey, mlModel) {
     console.log(`[OddsAPI] ${data.length} games fetched`);
     if(!Array.isArray(data)||data.length===0) return null;
     // Expose raw games for conviction odds merge (set on window temporarily)
-    try { window.__nbaEdgeOddsGames = data; } catch {}
 
     const bets = [];
     data.forEach(game => {
@@ -498,7 +497,7 @@ async function fetchLiveOdds(apiKey, mlModel) {
     const propBets = bets.filter(b=>b.isProp).sort((a,b)=>b.ev-a.ev);
     const gameBets = allBets.filter(b=>!b.isProp);
     console.log(`[Odds] Game bets: ${gameBets.length} | Props: ${propBets.length} | Near-EV: ${topNearEV.length} | Bias: ${marketBias?.toFixed(2)}%`);
-    return { bets:[...gameBets, ...propBets, ...topNearEV], marketBias };
+    return { bets:[...gameBets, ...propBets, ...topNearEV], marketBias, rawGames: data };
   } catch(e) { console.error("Odds API",e); return null; }
 }
 
@@ -1694,7 +1693,7 @@ export default function NBAEdge() {
         fetchLiveOdds(activeKey, currentML),
         fetchRundownProps(rundownKey)
       ]);
-      try { rawOddsGames = window.__nbaEdgeOddsGames || null; } catch {}
+      rawOddsGames = result?.rawGames || null;
       if(result) {
         // API succeeded — use live data even if 0 edges found today
         const gameBets = result.bets.filter(b=>!b.isProp);
@@ -1760,6 +1759,49 @@ export default function NBAEdge() {
           const plays = await buildConvictionPlays(games, currentConvML);
           setConvictionPlays(plays);
           log(`🎯 ${plays.length} conviction plays · ${plays.filter(p=>p.tier==="HIGH").length} HIGH`);
+          // Add conviction plays to paper history
+          setHistory(prev => {
+            const today = new Date().toDateString();
+            const placedIds = new Set(prev.filter(h=>new Date(h.date).toDateString()===today).map(h=>h.betId));
+            const fresh = plays.filter(p => !placedIds.has(p.id) && p.bestOdds);
+            if(!fresh.length) return prev;
+            let bank = prev.length ? prev[prev.length-1].bankrollAfter : bankroll;
+            const entries = fresh.map(play => {
+              const wagerPct = 0.02; // flat 2% Kelly for conviction plays (no EV sizing)
+              const wagerAmt = +(bank * wagerPct).toFixed(2);
+              const payout = play.bestOdds
+                ? +(wagerAmt * (americanToDecimal(play.bestOdds)-1)).toFixed(2)
+                : 0;
+              bank = +(bank).toFixed(2); // bankroll unchanged until resolved
+              return {
+                id: `${play.id}_${Date.now()}_${Math.random().toString(36).slice(2)}`,
+                betId: play.id,
+                date: new Date().toISOString(),
+                game: play.game,
+                selection: play.selection,
+                type: "Conviction Play",
+                betType: play.betType,
+                bestOdds: play.bestOdds,
+                bestBook: play.bestBook,
+                kellyPct: 2,
+                wagerAmt,
+                potentialPayout: payout,
+                ev: null,
+                edge: null,
+                convictionScore: play.convictionScore,
+                convictionTier: play.tier,
+                status: "pending",
+                bankrollBefore: bank,
+                bankrollAfter: bank,
+                gameTime: play.gameTime,
+                result: null,
+                isConviction: true,
+              };
+            });
+            const updated = [...prev, ...entries];
+            try { localStorage.setItem(STORAGE_KEY, JSON.stringify(updated)); } catch {}
+            return updated;
+          });
         } else {
           log("⚠️ No ESPN games today");
         }
@@ -2071,12 +2113,16 @@ export default function NBAEdge() {
                       <div>
                         <div style={{fontSize:11,color:"#dde3ee",fontWeight:600,marginBottom:2}}>{h.selection}</div>
                         <div style={{fontSize:9,color:"#3a5570"}}>{h.game}</div>
-                        <div style={{display:"inline-block",marginTop:3,...s.typeBadge(h.type)}}>{h.type}</div>
+                        <div style={{display:"inline-block",marginTop:3,...s.typeBadge(h.isConviction?"Conviction Play":h.type)}}>
+                          {h.isConviction?`🎯 ${h.betType||"Conviction"}`:h.type}
+                        </div>
                       </div>
                       <div style={{fontSize:12,fontWeight:600,color:SPORTSBOOK_COLORS[h.bestBook]}}>{formatOdds(h.bestOdds)}</div>
                       <div style={{fontSize:12,color:"#ffd700"}}>{fmt$(h.wagerAmt)}</div>
                       <div style={{fontSize:12,color:"#00bfff"}}>{fmt$(h.potentialPayout)}</div>
-                      <div style={{fontSize:11,color:"#b44fff"}}>{h.kellyPct}%</div>
+                      <div style={{fontSize:11,color:h.isConviction?"#ffd700":"#b44fff"}}>
+                        {h.isConviction?`${h.convictionScore||"—"}/100`:h.kellyPct+"%"}
+                      </div>
                       <div style={{fontSize:11,color:"#dde3ee"}}>{fmt$(h.bankrollAfter)}</div>
                       <div>
                         {h.status==="pending"&&<div style={{fontSize:9,color:"#ffd700",padding:"2px 7px",borderRadius:4,background:"rgba(255,215,0,0.1)",border:"1px solid rgba(255,215,0,0.2)",display:"inline-block"}}>PENDING</div>}
