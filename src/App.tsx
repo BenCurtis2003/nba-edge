@@ -1,4 +1,5 @@
 // @ts-nocheck
+
 // @ts-nocheck
 import { useState, useEffect, useCallback, useRef } from "react";
 
@@ -595,7 +596,7 @@ async function fetchRundownProps(rundownKey) {
 
 async function fetchScores(apiKey) {
   try {
-    const res = await fetch(`https://api.the-odds-api.com/v4/sports/basketball_nba/scores/?apiKey=${apiKey}&daysFrom=1`);
+    const res = await fetch(`https://api.the-odds-api.com/v4/sports/basketball_nba/scores/?apiKey=${apiKey}&daysFrom=3`);
     if(!res.ok) return null;
     return await res.json();
   } catch { return null; }
@@ -1412,13 +1413,13 @@ function MiniChart({ history }) {
   const canvasRef = useRef(null);
   useEffect(() => {
     const canvas = canvasRef.current;
-    if(!canvas||history.length<2) return;
+    if(!canvas||history.length<1) return;
     const ctx=canvas.getContext("2d");
     const W=canvas.width, H=canvas.height;
     const pad={t:20,r:20,b:36,l:56};
     const cW=W-pad.l-pad.r, cH=H-pad.t-pad.b;
     ctx.clearRect(0,0,W,H);
-    const bankrolls=history.map(h=>h.bankrollAfter);
+    const bankrolls=history.map(h=>h.chartBankroll ?? h.bankrollAfter);
     const minB=Math.min(STARTING_BANKROLL,...bankrolls)*0.97;
     const maxB=Math.max(STARTING_BANKROLL,...bankrolls)*1.03;
     const scaleX=i=>pad.l+(i/(history.length-1))*cW;
@@ -1461,9 +1462,9 @@ function MiniChart({ history }) {
       }
     });
   }, [history]);
-  if(history.length<2) return (
+  if(history.length<1) return (
     <div style={{height:220,display:"flex",alignItems:"center",justifyContent:"center",color:"#3a5570",fontSize:12}}>
-      Place 2+ bets to see chart
+      Add an Odds API key to start tracking bets
     </div>
   );
   return <canvas ref={canvasRef} width={900} height={220} style={{width:"100%",height:220,display:"block"}}/>;
@@ -1814,27 +1815,40 @@ export default function NBAEdge() {
         const sel=entry.selection.toLowerCase();
         const home=gameScore.home_team.toLowerCase();
         const totalScore=parseInt(homeScore)+parseInt(awayScore);
-        if(entry.type==="Moneyline") {
+        // Normalize type — conviction plays store type in betType
+        const resolveType = entry.betType || entry.type;
+        if(resolveType==="Moneyline") {
           const homeWon=parseInt(homeScore)>parseInt(awayScore);
-          won=sel.includes(home)?homeWon:!homeWon;
-        } else if(entry.type==="Spread") {
+          // Match team name in selection — strip "ML" suffix for conviction plays
+          const selClean = sel.replace(/ ml$/i,"").trim();
+          won=selClean.includes(home)||home.includes(selClean)?homeWon:!homeWon;
+        } else if(resolveType==="Spread") {
           const spreadMatch=sel.match(/([+-]?\d+\.?\d*)\s*$/);
           if(spreadMatch) {
             const spread=parseFloat(spreadMatch[1]);
-            const isHome=sel.includes(home);
+            const isHome=sel.toLowerCase().includes(home);
             const margin=isHome?(parseInt(homeScore)-parseInt(awayScore)):(parseInt(awayScore)-parseInt(homeScore));
             won=margin+spread>0;
+          } else {
+            // No spread in selection — treat as moneyline-style for conviction spread plays
+            const homeWon=parseInt(homeScore)>parseInt(awayScore);
+            won=sel.includes(home)?homeWon:!homeWon;
           }
-        } else if(entry.type==="Game Total") {
-          const isOver=sel.includes("over");
+        } else if(resolveType==="Game Total") {
+          const isOver=sel.toLowerCase().includes("over");
           const lineMatch=sel.match(/(\d+\.?\d*)/);
           if(lineMatch) { const line=parseFloat(lineMatch[1]); won=isOver?totalScore>line:totalScore<line; }
+        } else if(entry.isConviction) {
+          // Fallback: conviction plays without betType — resolve as moneyline
+          const homeWon=parseInt(homeScore)>parseInt(awayScore);
+          won=entry.isHome?homeWon:!homeWon;
         }
       }
       if(won===null) return {...entry, bankrollBefore:+runningBankroll.toFixed(2), bankrollAfter:+runningBankroll.toFixed(2)};
 
-      const wagerAmt=+(runningBankroll*entry.kellyPct/100).toFixed(2);
-      const payout=+(wagerAmt*(americanToDecimal(entry.bestOdds)-1)).toFixed(2);
+      const wagerAmt=+(runningBankroll*(entry.kellyPct||2)/100).toFixed(2);
+      const decOdds = entry.bestOdds ? americanToDecimal(entry.bestOdds) : 1.91; // default -110 if no odds
+      const payout=+(wagerAmt*(decOdds-1)).toFixed(2);
       const bankrollBefore=+runningBankroll.toFixed(2);
       if(won) runningBankroll+=payout; else runningBankroll-=wagerAmt;
       runningBankroll=Math.max(0,+runningBankroll.toFixed(2));
@@ -1856,6 +1870,25 @@ export default function NBAEdge() {
     }
     return { history: updated, ml: updatedML };
   }, []);
+
+  // On mount: immediately try to resolve any pending bets from localStorage
+  useEffect(() => {
+    const key = localStorage.getItem("nba_edge_odds_key") || "";
+    if(!key) return;
+    setHistory(prev => {
+      if(!prev.some(h=>h.status==="pending")) return prev;
+      const ml = loadML();
+      resolveWithScores(prev, key, ml).then(result => {
+        if(result?.history) {
+          setHistory(result.history);
+          if(result.ml) { saveML(result.ml); setMlModel(result.ml); }
+          const resolved = result.history.filter(e=>e.status!=="pending");
+          if(resolved.length) setBankroll(resolved[resolved.length-1].bankrollAfter);
+        }
+      });
+      return prev;
+    });
+  }, [resolveWithScores]); // runs once after resolveWithScores is stable
 
   const fetchBets = useCallback(async (overrideOddsKey) => {
     setLoading(true);
@@ -1997,14 +2030,23 @@ export default function NBAEdge() {
       setBankroll(updated.length>0?updated[updated.length-1].bankrollAfter:bankroll);
 
       // Resolve pending bets + conviction plays
-      resolveWithScores(updated, oddsKey, currentML).then(async result => {
+      resolveWithScores(updated, activeKey, currentML).then(async result => {
         if(result && result.history) {
           setHistory(result.history);
-          saveML(result.ml);
-          setML(result.ml);
-          // Also resolve conviction plays with same scores
-          const scores = await fetchScores(oddsKey);
-          if(scores) resolveConvictionPlays(scores);
+          if(result.ml) { saveML(result.ml); setMlModel(result.ml); }
+          // Remove completed games from main bet list
+          const scores = await fetchScores(activeKey);
+          if(scores) {
+            resolveConvictionPlays(scores);
+            // Filter out bets for completed games from display
+            setBets(prev => prev.filter(bet => {
+              const gameScore = scores.find(s =>
+                (s.home_team && bet.game?.includes(s.home_team)) ||
+                (s.away_team && bet.game?.includes(s.away_team))
+              );
+              return !gameScore?.completed; // keep only unresolved games
+            }));
+          }
         }
       });
       return updated;
@@ -2096,9 +2138,23 @@ export default function NBAEdge() {
   // Live polling every 60 seconds — catches line moves as they happen
   useEffect(() => {
     if(!oddsKey) return;
-    const interval = setInterval(() => {
+    const interval = setInterval(async () => {
       setLastPoll(new Date());
       fetchBets();
+      // Also re-attempt resolution on each poll in case games finished
+      const currentML = loadML();
+      setHistory(prev => {
+        const hasPending = prev.some(h=>h.status==="pending");
+        if(hasPending && oddsKey) {
+          resolveWithScores(prev, oddsKey, currentML).then(result => {
+            if(result?.history) {
+              setHistory(result.history);
+              if(result.ml) { saveML(result.ml); setMlModel(result.ml); }
+            }
+          });
+        }
+        return prev;
+      });
     }, POLL_INTERVAL_MS);
     return () => clearInterval(interval);
   }, [oddsKey, fetchBets]);
@@ -2123,12 +2179,17 @@ export default function NBAEdge() {
   const mlConfidence = mlModel.totalBets >= 5 ? Math.min(50+mlModel.totalBets*2, 95) : 0;
 
   const chartData=(()=>{
-    const days={};
-    history.forEach(h=>{
-      const d=new Date(h.date).toDateString();
-      if(!days[d]||new Date(h.date)>new Date(days[d].date)) days[d]=h;
+    // Use all resolved entries + show running bankroll including pending
+    const sorted = [...history].sort((a,b)=>new Date(a.date)-new Date(b.date));
+    if(sorted.length === 0) return [];
+    // Build running bankroll correctly — pending bets don't move bankroll yet
+    let running = STARTING_BANKROLL;
+    return sorted.map(h => {
+      if(h.status === "won") running = h.bankrollAfter;
+      else if(h.status === "lost") running = h.bankrollAfter;
+      // pending: bankroll unchanged
+      return {...h, chartBankroll: running};
     });
-    return Object.values(days).sort((a,b)=>new Date(a.date)-new Date(b.date));
   })();
 
   const s = {
