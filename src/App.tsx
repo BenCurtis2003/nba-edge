@@ -745,137 +745,161 @@ async function fetchESPNTeamStats(espnId) {
 }
 
 async function buildConvictionPlays(games, convictionML) {
-  if(!games || games.length === 0) return [];
+  if(!games || !games.length) return [];
   const weights = getSignalWeights(convictionML);
-  const plays = [];
+  const allPlays = [];
 
-  // Fetch ESPN team roster
+  // Fetch all ESPN team data once
   const espnTeams = await fetchESPNTeamData();
+  if(!espnTeams) return [];
+
+  // Match any team name to ESPN entry
+  const findESPN = (name) => {
+    if(!name) return null;
+    const exact = espnTeams[name];
+    if(exact) return exact;
+    const words = name.toLowerCase().split(" ").filter(w=>w.length>3);
+    return Object.values(espnTeams).find(t =>
+      words.some(w => t.name.toLowerCase().includes(w))
+    ) || null;
+  };
 
   for(const game of games) {
     const away = game.away_team;
     const home = game.home_team;
+    if(!away || !home) continue;
     const gameLabel = `${away} @ ${home}`;
     const gameTime = game.commence_time;
 
-    const findESPN = (name) => {
-      if(!espnTeams) return null;
-      const exact = espnTeams[name];
-      if(exact) return exact;
-      const nameParts = name.toLowerCase().split(" ");
-      return Object.values(espnTeams).find(t =>
-        nameParts.some(p => p.length > 3 && t.name.toLowerCase().includes(p))
-      );
-    };
+    const espnHome = findESPN(home);
+    const espnAway = findESPN(away);
+    if(!espnHome || !espnAway) {
+      console.log(`[Conviction] Could not match teams: ${home} / ${away}`);
+      continue;
+    }
 
-    for(const [side, oppSide, isHome] of [[home, away, true],[away, home, false]]) {
-      const espnTeam = findESPN(side);
-      const espnOpp = findESPN(oppSide);
-      if(!espnTeam || !espnOpp) continue;
+    // Fetch game logs for both teams in parallel
+    const [homeLog, awayLog] = await Promise.all([
+      fetchESPNTeamStats(espnHome.id),
+      fetchESPNTeamStats(espnAway.id),
+    ]);
 
+    const scoreTeam = (espnTeam, espnOpp, teamLog, oppLog, isHome) => {
       const signals = [];
       let totalScore = 0, totalWeight = 0;
 
       const addSignal = (key, label, score, note, emoji) => {
-        signals.push({key, label, score:Math.round(score), note, emoji});
+        const s = Math.round(Math.min(100, Math.max(0, score)));
+        signals.push({key, label, score:s, note, emoji});
         const w = weights[key] || DEFAULT_SIGNAL_WEIGHTS[key] || 0.1;
-        totalScore += score * w; totalWeight += w;
+        totalScore += s * w;
+        totalWeight += w;
       };
 
-      // Fetch recent game logs from ESPN
-      const [teamLog, oppLog] = await Promise.all([
-        fetchESPNTeamStats(espnTeam.id),
-        fetchESPNTeamStats(espnOpp.id),
-      ]);
+      // ── SIGNAL 1: Season win rate (always available) ───────────
+      const totalGames = (espnTeam.wins||0) + (espnTeam.losses||0);
+      const seasonWR = totalGames > 0 ? espnTeam.wins / totalGames : 0.5;
+      const oppTotalGames = (espnOpp.wins||0) + (espnOpp.losses||0);
+      const oppSeasonWR = oppTotalGames > 0 ? espnOpp.wins / oppTotalGames : 0.5;
+      const wrDiff = seasonWR - oppSeasonWR;
+      const seasonScore = wrDiff>=0.15?82:wrDiff>=0.08?70:wrDiff>=0.02?58:wrDiff>=-0.02?50:wrDiff>=-0.08?40:wrDiff>=-0.15?30:20;
+      addSignal("recentForm","Season Win Rate",seasonScore,
+        `${espnTeam.wins}-${espnTeam.losses} (${Math.round(seasonWR*100)}%) vs opp ${espnOpp.wins}-${espnOpp.losses} (${Math.round(oppSeasonWR*100)}%)`,"📈");
 
-      // SIGNAL 1: Recent Form
-      if(teamLog && teamLog.length >= 3) {
-        const last10 = teamLog.slice(0,10);
-        const wins = last10.filter(g=>g.won).length;
-        const wr = wins/last10.length;
-        const score = wr>=0.8?92:wr>=0.7?80:wr>=0.6?67:wr>=0.5?52:wr>=0.4?36:22;
-        addSignal("recentForm","Recent Form",score,`${wins}/${last10.length} last 10 games (${Math.round(wr*100)}%)`,"📈");
-      } else {
-        addSignal("recentForm","Recent Form",50,"Insufficient game data","📈");
+      // ── SIGNAL 2: Recent form from game log ────────────────────
+      if(teamLog && teamLog.length >= 4) {
+        const last8 = teamLog.slice(0,8);
+        const recentWins = last8.filter(g=>g.won).length;
+        const recentWR = recentWins / last8.length;
+        const recentScore = recentWR>=0.75?88:recentWR>=0.625?74:recentWR>=0.5?58:recentWR>=0.375?42:25;
+        addSignal("atsRecord","Recent Form (Last 8)",recentScore,
+          `${recentWins}/${last8.length} last 8 games (${Math.round(recentWR*100)}%)`,"🔥");
       }
 
-      // SIGNAL 2: Home Court
-      addSignal("homeAdvantage","Home Court",isHome?72:38,
-        isHome?"Playing at home — +3.2pt avg advantage":"On the road — historically 3-4pt disadvantage","🏠");
+      // ── SIGNAL 3: Point differential (strength of wins) ────────
+      if(teamLog && teamLog.length >= 4) {
+        const avgPtDiff = teamLog.slice(0,8).reduce((s,g)=>s+g.ptsDiff,0)/Math.min(8,teamLog.length);
+        const ptScore = avgPtDiff>=10?92:avgPtDiff>=6?80:avgPtDiff>=3?67:avgPtDiff>=0?53:avgPtDiff>=-3?40:avgPtDiff>=-7?27:15;
+        addSignal("netRating","Avg Point Margin",ptScore,
+          `${avgPtDiff>=0?"+":""}${avgPtDiff.toFixed(1)} pts/game last 8`,"⚡");
+      } else {
+        // Estimate from season record if no game log
+        const estMargin = (seasonWR - 0.5) * 12;
+        const ptScore = estMargin>=5?72:estMargin>=2?60:estMargin>=0?50:estMargin>=-2?40:30;
+        addSignal("netRating","Est. Point Margin",ptScore,
+          `Estimated ${estMargin>=0?"+":""}${estMargin.toFixed(1)} based on season record`,"⚡");
+      }
 
-      // SIGNAL 3: Rest Advantage (approximate from schedule gaps)
-      let restScore = 50, restNote = "Similar rest";
-      if(teamLog && oppLog && teamLog.length && oppLog.length) {
-        const lastTeam = new Date(teamLog[0].date);
-        const lastOpp = new Date(oppLog[0].date);
-        const gameDate = new Date(gameTime);
-        const teamRest = Math.round((gameDate - lastTeam)/(1000*60*60*24));
-        const oppRest = Math.round((gameDate - lastOpp)/(1000*60*60*24));
+      // ── SIGNAL 4: Home court ───────────────────────────────────
+      addSignal("homeAdvantage","Home Court",isHome?70:38,
+        isHome?"Home court advantage — avg +3.5 pts":"Road game — historically harder","🏠");
+
+      // ── SIGNAL 5: Rest advantage ───────────────────────────────
+      let restScore = 52, restNote = "Similar rest";
+      if(teamLog?.length && oppLog?.length) {
+        const lastTeamGame = new Date(teamLog[0].date);
+        const lastOppGame = new Date(oppLog[0].date);
+        const tipoff = new Date(gameTime);
+        const teamRest = Math.max(0, Math.round((tipoff-lastTeamGame)/(1000*60*60*24)));
+        const oppRest = Math.max(0, Math.round((tipoff-lastOppGame)/(1000*60*60*24)));
         const diff = teamRest - oppRest;
-        if(diff>=2){restScore=88;restNote=`${teamRest}d rest vs opp ${oppRest}d — major advantage`;}
+        if(diff>=2){restScore=87;restNote=`${teamRest}d rest vs opp ${oppRest}d — significant advantage`;}
         else if(diff>=1){restScore=68;restNote=`${teamRest}d rest vs opp ${oppRest}d — slight edge`;}
-        else if(diff<=-2){restScore=18;restNote=`${teamRest}d rest vs opp ${oppRest}d — fatigue risk`;}
+        else if(diff<=-2){restScore=18;restNote=`${teamRest}d rest vs opp ${oppRest}d — back-to-back fatigue`;}
         else if(diff<=-1){restScore=36;restNote=`${teamRest}d rest vs opp ${oppRest}d — slight fatigue`;}
         else{restScore=52;restNote=`Both teams ${teamRest}d rest`;}
       }
       addSignal("restAdvantage","Rest Advantage",restScore,restNote,"😴");
 
-      // SIGNAL 4: Net Rating / Avg Point Differential
-      if(teamLog && teamLog.length >= 3) {
-        const avgDiff = teamLog.slice(0,8).reduce((s,g)=>s+g.ptsDiff,0)/Math.min(8,teamLog.length);
-        const score = avgDiff>=8?90:avgDiff>=5?78:avgDiff>=2?64:avgDiff>=0?52:avgDiff>=-3?38:avgDiff>=-6?24:12;
-        addSignal("netRating","Avg Point Margin",score,
-          `${avgDiff>=0?"+":""}${avgDiff.toFixed(1)} pts/game last 8 games`,"⚡");
-      } else {
-        const record = espnTeam.wins + espnTeam.losses;
-        const wr = record > 0 ? espnTeam.wins/record : 0.5;
-        addSignal("netRating","Win %",wr>=0.6?72:wr>=0.5?55:38,
-          `Season record ${espnTeam.wins}-${espnTeam.losses}`,"⚡");
+      // ── SIGNAL 6: Opponent recent weakness ────────────────────
+      if(oppLog && oppLog.length >= 4) {
+        const oppRecent = oppLog.slice(0,8);
+        const oppRecentWins = oppRecent.filter(g=>g.won).length;
+        const oppRecentWR = oppRecentWins / oppRecent.length;
+        // Weak opponent is good for us — invert
+        const oppScore = oppRecentWR<=0.25?88:oppRecentWR<=0.375?74:oppRecentWR<=0.5?60:oppRecentWR<=0.625?46:oppRecentWR<=0.75?32:20;
+        addSignal("h2hRecord","Opponent Recent Form",oppScore,
+          `Opp ${oppRecentWins}/${oppRecent.length} last 8 (${Math.round(oppRecentWR*100)}%) — ${oppRecentWR<=0.4?"struggling ✓":"in form ✗"}`,"🔍");
       }
 
-      // SIGNAL 5: ATS Momentum (home+away cover rate from score diffs vs spread approx)
-      if(teamLog && teamLog.length >= 5) {
-        const bigWins = teamLog.slice(0,8).filter(g=>g.won&&g.ptsDiff>=5).length;
-        const atsScore = bigWins>=5?80:bigWins>=3?65:bigWins>=2?52:38;
-        addSignal("atsRecord","Convincing Win Rate",atsScore,
-          `${bigWins} wins by 5+ pts in last 8 games`,"🎯");
-      } else {
-        addSignal("atsRecord","Convincing Win Rate",50,"Insufficient data","🎯");
-      }
-
-      // SIGNAL 6: Opponent weakness (opp recent form)
-      if(oppLog && oppLog.length >= 3) {
-        const oppWins = oppLog.slice(0,8).filter(g=>g.won).length;
-        const oppWR = oppWins/Math.min(8,oppLog.length);
-        // Weak opponent = good for us
-        const score = oppWR<=0.3?82:oppWR<=0.4?68:oppWR<=0.5?55:oppWR<=0.6?42:oppWR<=0.7?30:20;
-        addSignal("h2hRecord","Opponent Form",score,
-          `Opp ${oppWins}/${Math.min(8,oppLog.length)} last games — ${oppWR<=0.4?"struggling":"in form"}`,"🔍");
-      } else {
-        addSignal("h2hRecord","Opponent Form",50,"No opponent data","🔍");
-      }
-
-      // ML TEAM SIGNAL
-      const teamMLData = convictionML.byTeam?.[side];
+      // ── ML HISTORICAL SIGNAL ───────────────────────────────────
+      const teamMLData = convictionML.byTeam?.[espnTeam.name];
       if(teamMLData && teamMLData.plays >= 3) {
-        const wr = teamMLData.wins/teamMLData.plays;
-        const mlScore = wr>=0.7?85:wr>=0.6?70:wr>=0.5?55:35;
-        signals.push({key:"mlHistory",label:"ML Historical",score:mlScore,
-          note:`${teamMLData.wins}/${teamMLData.plays} conviction plays won (${Math.round(wr*100)}%)`,emoji:"🧠",isML:true});
+        const mlWR = teamMLData.wins / teamMLData.plays;
+        const mlScore = mlWR>=0.7?88:mlWR>=0.6?72:mlWR>=0.5?55:35;
+        signals.push({key:"mlHistory",label:"ML Track Record",score:mlScore,isML:true,emoji:"🧠",
+          note:`${teamMLData.wins}/${teamMLData.plays} conviction plays won (${Math.round(mlWR*100)}%)`});
         totalScore += mlScore * 0.15; totalWeight += 0.15;
       }
 
-      if(totalWeight === 0) continue;
-      const raw = Math.round(totalScore/totalWeight);
-      const calAdj = convictionML.totalPlays>=10 ? ((convictionML.totalWins/convictionML.totalPlays)-0.55)*8 : 0;
-      const finalScore = Math.min(95,Math.max(40,raw+calAdj));
+      if(totalWeight === 0) return null;
+      const raw = totalScore / totalWeight;
+      const calAdj = convictionML.totalPlays>=10
+        ? ((convictionML.totalWins/convictionML.totalPlays) - 0.55) * 8 : 0;
+      const finalScore = Math.min(95, Math.max(35, Math.round(raw + calAdj)));
 
-      if(finalScore < 55) continue; // min threshold
+      const topSignals = [...signals]
+        .sort((a,b)=>(b.score*(weights[b.key]||0.1)) - (a.score*(weights[a.key]||0.1)))
+        .slice(0,3);
 
-      const tier = finalScore>=76?"HIGH":finalScore>=63?"MEDIUM":"WATCHLIST";
-      const tierColor = finalScore>=76?"#00ff88":finalScore>=63?"#ffd700":"#ff9944";
+      return { finalScore, signals, topSignals };
+    };
 
-      // Best odds for this side
+    // Score both sides
+    const homeResult = scoreTeam(espnHome, espnAway, homeLog, awayLog, true);
+    const awayResult = scoreTeam(espnAway, espnHome, awayLog, homeLog, false);
+
+    for(const [result, side, espnTeam, espnOpp, isHome] of [
+      [homeResult, home, espnHome, espnAway, true],
+      [awayResult, away, espnAway, espnHome, false],
+    ]) {
+      if(!result) continue;
+      const {finalScore, signals, topSignals} = result;
+
+      const tier = finalScore>=75?"HIGH":finalScore>=60?"MEDIUM":"WATCHLIST";
+      const tierColor = finalScore>=75?"#00ff88":finalScore>=60?"#ffd700":"#ff9944";
+
+      // Get best available odds from bookmakers
       let bestOdds=null, bestBook=null;
       (game.bookmakers||[]).forEach(book => {
         book.markets?.filter(m=>m.key==="h2h").forEach(mkt => {
@@ -885,16 +909,10 @@ async function buildConvictionPlays(games, convictionML) {
         });
       });
 
-      const topSignals = [...signals].sort((a,b)=>{
-        const wa=weights[a.key]||DEFAULT_SIGNAL_WEIGHTS[a.key]||0.1;
-        const wb=weights[b.key]||DEFAULT_SIGNAL_WEIGHTS[b.key]||0.1;
-        return (b.score*wb)-(a.score*wa);
-      }).slice(0,3);
-
-      plays.push({
+      allPlays.push({
         id:`conviction|${gameLabel}|${side}`,
         type:"Conviction Play", game:gameLabel, selection:side, gameTime,
-        convictionScore:Math.round(finalScore), tier, tierColor,
+        convictionScore:finalScore, tier, tierColor,
         signals, topSignals,
         bestOdds, bestBook, isHome,
         mlCalibrated: convictionML.totalPlays>=10,
@@ -905,12 +923,16 @@ async function buildConvictionPlays(games, convictionML) {
     }
   }
 
-  // Deduplicate — only keep stronger side per game
-  const seen = {};
-  return plays
-    .sort((a,b)=>b.convictionScore-a.convictionScore)
-    .filter(p=>{ if(seen[p.game]) return false; seen[p.game]=true; return true; })
-    .slice(0,6);
+  // Sort all plays by score, deduplicate games (keep best side per game), return top 6
+  const seen = new Set();
+  return allPlays
+    .sort((a,b) => b.convictionScore - a.convictionScore)
+    .filter(p => {
+      if(seen.has(p.game)) return false;
+      seen.add(p.game);
+      return true;
+    })
+    .slice(0, 6);
 }
 
 // ── NBA STATS API ─────────────────────────────────────────────
