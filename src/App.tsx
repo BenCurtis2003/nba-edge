@@ -594,36 +594,75 @@ async function fetchRundownProps(rundownKey) {
   } catch(e) { console.error("[Rundown]", e); return []; }
 }
 
-async function fetchScores(apiKey) {
+// Fetch completed scores from ESPN (free, no key needed)
+async function fetchESPNScores() {
   try {
-    const res = await fetchWithTimeout(
-      `https://api.the-odds-api.com/v4/sports/basketball_nba/scores/?apiKey=${apiKey}&daysFrom=3`,
-      {}, 8000
-    );
-    if(!res.ok) {
-      console.warn("[Scores] API error:", res.status);
-      return null;
-    }
-    const data = await res.json();
-    const completed = data.filter(g => g.completed);
-    const inProgress = data.filter(g => !g.completed && g.scores);
-    console.log(`[Scores] ${data.length} games · ${completed.length} completed · ${inProgress.length} in-progress`);
-    // Also mark in-progress games that have scores as resolvable if game time was >3hrs ago
-    return data.map(g => {
-      if(g.completed) return g;
-      if(!g.scores || !g.commence_time) return g;
-      const age = (Date.now() - new Date(g.commence_time)) / 3600000;
-      // If game started >3.5 hours ago and has scores, treat as completed
-      if(age > 3.5) {
-        console.log(`[Scores] Treating ${g.away_team}@${g.home_team} as completed (${age.toFixed(1)}h old)`);
-        return {...g, completed: true};
+    // Fetch last 2 days of ESPN scoreboard events
+    const urls = [
+      "https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard",
+      "https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard?dates=" +
+        new Date(Date.now()-86400000).toISOString().slice(0,10).replace(/-/g,""),
+    ];
+    const results = await Promise.all(urls.map(u => fetchWithTimeout(u,{},6000).catch(()=>null)));
+    const scores = [];
+    for(const res of results) {
+      if(!res?.ok) continue;
+      const data = await res.json();
+      for(const event of (data.events||[])) {
+        const comp = event.competitions?.[0];
+        const home = comp?.competitors?.find(c=>c.homeAway==="home");
+        const away = comp?.competitors?.find(c=>c.homeAway==="away");
+        const status = comp?.status?.type;
+        if(!home||!away) continue;
+        const completed = status?.completed===true || status?.state==="post";
+        if(!completed) continue;
+        scores.push({
+          home_team: home.team.displayName,
+          away_team: away.team.displayName,
+          completed: true,
+          commence_time: event.date,
+          scores: [
+            {name: home.team.displayName, score: home.score},
+            {name: away.team.displayName, score: away.score},
+          ]
+        });
       }
-      return g;
-    });
+    }
+    console.log(`[ESPN Scores] ${scores.length} completed games`);
+    return scores;
   } catch(e) {
-    console.error("[Scores] fetch error:", e);
-    return null;
+    console.error("[ESPN Scores] error:", e);
+    return [];
   }
+}
+
+async function fetchScores(apiKey) {
+  // Try Odds API first
+  if(apiKey) {
+    try {
+      const res = await fetchWithTimeout(
+        `https://api.the-odds-api.com/v4/sports/basketball_nba/scores/?apiKey=${apiKey}&daysFrom=3`,
+        {}, 8000
+      );
+      if(res.ok) {
+        const data = await res.json();
+        const completed = data.filter(g => g.completed);
+        console.log(`[Scores] ${data.length} games · ${completed.length} completed from Odds API`);
+        // Mark old games with scores as completed
+        const enriched = data.map(g => {
+          if(g.completed) return g;
+          if(!g.scores || !g.commence_time) return g;
+          const age = (Date.now() - new Date(g.commence_time)) / 3600000;
+          if(age > 3.5) return {...g, completed: true};
+          return g;
+        });
+        if(enriched.some(g=>g.completed)) return enriched;
+      }
+    } catch(e) { console.warn("[Scores] Odds API failed, falling back to ESPN", e); }
+  }
+  // Fallback: ESPN scores (free, no key)
+  const espnScores = await fetchESPNScores();
+  return espnScores.length > 0 ? espnScores : null;
 }
 
 // Fix #2: News agent now calls proxy correctly
@@ -1567,6 +1606,10 @@ function ConvictionSection({ plays, loading, convictionML, expandedConviction, s
                 <div>
                   <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:4,flexWrap:"wrap"}}>
                     <div style={{fontSize:9,padding:"1px 7px",borderRadius:4,background:`${play.tierColor}18`,border:`1px solid ${play.tierColor}44`,color:play.tierColor,fontWeight:700}}>{play.tier}</div>
+                    {play.convictionScore>=70
+                      ? <div style={{fontSize:9,padding:"1px 7px",borderRadius:4,background:"rgba(0,255,136,0.12)",border:"1px solid rgba(0,255,136,0.3)",color:"#00ff88",fontWeight:700}}>✓ AUTO-BET</div>
+                      : <div style={{fontSize:9,padding:"1px 7px",borderRadius:4,background:"rgba(58,85,112,0.2)",border:"1px solid #172030",color:"#3a5570"}}>WATCH ONLY</div>
+                    }
                     {play.betType&&(
                       <div style={{fontSize:9,padding:"1px 7px",borderRadius:4,
                         background:play.betType==="Moneyline"?"rgba(0,191,255,0.12)":play.betType==="Spread"?"rgba(180,79,255,0.12)":"rgba(255,215,0,0.12)",
@@ -1822,6 +1865,20 @@ export default function NBAEdge() {
   }, [convictionPlays]);
 
   // Auto-resolve bets + update ML model
+
+// Normalize team name to last word (city removed) for fuzzy matching
+// "Los Angeles Lakers" → "lakers", "LA Lakers" → "lakers"
+function normTeam(name="") {
+  return name.toLowerCase().split(" ").pop().replace(/[^a-z]/g,"");
+}
+// Check if a history entry's game matches a score entry
+function gameMatches(entryGame="", scoreHome="", scoreAway="") {
+  const hNorm = normTeam(scoreHome), aNorm = normTeam(scoreAway);
+  const g = entryGame.toLowerCase();
+  return (g.includes(hNorm) || g.includes(scoreHome.toLowerCase())) &&
+         (g.includes(aNorm) || g.includes(scoreAway.toLowerCase()));
+}
+
   const resolveWithScores = useCallback(async (currentHistory, apiKey, currentML) => {
     if(!apiKey) { console.log("[Resolve] No API key"); return { history: currentHistory, ml: currentML }; }
     const pending = currentHistory.filter(h=>h.status==="pending");
@@ -1839,12 +1896,8 @@ export default function NBAEdge() {
 
     updated = updated.map(entry => {
       if(entry.status !== "pending") { runningBankroll = entry.bankrollAfter; return entry; }
-      // Match by team name — try partial match to handle name differences
-      const gameScore = scores.find(s => {
-        const homeMatch = s.home_team && (entry.game.includes(s.home_team) || s.home_team.split(" ").pop() && entry.game.includes(s.home_team.split(" ").pop()));
-        const awayMatch = s.away_team && (entry.game.includes(s.away_team) || s.away_team.split(" ").pop() && entry.game.includes(s.away_team.split(" ").pop()));
-        return homeMatch || awayMatch;
-      });
+      // Fuzzy match by normalized team nickname
+      const gameScore = scores.find(s => gameMatches(entry.game, s.home_team||"", s.away_team||""));
       if(!gameScore) {
         console.log(`[Resolve] No score found for: ${entry.game}`);
         return {...entry, bankrollBefore:+runningBankroll.toFixed(2), bankrollAfter:+runningBankroll.toFixed(2)};
@@ -1855,8 +1908,13 @@ export default function NBAEdge() {
       }
       console.log(`[Resolve] Matched: ${entry.game} → ${gameScore.away_team}@${gameScore.home_team} scores:`, gameScore.scores);
 
-      const homeScore=gameScore.scores?.find(s=>s.name===gameScore.home_team)?.score;
-      const awayScore=gameScore.scores?.find(s=>s.name===gameScore.away_team)?.score;
+      const homeScore=gameScore.scores?.find(s=>
+        s.name===gameScore.home_team || normTeam(s.name)===normTeam(gameScore.home_team)
+      )?.score;
+      const awayScore=gameScore.scores?.find(s=>
+        s.name===gameScore.away_team || normTeam(s.name)===normTeam(gameScore.away_team)
+      )?.score;
+      console.log(`[Resolve] Scores: home=${homeScore} away=${awayScore} for ${gameScore.home_team} vs ${gameScore.away_team}`);
       let won = null;
       if(homeScore!=null && awayScore!=null) {
         const sel=entry.selection.toLowerCase();
@@ -1917,7 +1975,15 @@ export default function NBAEdge() {
       setMlModel(updatedML);
       saveML(updatedML);
       try { localStorage.setItem(STORAGE_KEY, JSON.stringify(updated)); } catch {}
-      log(`✅ Auto-resolved bets · ML model updated (${updatedML.totalBets} bets learned)`);
+      const nResolved = updated.filter(h=>h.status!=="pending").length - currentHistory.filter(h=>h.status!=="pending").length;
+      log(`✅ Resolved ${nResolved} bets · bankroll $${runningBankroll.toFixed(2)} · ML updated (${updatedML.totalBets} learned)`);
+    } else {
+      const stillPending = updated.filter(h=>h.status==="pending");
+      if(stillPending.length > 0) {
+        console.warn(`[Resolve] ${stillPending.length} bets still pending after resolution attempt. Games found in scores:`, 
+          stillPending.map(p=>({game:p.game, found:scores.some(s=>gameMatches(p.game,s.home_team||"",s.away_team||""))}))
+        );
+      }
     }
     return { history: updated, ml: updatedML };
   }, []);
@@ -2037,11 +2103,12 @@ export default function NBAEdge() {
             });
           });
           log(`🎯 ${plays.length} conviction plays · ${plays.filter(p=>p.tier==="HIGH").length} HIGH`);
-          // Add conviction plays to paper history
+          // Auto-place conviction plays with score >= 70 into paper history
           setHistory(prev => {
             const today = new Date().toDateString();
             const placedIds = new Set(prev.filter(h=>new Date(h.date).toDateString()===today).map(h=>h.betId));
-            const fresh = plays.filter(p => !placedIds.has(p.id) && p.bestOdds);
+            // Only place HIGH conviction plays (score >= 70) — others shown but not wagered
+            const fresh = plays.filter(p => !placedIds.has(p.id) && p.bestOdds && p.convictionScore >= 70);
             if(!fresh.length) return prev;
             let bank = prev.length ? prev[prev.length-1].bankrollAfter : bankroll;
             const entries = fresh.map(play => {
@@ -2451,9 +2518,34 @@ export default function NBAEdge() {
               <MiniChart history={chartData}/>
             </div>
             <div style={{background:"#0a1220",border:"1px solid #172030",borderRadius:12,overflow:"hidden"}}>
-              <div style={{padding:"16px 22px",borderBottom:"1px solid #172030",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+              <div style={{padding:"16px 22px",borderBottom:"1px solid #172030",display:"flex",justifyContent:"space-between",alignItems:"center",gap:12}}>
                 <div style={{fontSize:13,fontWeight:700,color:"#fff"}}>Bet History</div>
-                <div style={{fontSize:11,color:"#3a5570"}}>{history.length} total · auto-placed daily · deduplicated</div>
+                <div style={{display:"flex",alignItems:"center",gap:10}}>
+                  <div style={{fontSize:10,color:"#3a5570"}}>{history.length} total · {resolved.length} resolved · {history.length-resolved.length} pending</div>
+                  {oddsKey&&history.some(h=>h.status==="pending")&&(
+                    <button style={{...s.btn,fontSize:9,padding:"3px 10px",color:"#00bfff",borderColor:"#00bfff44",cursor:"pointer"}}
+                      onClick={()=>{
+                        const ml=loadML();
+                        const hist=JSON.parse(localStorage.getItem(STORAGE_KEY)||"[]");
+                        log("🔄 Force-resolving pending bets via ESPN...");
+                        resolveWithScores(hist,oddsKey,ml).then(result=>{
+                          if(result?.history){
+                            setHistory(result.history);
+                            if(result.ml){saveML(result.ml);setMlModel(result.ml);}
+                            const lastR=[...result.history].reverse().find(h=>h.status!=="pending");
+                            if(lastR) setBankroll(lastR.bankrollAfter);
+                          }
+                        });
+                      }}>↻ Resolve Now</button>
+                  )}
+                  <button style={{...s.btn,fontSize:9,padding:"3px 10px",color:"#ff6b6b",borderColor:"#ff6b6b44",cursor:"pointer"}}
+                    onClick={()=>{
+                      if(!confirm("Clear all bet history and reset bankroll to $100?")) return;
+                      setHistory([]);setBankroll(STARTING_BANKROLL);
+                      try{localStorage.removeItem(STORAGE_KEY);}catch{}
+                      log("🗑️ History cleared · bankroll reset to $100");
+                    }}>Clear History</button>
+                </div>
               </div>
               {history.length===0?(
                 <div style={{padding:"40px",textAlign:"center",color:"#3a5570",fontSize:12}}>No bets yet — refresh to auto-add today's recommendations</div>
@@ -2487,7 +2579,7 @@ export default function NBAEdge() {
                             <div style={{fontSize:10,color:"#3a5570",marginBottom:5}}>{h.game}</div>
                             <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
                               <div style={{...s.typeBadge(h.isConviction?"Conviction Play":h.type),marginBottom:0}}>
-                                {h.isConviction?`🎯 ${h.betType||"Conviction"}`:h.type}
+                                {h.isConviction?`🎯 ${h.betType||"Conviction"} · ${h.convictionScore||""}`:h.type}
                               </div>
                               {h.bestOdds&&<div style={{fontSize:10,fontWeight:700,color:h.bestOdds<0?"#00bfff":"#ffd700"}}>{formatOdds(h.bestOdds)}</div>}
                               {h.bestBook&&<div style={{fontSize:9,color:SPORTSBOOK_COLORS[h.bestBook]||"#3a5570"}}>{h.bestBook}</div>}
