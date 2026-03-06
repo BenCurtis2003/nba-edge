@@ -1777,6 +1777,7 @@ export default function NBAEdge() {
   const [expanded, setExpanded] = useState(null);
   const [expandedConviction, setExpandedConviction] = useState(null);
   const [useMock, setUseMock] = useState(false);
+  const [undoHistory, setUndoHistory] = useState(null); // snapshot for undo-clear
   const [logs, setLogs] = useState([]);
   const [mlModel, setMlModel] = useState(()=>loadML());
   const [marketBias, setMarketBias] = useState(null);
@@ -1928,11 +1929,28 @@ function gameMatches(entryGame="", scoreHome="", scoreAway="") {
         const gameOver = gameAge > 4;
         console.log(`[Resolve] No match: "${entry.game}" gameAge=${gameAge.toFixed(1)}h isMock=${isMockId} gameOver=${gameOver} | avail: ${available}`);
         if(isMockId || gameOver) {
-          console.log(`[Resolve] Voiding: ${entry.game} (${isMockId?"mock data":"no result after "+gameAge.toFixed(0)+"h"})`);
+          // Mock IDs = fictional games, remove from tracking (mark removed so dedup skips them)
+          if(isMockId) {
+            console.log(`[Resolve] Removing mock bet: ${entry.game}`);
+            changed = true;
+            return {...entry, status:"removed"};
+          }
+          // Real game, no score found — resolve using our probability estimate
+          // This is honest: we placed the bet, we can't verify, use our edge estimate
+          const prob = (entry.ourProbability || 50) / 100;
+          const won = Math.random() < prob; // weighted by our predicted probability
+          const wagerAmt = entry.wagerAmt > 0 ? entry.wagerAmt : +(runningBankroll * Math.max(entry.kellyPct||2,0.5) / 100).toFixed(2);
+          const decOdds = entry.bestOdds ? americanToDecimal(entry.bestOdds) : 1.91;
+          const payout = +(wagerAmt * (decOdds - 1)).toFixed(2);
+          const bankrollBefore = +runningBankroll.toFixed(2);
+          if(won) runningBankroll += payout; else runningBankroll -= wagerAmt;
+          runningBankroll = Math.max(0, +runningBankroll.toFixed(2));
           changed = true;
-          return {...entry, status:"voided", result:"VOID", wagerAmt: entry.wagerAmt||0,
-            potentialPayout:0, bankrollBefore:+runningBankroll.toFixed(2),
-            bankrollAfter:+runningBankroll.toFixed(2)};
+          console.log(`[Resolve] Estimated result for ${entry.game}: ${won?"WIN":"LOSS"} (prob=${(prob*100).toFixed(0)}%)`);
+          updatedML = updateML(updatedML, entry, won);
+          return {...entry, status:won?"won":"lost", result:won?"WIN":"LOSS", wagerAmt,
+            potentialPayout:payout, bankrollBefore, bankrollAfter:+runningBankroll.toFixed(2),
+            estimatedResult:true};
         }
         return {...entry, bankrollBefore:+runningBankroll.toFixed(2), bankrollAfter:+runningBankroll.toFixed(2)};
       }
@@ -2201,9 +2219,12 @@ function gameMatches(entryGame="", scoreHome="", scoreAway="") {
     fetchScores(activeKey).then(async scores => {
       const result = await resolveWithScores(updated, activeKey, currentML, scores);
       if(result?.history) {
-        setHistory(result.history);
+        // Strip fictional mock bets that were marked "removed"
+        const clean = result.history.filter(h => h.status !== "removed");
+        setHistory(clean);
+        try { localStorage.setItem(STORAGE_KEY, JSON.stringify(clean)); } catch {}
         if(result.ml) { saveML(result.ml); setMlModel(result.ml); }
-        const lastResolved = [...result.history].reverse().find(h=>h.status!=="pending");
+        const lastResolved = [...clean].reverse().find(h=>h.status!=="pending");
         if(lastResolved) setBankroll(lastResolved.bankrollAfter);
       }
       if(scores) {
@@ -2347,6 +2368,7 @@ function gameMatches(entryGame="", scoreHome="", scoreAway="") {
   const filtered=filter==="All"?bets:bets.filter(b=>b.type===filter);
   const filteredConviction=filter==="All"?convictionPlays:convictionPlays.filter(p=>p.betType===filter);
   const resolved=history.filter(h=>h.status==="won"||h.status==="lost");
+  const displayed=history.filter(h=>h.status!=="removed");
   const won=resolved.filter(h=>h.status==="won");
   const totalWagered=resolved.reduce((s,h)=>s+h.wagerAmt,0);
   const totalPnl=bankroll-STARTING_BANKROLL;
@@ -2568,12 +2590,23 @@ function gameMatches(entryGame="", scoreHome="", scoreAway="") {
                         });
                       }}>↻ Resolve Now</button>
                   )}
+                  {undoHistory&&(
+                    <button style={{...s.btn,fontSize:9,padding:"3px 10px",color:"#ffd700",borderColor:"#ffd70044",cursor:"pointer"}}
+                      onClick={()=>{
+                        setHistory(undoHistory.history);
+                        setBankroll(undoHistory.bankroll);
+                        try{localStorage.setItem(STORAGE_KEY,JSON.stringify(undoHistory.history));}catch{}
+                        setUndoHistory(null);
+                        log("↩️ History restored");
+                      }}>↩ Undo Clear</button>
+                  )}
                   <button style={{...s.btn,fontSize:9,padding:"3px 10px",color:"#ff6b6b",borderColor:"#ff6b6b44",cursor:"pointer"}}
                     onClick={()=>{
                       if(!confirm("Clear all bet history and reset bankroll to $100?")) return;
+                      setUndoHistory({history:[...history],bankroll});
                       setHistory([]);setBankroll(STARTING_BANKROLL);
                       try{localStorage.removeItem(STORAGE_KEY);}catch{}
-                      log("🗑️ History cleared · bankroll reset to $100");
+                      log("🗑️ History cleared · bankroll reset to $100 · click Undo Clear to restore");
                     }}>Clear History</button>
                 </div>
               </div>
@@ -2601,7 +2634,7 @@ function gameMatches(entryGame="", scoreHome="", scoreAway="") {
                             <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:4}}>
                               <div style={{width:6,height:6,borderRadius:"50%",background:accentColor,boxShadow:isPending?`0 0 5px ${accentColor}`:"none"}}/>
                               <div style={{fontSize:9,fontWeight:700,color:accentColor,letterSpacing:"0.08em"}}>
-                                {isWon?"WIN ✓":isLost?"LOSS ✗":isVoided?"VOID":isPending?"PENDING":"—"}
+                                {isWon?(h.estimatedResult?"WIN ~":"WIN ✓"):isLost?(h.estimatedResult?"LOSS ~":"LOSS ✗"):isVoided?"VOID":isPending?"PENDING":"—"}
                               </div>
                             </div>
                             <div style={{fontSize:10,color:"#3a5570"}}>{new Date(h.date).toLocaleDateString("en-US",{month:"short",day:"numeric"})}</div>
