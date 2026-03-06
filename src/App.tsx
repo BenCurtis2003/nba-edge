@@ -1,5 +1,4 @@
 // @ts-nocheck
-
 // @ts-nocheck
 import { useState, useEffect, useCallback, useRef } from "react";
 
@@ -1078,6 +1077,136 @@ async function buildConvictionPlays(games, convictionML) {
     .slice(0, 9);
 }
 
+
+// ══════════════════════════════════════════════════════════════
+// LIVE CONVICTION ENGINE
+// Polls ESPN every 45s during active games, rescores conviction
+// based on live score, quarter, clock, and momentum
+// ══════════════════════════════════════════════════════════════
+
+async function fetchLiveScoreboard() {
+  try {
+    const res = await fetchWithTimeout(
+      "https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard",
+      {}, 6000
+    );
+    if(!res.ok) return null;
+    const data = await res.json();
+    return (data.events || []).map(e => {
+      const comp = e.competitions?.[0];
+      const home = comp?.competitors?.find(c => c.homeAway === "home");
+      const away = comp?.competitors?.find(c => c.homeAway === "away");
+      const status = comp?.status;
+      const situation = comp?.situation;
+      return {
+        id: e.id,
+        home_team: home?.team?.displayName || "",
+        away_team: away?.team?.displayName || "",
+        home_score: parseInt(home?.score) || 0,
+        away_score: parseInt(away?.score) || 0,
+        period: status?.period || 0,          // 1-4 = quarters, 5+ = OT
+        clock: status?.displayClock || "0:00",// "8:42"
+        state: status?.type?.state || "pre",  // "pre" | "in" | "post"
+        stateDetail: status?.type?.shortDetail || "",
+        home_record: home?.records?.[0]?.summary || "",
+        away_record: away?.records?.[0]?.summary || "",
+        // Last 5 plays momentum — possession/run data
+        lastPlay: situation?.lastPlay?.text || "",
+        homeTimeouts: situation?.homeTimeouts ?? 3,
+        awayTimeouts: situation?.awayTimeouts ?? 3,
+      };
+    });
+  } catch { return null; }
+}
+
+// Rescore a conviction play using live game state
+function rescoreConvictionLive(play, liveGame) {
+  if(!liveGame || liveGame.state !== "in") return null;
+
+  const isHome = play.isHome;
+  const myScore = isHome ? liveGame.home_score : liveGame.away_score;
+  const oppScore = isHome ? liveGame.away_score : liveGame.home_score;
+  const scoreDiff = myScore - oppScore; // + means we're winning
+  const period = liveGame.period;
+  const clockParts = liveGame.clock.split(":").map(Number);
+  const minsLeft = (clockParts[0] || 0) + (clockParts[1] || 0) / 60;
+  const totalMinsLeft = Math.max(0, (4 - period) * 12 + minsLeft);
+  const gamePct = Math.min(1, (48 - totalMinsLeft) / 48); // 0→1 as game progresses
+
+  // Base score from pregame conviction
+  let base = play.pregameConvictionScore || play.convictionScore;
+
+  // ── LIVE SIGNALS ──────────────────────────────────────────
+  const liveSignals = [];
+
+  // 1. Score differential — weighted by how much game is left
+  // A 10pt lead with 2min left is near-certainty; same lead in Q1 is weak signal
+  const leadWeight = 0.3 + gamePct * 0.5; // 0.3 early → 0.8 late
+  const leadScore = scoreDiff >= 15 ? 95
+    : scoreDiff >= 10 ? 88
+    : scoreDiff >= 6  ? 78
+    : scoreDiff >= 3  ? 65
+    : scoreDiff >= 0  ? 52
+    : scoreDiff >= -3 ? 40
+    : scoreDiff >= -6 ? 30
+    : scoreDiff >= -10? 20
+    : 10;
+  liveSignals.push({
+    key:"liveScore", label:"Live Score", score:leadScore, emoji:"🏀",
+    note:`${isHome ? liveGame.home_team : liveGame.away_team} ${myScore > oppScore ? "leading" : myScore === oppScore ? "tied" : "trailing"} ${Math.abs(scoreDiff)} · Q${period} ${liveGame.clock}`,
+    live:true
+  });
+
+  // 2. Game clock urgency — late leads are much more secure
+  const clockScore = totalMinsLeft <= 2 ? (scoreDiff >= 5 ? 96 : scoreDiff >= 0 ? 55 : 10)
+    : totalMinsLeft <= 5 ? (scoreDiff >= 8 ? 90 : scoreDiff >= 0 ? 58 : 22)
+    : totalMinsLeft <= 12 ? (scoreDiff >= 10 ? 82 : scoreDiff >= 0 ? 55 : 35)
+    : 52; // early game — clock doesn't tell us much
+  liveSignals.push({
+    key:"liveClock", label:"Time Remaining", score:clockScore, emoji:"⏱",
+    note:`${totalMinsLeft.toFixed(0)} min remaining · ${period <= 4 ? `Q${period}` : `OT${period-4}`}`,
+    live:true
+  });
+
+  // 3. Momentum — based on last play text and recent run
+  // Simple heuristic: if last play was a made shot for our team, positive momentum
+  const lastPlay = liveGame.lastPlay.toLowerCase();
+  const ourTeamName = (isHome ? liveGame.home_team : liveGame.away_team).toLowerCase().split(" ").pop();
+  const theyScored = lastPlay.includes(ourTeamName) && (lastPlay.includes("makes") || lastPlay.includes("dunk") || lastPlay.includes("layup"));
+  const momentumScore = theyScored ? 70 : 50;
+  liveSignals.push({
+    key:"liveMomentum", label:"Momentum", score:momentumScore, emoji:"⚡",
+    note:liveGame.lastPlay.slice(0,60) || "No play data",
+    live:true
+  });
+
+  // ── BLEND pregame signals (shrinking weight) + live signals (growing weight) ──
+  // At gamePct=0 (tipoff): 100% pregame. At gamePct=1 (final): 100% live.
+  const liveWeight = Math.min(0.85, gamePct * 1.2); // caps at 85% live influence
+  const pregameWeight = 1 - liveWeight;
+
+  const liveAvg = liveSignals.reduce((s, sig) => s + sig.score, 0) / liveSignals.length;
+  const blended = Math.round(base * pregameWeight + liveAvg * liveWeight);
+  const finalScore = Math.min(98, Math.max(8, blended));
+
+  const tier = finalScore >= 75 ? "HIGH" : finalScore >= 60 ? "MEDIUM" : finalScore >= 40 ? "WATCHLIST" : "LOW";
+  const tierColor = finalScore >= 75 ? "#00ff88" : finalScore >= 60 ? "#ffd700" : finalScore >= 40 ? "#ff9944" : "#ff6b6b";
+
+  return {
+    convictionScore: finalScore,
+    tier, tierColor,
+    liveSignals,
+    liveGame: {
+      period, clock: liveGame.clock, scoreDiff,
+      myScore, oppScore, totalMinsLeft,
+      state: liveGame.state, stateDetail: liveGame.stateDetail,
+    },
+    isLive: true,
+    liveWeight: Math.round(liveWeight * 100),
+    pregameWeight: Math.round(pregameWeight * 100),
+  };
+}
+
 // ── NBA STATS API ─────────────────────────────────────────────
 // Free, unofficial — stats.nba.com game logs and team stats
 async function fetchPlayerGameLog(playerName) {
@@ -1380,6 +1509,25 @@ function ConvictionSection({ plays, loading, convictionML, expandedConviction, s
               onMouseEnter={e=>e.currentTarget.style.borderColor=play.tierColor+"66"}
               onMouseLeave={e=>e.currentTarget.style.borderColor=play.tierColor+"33"}>
 
+              {/* Live game banner */}
+              {play.isLive&&play.liveGame&&(
+                <div style={{marginBottom:10,padding:"8px 12px",background:"rgba(255,60,60,0.08)",border:"1px solid rgba(255,60,60,0.3)",borderRadius:8,display:"flex",alignItems:"center",gap:10}}>
+                  <div style={{display:"flex",alignItems:"center",gap:5}}>
+                    <div style={{width:7,height:7,borderRadius:"50%",background:"#ff3c3c",boxShadow:"0 0 6px #ff3c3c"}}/>
+                    <span style={{fontSize:10,color:"#ff6b6b",fontWeight:700,letterSpacing:"0.05em"}}>LIVE</span>
+                  </div>
+                  <div style={{fontSize:13,fontWeight:700,color:"#fff"}}>
+                    {play.liveGame.myScore}–{play.liveGame.oppScore}
+                  </div>
+                  <div style={{fontSize:10,color:"#3a5570"}}>
+                    Q{play.liveGame.period} {play.liveGame.clock} · {play.liveGame.totalMinsLeft.toFixed(0)}min left
+                  </div>
+                  <div style={{marginLeft:"auto",fontSize:9,color:"#3a5570"}}>
+                    {play.liveWeight}% live · {play.pregameWeight}% pre
+                  </div>
+                </div>
+              )}
+
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:10}}>
                 <div>
                   <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:4,flexWrap:"wrap"}}>
@@ -1401,7 +1549,13 @@ function ConvictionSection({ plays, loading, convictionML, expandedConviction, s
                 </div>
                 <div style={{textAlign:"right"}}>
                   <div style={{fontSize:24,fontWeight:800,color:play.tierColor,lineHeight:1}}>{play.convictionScore}</div>
-                  <div style={{fontSize:9,color:"#3a5570",marginTop:2}}>/ 100</div>
+                  {play.isLive&&play.pregameConvictionScore&&play.convictionScore!==play.pregameConvictionScore?(
+                    <div style={{fontSize:9,marginTop:1,color:play.convictionScore>play.pregameConvictionScore?"#00ff88":"#ff6b6b",fontWeight:700}}>
+                      {play.convictionScore>play.pregameConvictionScore?"▲":"▼"}{Math.abs(play.convictionScore-play.pregameConvictionScore)} from {play.pregameConvictionScore}
+                    </div>
+                  ):(
+                    <div style={{fontSize:9,color:"#3a5570",marginTop:2}}>/ 100</div>
+                  )}
                 </div>
               </div>
 
@@ -1459,8 +1613,31 @@ function ConvictionSection({ plays, loading, convictionML, expandedConviction, s
               {isExp&&(
                 <div style={{marginTop:14,borderTop:"1px solid #172030",paddingTop:14}}>
                   <div style={{fontSize:10,color:"#3a5570",letterSpacing:"0.08em",textTransform:"uppercase",marginBottom:12}}>
-                    Full Signal Breakdown {play.learnedWeights?"· ML-Reweighted":"· Default Weights"}
+                    Full Signal Breakdown {play.isLive?"· Live-Adjusted":play.learnedWeights?"· ML-Reweighted":"· Default Weights"}
                   </div>
+                  {/* Live signals shown first when game is active */}
+                  {play.isLive&&play.liveSignals&&(
+                    <div style={{marginBottom:14,padding:"10px 12px",background:"rgba(255,60,60,0.05)",border:"1px solid rgba(255,60,60,0.2)",borderRadius:8}}>
+                      <div style={{fontSize:9,color:"#ff6b6b",letterSpacing:"0.08em",textTransform:"uppercase",marginBottom:10}}>🔴 Live Signals ({play.liveWeight}% weight)</div>
+                      {play.liveSignals.map(s=>(
+                        <div key={s.key} style={{marginBottom:10}}>
+                          <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}>
+                            <div style={{display:"flex",alignItems:"center",gap:6}}>
+                              <span>{s.emoji}</span>
+                              <span style={{fontSize:10,color:"#dde3ee"}}>{s.label}</span>
+                              <span style={{fontSize:8,color:"#ff6b6b",padding:"1px 4px",borderRadius:3,background:"rgba(255,60,60,0.15)"}}>LIVE</span>
+                            </div>
+                            <span style={{fontSize:11,fontWeight:700,color:s.score>=70?"#00ff88":s.score>=50?"#ffd700":"#ff6b6b"}}>{s.score}/100</span>
+                          </div>
+                          <div style={{height:3,background:"#172030",borderRadius:2,marginBottom:3}}>
+                            <div style={{height:"100%",width:`${s.score}%`,background:s.score>=70?"#00ff88":s.score>=50?"#ffd700":"#ff6b6b",borderRadius:2,transition:"width 0.8s"}}/>
+                          </div>
+                          <div style={{fontSize:9,color:"#3a5570"}}>{s.note}</div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {play.isLive&&<div style={{fontSize:9,color:"#3a5570",letterSpacing:"0.08em",textTransform:"uppercase",marginBottom:10}}>Pregame Signals ({play.pregameWeight}% weight)</div>}
                   {play.signals?.map(s=>{
                     const w = getSignalWeights(convictionML)[s.key] || DEFAULT_SIGNAL_WEIGHTS[s.key] || 0.1;
                     return (
@@ -1518,6 +1695,8 @@ export default function NBAEdge() {
   const [lastPoll, setLastPoll] = useState(null);
   const [bestAvailableEdge, setBestAvailableEdge] = useState(null);
   const [convictionPlays, setConvictionPlays] = useState([]);
+  const [liveGames, setLiveGames] = useState([]); // live ESPN scoreboard state
+  const [hasLiveGames, setHasLiveGames] = useState(false);
   const [convictionML, setConvictionML] = useState(()=>loadConvictionML());
   const [convictionLoading, setConvictionLoading] = useState(false);
 
@@ -1877,6 +2056,43 @@ export default function NBAEdge() {
     const t=schedule(); return ()=>clearTimeout(t);
   }, [fetchBets]);
 
+  // Live conviction rescoring — polls ESPN every 45s during active games
+  useEffect(() => {
+    const pollLive = async () => {
+      const scoreboard = await fetchLiveScoreboard();
+      if(!scoreboard) return;
+      const activeGames = scoreboard.filter(g => g.state === "in");
+      setLiveGames(scoreboard);
+      setHasLiveGames(activeGames.length > 0);
+      if(activeGames.length === 0 || convictionPlays.length === 0) return;
+
+      // Rescore each conviction play against live game state
+      let anyUpdated = false;
+      const updated = convictionPlays.map(play => {
+        const gameHome = play.game.split(" @ ")[1];
+        const liveGame = activeGames.find(g =>
+          g.home_team === gameHome ||
+          g.home_team.toLowerCase().includes(gameHome?.toLowerCase().split(" ").pop() || "")
+        );
+        if(!liveGame) return play;
+
+        // Store pregame score before first live update
+        const pregameScore = play.pregameConvictionScore ?? play.convictionScore;
+        const live = rescoreConvictionLive({...play, pregameConvictionScore: pregameScore}, liveGame);
+        if(!live) return play;
+
+        anyUpdated = true;
+        return { ...play, ...live, pregameConvictionScore: pregameScore };
+      });
+
+      if(anyUpdated) setConvictionPlays(updated);
+    };
+
+    pollLive(); // run immediately
+    const interval = setInterval(pollLive, 45000); // then every 45s
+    return () => clearInterval(interval);
+  }, [convictionPlays.length]); // re-attach when play count changes, not on every rescore
+
   // Live polling every 60 seconds — catches line moves as they happen
   useEffect(() => {
     if(!oddsKey) return;
@@ -2036,6 +2252,7 @@ export default function NBAEdge() {
         <div style={s.statsRow}>
           {[
             {lbl:"Bets Found",val:bets.filter(b=>!b.isNearEV).length,sub:`${bets.filter(b=>b.isProp).length} props · ${bets.filter(b=>b.isNearEV).length} near-EV`,c:"#00ff88"},
+            ...(hasLiveGames?[{lbl:"Live Games",val:liveGames.filter(g=>g.state==="in").length,sub:"Conviction updating live",c:"#ff6b6b"}]:[]),
             {lbl:"Avg Edge",val:bets.filter(b=>!b.isNearEV).length>0?`${avgEdge}%`:bestAvailableEdge!=null?`${bestAvailableEdge.toFixed(1)}%`:"—",
               sub:bets.filter(b=>!b.isNearEV).length>0?"vs book implied":bestAvailableEdge!=null?"best available (below threshold)":"no lines yet",
               c:bets.filter(b=>!b.isNearEV).length>0?"#00ff88":"#ffd700"},
