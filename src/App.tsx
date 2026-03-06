@@ -1289,7 +1289,7 @@ function ConvictionSection({ plays, loading, convictionML, expandedConviction, s
 }
 
 export default function NBAEdge() {
-  const [oddsKey, setOddsKey] = useState("d6a4536a32cc8112ece4e45d3501da03");
+  const [oddsKey, setOddsKey] = useState(()=>localStorage.getItem("nba_edge_odds_key")||"");
   const [rundownKey, setRundownKey] = useState(()=>localStorage.getItem("nba_edge_rundown_key")||"");
   const [anthropicKey, setAnthropicKey] = useState("");
   const [openaiKey, setOpenaiKey] = useState("");
@@ -1505,34 +1505,36 @@ export default function NBAEdge() {
     setLastUpdated(new Date());
     setLoading(false);
 
-    // Build conviction plays — runs independently of Odds API using NBA Stats + schedule
+    // Build conviction plays — fully independent, uses ESPN scoreboard (no key needed)
     setConvictionLoading(true);
     try {
       const currentConvML = loadConvictionML();
-      // Fetch today's NBA schedule from NBA Stats (free, no key needed)
+      // ESPN scoreboard API: CORS-safe, free, no key
+      const espnScoreRes = await fetch("https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard");
       let games = [];
-      if(oddsKey) {
-        // Try Odds API first since we already have the key — gives us bookmaker odds too
-        const gameRes2 = await fetch(`https://api.the-odds-api.com/v4/sports/basketball_nba/odds/?apiKey=${oddsKey}&regions=us&markets=h2h&bookmakers=${SPORTSBOOKS.join(",")}&oddsFormat=american`);
-        if(gameRes2.ok) games = await gameRes2.json();
+      if(espnScoreRes.ok) {
+        const espnScore = await espnScoreRes.json();
+        games = (espnScore.events||[]).map(e => ({
+          away_team: e.competitions?.[0]?.competitors?.find(c=>c.homeAway==="away")?.team?.displayName||"",
+          home_team: e.competitions?.[0]?.competitors?.find(c=>c.homeAway==="home")?.team?.displayName||"",
+          commence_time: e.date,
+          bookmakers: [],
+          espnId: e.id,
+        })).filter(g=>g.away_team&&g.home_team);
+        log(`📅 ESPN: ${games.length} games today`);
       }
-      if(!games.length) {
-        // Fallback: NBA Stats scoreboard for today's matchups
-        const today = new Date().toLocaleDateString("en-US",{month:"2-digit",day:"2-digit",year:"numeric"}).replace(/\//g,"%2F");
-        const sbRes = await fetch(`https://stats.nba.com/stats/scoreboardv2?DayOffset=0&LeagueID=00&gameDate=${today}`, {
-          headers:{"Referer":"https://www.nba.com","x-nba-stats-origin":"stats","x-nba-stats-token":"true"}
-        });
-        if(sbRes.ok) {
-          const sbData = await sbRes.json();
-          const rows = sbData.resultSets?.[0]?.rowSet || [];
-          const hdrs = sbData.resultSets?.[0]?.headers || [];
-          const get = (row, col) => row[hdrs.indexOf(col)];
-          games = rows.map(r => ({
-            away_team: get(r,"VISITOR_TEAM_CITY")+" "+get(r,"VISITOR_TEAM_NICKNAME"),
-            home_team: get(r,"HOME_TEAM_CITY")+" "+get(r,"HOME_TEAM_NICKNAME"),
-            commence_time: get(r,"GAME_DATE_EST")+"T"+get(r,"GAME_STATUS_TEXT"),
-            bookmakers: [],
-          }));
+      // If Odds API also works, merge bookmaker odds into games
+      if(oddsKey && games.length > 0) {
+        const oddsRes = await fetch(`https://api.the-odds-api.com/v4/sports/basketball_nba/odds/?apiKey=${oddsKey}&regions=us&markets=h2h&bookmakers=${SPORTSBOOKS.join(",")}&oddsFormat=american`);
+        if(oddsRes.ok) {
+          const oddsGames = await oddsRes.json();
+          games = games.map(g => {
+            const match = oddsGames.find(og =>
+              og.home_team.toLowerCase().includes(g.home_team.toLowerCase().split(" ").pop()) ||
+              g.home_team.toLowerCase().includes(og.home_team.toLowerCase().split(" ").pop())
+            );
+            return match ? {...g, bookmakers: match.bookmakers} : g;
+          });
         }
       }
       if(games.length > 0) {
@@ -1540,9 +1542,9 @@ export default function NBAEdge() {
         setConvictionPlays(plays);
         log(`🎯 ${plays.length} conviction plays · ${plays.filter(p=>p.tier==="HIGH").length} HIGH confidence`);
       } else {
-        log("⚠️ No game schedule available for conviction plays");
+        log("⚠️ No games found on ESPN scoreboard today");
       }
-    } catch(e) { console.error("Conviction plays error:", e); log("⚠️ Conviction plays error: "+e.message); }
+    } catch(e) { console.error("Conviction plays error:", e); log("⚠️ Conviction error: "+e.message); }
     setConvictionLoading(false);
 
     // Fix #1: Pass current history to deduplication function
@@ -1716,7 +1718,7 @@ export default function NBAEdge() {
             <div style={{fontSize:11,color:"#8899aa",marginTop:4}}>✅ Pre-game update 1hr before tip-off</div>
           </div>
           {[
-            {key:"odds",label:"The Odds API Key",val:oddsKey,set:setOddsKey,hint:"Free at the-odds-api.com — live game lines from 6 sportsbooks"},
+            {key:"odds",label:"The Odds API Key",val:oddsKey,set:(v)=>{setOddsKey(v);localStorage.setItem("nba_edge_odds_key",v);},hint:"Free at the-odds-api.com — live game lines from 6 sportsbooks"},
             {key:"run",label:"TheRundown API Key",val:rundownKey,set:(v)=>{setRundownKey(v);localStorage.setItem("nba_edge_rundown_key",v);},hint:"FREE player props — sign up at therundown.io/api (no credit card)"},
             {key:"anth",label:"Anthropic API Key (Recommended)",val:anthropicKey,set:setAnthropicKey,hint:"AI news agent — console.anthropic.com"},
             {key:"oai",label:"OpenAI API Key (Alternative)",val:openaiKey,set:setOpenaiKey,hint:"Alternative agent — platform.openai.com"},
