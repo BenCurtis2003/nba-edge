@@ -598,10 +598,11 @@ async function fetchRundownProps(rundownKey) {
 async function fetchESPNScores() {
   try {
     // Fetch last 2 days of ESPN scoreboard events
+    // Fetch today + last 4 days to catch any unresolved historical bets
+    const makeDateStr = daysAgo => new Date(Date.now()-daysAgo*86400000).toISOString().slice(0,10).replace(/-/g,"");
     const urls = [
       "https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard",
-      "https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard?dates=" +
-        new Date(Date.now()-86400000).toISOString().slice(0,10).replace(/-/g,""),
+      ...([1,2,3,4].map(d => `https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard?dates=${makeDateStr(d)}`)),
     ];
     const results = await Promise.all(urls.map(u => fetchWithTimeout(u,{},6000).catch(()=>null)));
     const scores = [];
@@ -628,8 +629,16 @@ async function fetchESPNScores() {
         });
       }
     }
-    console.log(`[ESPN Scores] ${scores.length} completed games`);
-    return scores;
+    // Deduplicate (same game might appear in multiple date fetches)
+    const seen = new Set();
+    const deduped = scores.filter(s => {
+      const key = `${normTeam(s.home_team)}|${normTeam(s.away_team)}`;
+      if(seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+    console.log(`[ESPN Scores] ${deduped.length} completed games:`, deduped.map(s=>`${s.away_team}@${s.home_team} ${s.scores?.map(x=>x.score).join("-")}`));
+    return deduped;
   } catch(e) {
     console.error("[ESPN Scores] error:", e);
     return [];
@@ -1872,11 +1881,23 @@ function normTeam(name="") {
   return name.toLowerCase().split(" ").pop().replace(/[^a-z]/g,"");
 }
 // Check if a history entry's game matches a score entry
+// Uses multiple strategies: exact, normalized nickname, and partial
 function gameMatches(entryGame="", scoreHome="", scoreAway="") {
   const hNorm = normTeam(scoreHome), aNorm = normTeam(scoreAway);
   const g = entryGame.toLowerCase();
-  return (g.includes(hNorm) || g.includes(scoreHome.toLowerCase())) &&
-         (g.includes(aNorm) || g.includes(scoreAway.toLowerCase()));
+  const homeMatch = g.includes(hNorm) || g.includes(scoreHome.toLowerCase()) || 
+                    scoreHome.toLowerCase().includes(normTeam(g.split(" @ ")[1]||""));
+  const awayMatch = g.includes(aNorm) || g.includes(scoreAway.toLowerCase()) ||
+                    scoreAway.toLowerCase().includes(normTeam(g.split(" @ ")[0]||""));
+  // Both must match — but try each side of the "@" split
+  if(homeMatch && awayMatch) return true;
+  // Fallback: if either full team name appears anywhere in the game string, accept
+  const homeFull = scoreHome.toLowerCase();
+  const awayFull = scoreAway.toLowerCase();
+  const gWords = g.split(/[ @]+/).filter(w=>w.length>3);
+  const homeWordMatch = gWords.some(w=>homeFull.includes(w)||w.length>4&&homeFull.includes(w));
+  const awayWordMatch = gWords.some(w=>awayFull.includes(w)||w.length>4&&awayFull.includes(w));
+  return homeWordMatch && awayWordMatch;
 }
 
   const resolveWithScores = useCallback(async (currentHistory, apiKey, currentML) => {
@@ -1899,7 +1920,17 @@ function gameMatches(entryGame="", scoreHome="", scoreAway="") {
       // Fuzzy match by normalized team nickname
       const gameScore = scores.find(s => gameMatches(entry.game, s.home_team||"", s.away_team||""));
       if(!gameScore) {
-        console.log(`[Resolve] No score found for: ${entry.game}`);
+        const available = scores.slice(0,8).map(s=>`${normTeam(s.away_team)}@${normTeam(s.home_team)}`).join(", ");
+        console.log(`[Resolve] NO MATCH for: "${entry.game}" | available: ${available}`);
+        // Auto-void very old unresolvable bets (>36hrs, likely from demo/mock data)
+        const ageHrs = (Date.now() - new Date(entry.gameTime||entry.date)) / 3600000;
+        if(ageHrs > 36) {
+          console.log(`[Resolve] Voiding stale bet: ${entry.game} (${ageHrs.toFixed(0)}h old)`);
+          changed = true;
+          return {...entry, status:"voided", result:"VOID", wagerAmt: entry.wagerAmt||0,
+            potentialPayout:0, bankrollBefore:+runningBankroll.toFixed(2), 
+            bankrollAfter:+runningBankroll.toFixed(2)};
+        }
         return {...entry, bankrollBefore:+runningBankroll.toFixed(2), bankrollAfter:+runningBankroll.toFixed(2)};
       }
       if(!gameScore.completed) {
@@ -2555,8 +2586,9 @@ function gameMatches(entryGame="", scoreHome="", scoreAway="") {
                     const isWon = h.status === "won";
                     const isLost = h.status === "lost";
                     const isPending = h.status === "pending";
+                    const isVoided = h.status === "voided";
                     const pnl = isWon ? h.potentialPayout : isLost ? -h.wagerAmt : null;
-                    const accentColor = isWon ? "#00ff88" : isLost ? "#ff6b6b" : "#ffd700";
+                    const accentColor = isWon ? "#00ff88" : isLost ? "#ff6b6b" : isVoided ? "#3a5570" : "#ffd700";
                     const bgColor = isWon ? "rgba(0,255,136,0.04)" : isLost ? "rgba(255,107,107,0.04)" : "transparent";
                     return (
                       <div key={h.id} style={{borderBottom:"1px solid #0e1a28",background:bgColor,transition:"background 0.3s"}}>
@@ -2567,7 +2599,7 @@ function gameMatches(entryGame="", scoreHome="", scoreAway="") {
                             <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:4}}>
                               <div style={{width:6,height:6,borderRadius:"50%",background:accentColor,boxShadow:isPending?`0 0 5px ${accentColor}`:"none"}}/>
                               <div style={{fontSize:9,fontWeight:700,color:accentColor,letterSpacing:"0.08em"}}>
-                                {isWon?"WIN ✓":isLost?"LOSS ✗":"PENDING"}
+                                {isWon?"WIN ✓":isLost?"LOSS ✗":isVoided?"VOID":isPending?"PENDING":"—"}
                               </div>
                             </div>
                             <div style={{fontSize:10,color:"#3a5570"}}>{new Date(h.date).toLocaleDateString("en-US",{month:"short",day:"numeric"})}</div>
