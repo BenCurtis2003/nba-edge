@@ -159,7 +159,7 @@ async function fetchLiveOdds(apiKey, mlModel) {
   try {
     const ALL_BOOKS = [...SPORTSBOOKS, "pinnacle"];
     // Single call for game lines (h2h + spreads + totals) — free tier safe
-    const gameRes = await fetch(`https://api.the-odds-api.com/v4/sports/basketball_nba/odds/?apiKey=${apiKey}&regions=us&markets=h2h,spreads,totals&bookmakers=${ALL_BOOKS.join(",")}&oddsFormat=american`);
+    const gameRes = await fetchWithTimeout(`https://api.the-odds-api.com/v4/sports/basketball_nba/odds/?apiKey=${apiKey}&regions=us&markets=h2h,spreads,totals&bookmakers=${ALL_BOOKS.join(",")}&oddsFormat=american`, {}, 10000);
     if(!gameRes.ok) {
       const errText = await gameRes.text().catch(()=>"");
       console.error(`[OddsAPI] HTTP ${gameRes.status}: ${errText.slice(0,200)}`);
@@ -169,6 +169,8 @@ async function fetchLiveOdds(apiKey, mlModel) {
     const propData = [];
     console.log(`[OddsAPI] ${data.length} games fetched`);
     if(!Array.isArray(data)||data.length===0) return null;
+    // Expose raw games for conviction odds merge (set on window temporarily)
+    try { window.__nbaEdgeOddsGames = data; } catch {}
 
     const bets = [];
     data.forEach(game => {
@@ -696,6 +698,14 @@ function updateConvictionML(ml, play, won) {
 
 function getSignalWeights(ml) { return ml.learnedWeights || DEFAULT_SIGNAL_WEIGHTS; }
 
+// Fetch with timeout — prevents any single request from hanging the app
+function fetchWithTimeout(url, options={}, ms=8000) {
+  const controller = new AbortController();
+  const timer = setTimeout(()=>controller.abort(), ms);
+  return fetch(url, {...options, signal:controller.signal})
+    .finally(()=>clearTimeout(timer));
+}
+
 // ── 2025-26 NBA STANDINGS FALLBACK ───────────────────────────
 // Real standings as of March 2026 — used when ESPN fetch fails
 const NBA_STANDINGS_2526 = {
@@ -734,7 +744,7 @@ const NBA_STANDINGS_2526 = {
 // ESPN public API — CORS-safe in browser, falls back to hardcoded standings
 async function fetchESPNTeamData() {
   try {
-    const res = await fetch("https://site.api.espn.com/apis/site/v2/sports/basketball/nba/teams?limit=30");
+    const res = await fetchWithTimeout("https://site.api.espn.com/apis/site/v2/sports/basketball/nba/teams?limit=30", {}, 6000);
     if(!res.ok) throw new Error("ESPN teams failed");
     const data = await res.json();
     const teams = {};
@@ -786,7 +796,7 @@ async function fetchESPNTeamData() {
 
 async function fetchESPNTeamStats(espnId) {
   try {
-    const res = await fetch(`https://site.api.espn.com/apis/site/v2/sports/basketball/nba/teams/${espnId}/schedule?seasontype=2&limit=15`);
+    const res = await fetchWithTimeout(`https://site.api.espn.com/apis/site/v2/sports/basketball/nba/teams/${espnId}/schedule?seasontype=2&limit=15`, {}, 5000);
     if(!res.ok) return null;
     const data = await res.json();
     const events = data.events || [];
@@ -830,20 +840,36 @@ async function buildConvictionPlays(games, convictionML) {
     return Object.values(espnTeams).find(t => words.some(w=>t.name.toLowerCase().includes(w))) || null;
   };
 
-  for(const game of games) {
+  // Pre-fetch ALL team game logs in parallel upfront (much faster than per-game)
+  const allTeamIds = new Set();
+  const gameTeams = games.map(game => {
+    const espnHome = findESPN(game.home_team);
+    const espnAway = findESPN(game.away_team);
+    if(espnHome) allTeamIds.add(espnHome.id);
+    if(espnAway) allTeamIds.add(espnAway.id);
+    return {game, espnHome, espnAway};
+  });
+
+  // Fetch all logs in parallel with a small stagger to avoid rate limiting
+  const teamLogCache = {};
+  const teamIdArr = [...allTeamIds];
+  // Batch into groups of 4 to avoid overwhelming ESPN
+  for(let i=0; i<teamIdArr.length; i+=4) {
+    const batch = teamIdArr.slice(i, i+4);
+    const results = await Promise.all(batch.map(id => fetchESPNTeamStats(id).catch(()=>null)));
+    batch.forEach((id, idx) => { teamLogCache[id] = results[idx]; });
+  }
+
+  for(const {game, espnHome, espnAway} of gameTeams) {
     const away = game.away_team;
     const home = game.home_team;
     if(!away || !home) continue;
     const gameLabel = `${away} @ ${home}`;
     const gameTime = game.commence_time;
-    const espnHome = findESPN(home);
-    const espnAway = findESPN(away);
     if(!espnHome || !espnAway) continue;
 
-    const [homeLog, awayLog] = await Promise.all([
-      fetchESPNTeamStats(espnHome.id),
-      fetchESPNTeamStats(espnAway.id),
-    ]);
+    const homeLog = teamLogCache[espnHome.id] || null;
+    const awayLog = teamLogCache[espnAway.id] || null;
 
     // Score a single team side, returns {finalScore, signals, topSignals}
     const scoreTeam = (espnTeam, espnOpp, teamLog, oppLog, isHome) => {
@@ -1662,11 +1688,13 @@ export default function NBAEdge() {
     let rawBets = null;
 
     const activeKey = overrideOddsKey !== undefined ? overrideOddsKey : oddsKey;
+    let rawOddsGames = null; // captured from Odds API, reused by conviction engine
     if(activeKey) {
       const [result, rundownProps] = await Promise.all([
         fetchLiveOdds(activeKey, currentML),
         fetchRundownProps(rundownKey)
       ]);
+      try { rawOddsGames = window.__nbaEdgeOddsGames || null; } catch {}
       if(result) {
         // API succeeded — use live data even if 0 edges found today
         const gameBets = result.bets.filter(b=>!b.isProp);
@@ -1693,52 +1721,49 @@ export default function NBAEdge() {
     setLastUpdated(new Date());
     setLoading(false);
 
-    // Build conviction plays — fully independent, uses ESPN scoreboard (no key needed)
+    // Build conviction plays in background — non-blocking, won't freeze the main UI
     setConvictionLoading(true);
-    try {
-      const currentConvML = loadConvictionML();
-      // ESPN scoreboard API: CORS-safe, free, no key
-      const espnScoreRes = await fetch("https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard");
-      let games = [];
-      if(espnScoreRes.ok) {
-        const espnScore = await espnScoreRes.json();
-        games = (espnScore.events||[]).map(e => ({
-          away_team: e.competitions?.[0]?.competitors?.find(c=>c.homeAway==="away")?.team?.displayName||"",
-          home_team: e.competitions?.[0]?.competitors?.find(c=>c.homeAway==="home")?.team?.displayName||"",
-          commence_time: e.date,
-          bookmakers: [],
-          espnId: e.id,
-        })).filter(g=>g.away_team&&g.home_team);
-        log(`📅 ESPN: ${games.length} games today`);
-      }
-      // Merge bookmaker odds from already-fetched live odds (reuse result, no extra API call)
-      if(activeKey && games.length > 0) {
-        // Re-fetch with all markets for conviction plays (h2h + spreads + totals)
-        const oddsRes = await fetch(`https://api.the-odds-api.com/v4/sports/basketball_nba/odds/?apiKey=${activeKey}&regions=us&markets=h2h,spreads,totals&bookmakers=${SPORTSBOOKS.join(",")}&oddsFormat=american`);
-        if(oddsRes.ok) {
-          const oddsGames = await oddsRes.json();
+    (async () => {
+      try {
+        const currentConvML = loadConvictionML();
+        // ESPN scoreboard for today's games
+        const espnScoreRes = await fetchWithTimeout("https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard", {}, 6000);
+        let games = [];
+        if(espnScoreRes.ok) {
+          const espnScore = await espnScoreRes.json();
+          games = (espnScore.events||[]).map(e => ({
+            away_team: e.competitions?.[0]?.competitors?.find(c=>c.homeAway==="away")?.team?.displayName||"",
+            home_team: e.competitions?.[0]?.competitors?.find(c=>c.homeAway==="home")?.team?.displayName||"",
+            commence_time: e.date,
+            bookmakers: [],
+          })).filter(g=>g.away_team&&g.home_team);
+          log(`📅 ESPN: ${games.length} games today`);
+        }
+        // Merge odds data already fetched above — pass rawOddsGames captured in closure
+        if(rawOddsGames && games.length > 0) {
           games = games.map(g => {
             const hn = g.home_team.toLowerCase().split(" ").pop();
-            const match = oddsGames.find(og =>
+            const match = rawOddsGames.find(og =>
               og.home_team.toLowerCase().includes(hn) ||
               g.home_team.toLowerCase().includes(og.home_team.toLowerCase().split(" ").pop())
             );
             return match ? {...g, bookmakers: match.bookmakers} : g;
           });
-          log(`📊 Merged odds for ${games.filter(g=>g.bookmakers?.length>0).length}/${games.length} games`);
-        } else {
-          log(`⚠️ Odds merge failed HTTP ${oddsRes.status} — conviction plays will show no lines`);
+          log(`📊 Odds merged for ${games.filter(g=>g.bookmakers?.length>0).length}/${games.length} games`);
         }
+        if(games.length > 0) {
+          const plays = await buildConvictionPlays(games, currentConvML);
+          setConvictionPlays(plays);
+          log(`🎯 ${plays.length} conviction plays · ${plays.filter(p=>p.tier==="HIGH").length} HIGH`);
+        } else {
+          log("⚠️ No ESPN games today");
+        }
+      } catch(e) {
+        console.error("Conviction error:", e);
+        log("⚠️ Conviction error: " + (e.name==="AbortError"?"ESPN timeout":e.message));
       }
-      if(games.length > 0) {
-        const plays = await buildConvictionPlays(games, currentConvML);
-        setConvictionPlays(plays);
-        log(`🎯 ${plays.length} conviction plays · ${plays.filter(p=>p.tier==="HIGH").length} HIGH confidence`);
-      } else {
-        log("⚠️ No games found on ESPN scoreboard today");
-      }
-    } catch(e) { console.error("Conviction plays error:", e); log("⚠️ Conviction error: "+e.message); }
-    setConvictionLoading(false);
+      setConvictionLoading(false);
+    })();
 
     // Fix #1: Pass current history to deduplication function
     setHistory(prev => {
