@@ -596,10 +596,34 @@ async function fetchRundownProps(rundownKey) {
 
 async function fetchScores(apiKey) {
   try {
-    const res = await fetch(`https://api.the-odds-api.com/v4/sports/basketball_nba/scores/?apiKey=${apiKey}&daysFrom=3`);
-    if(!res.ok) return null;
-    return await res.json();
-  } catch { return null; }
+    const res = await fetchWithTimeout(
+      `https://api.the-odds-api.com/v4/sports/basketball_nba/scores/?apiKey=${apiKey}&daysFrom=3`,
+      {}, 8000
+    );
+    if(!res.ok) {
+      console.warn("[Scores] API error:", res.status);
+      return null;
+    }
+    const data = await res.json();
+    const completed = data.filter(g => g.completed);
+    const inProgress = data.filter(g => !g.completed && g.scores);
+    console.log(`[Scores] ${data.length} games · ${completed.length} completed · ${inProgress.length} in-progress`);
+    // Also mark in-progress games that have scores as resolvable if game time was >3hrs ago
+    return data.map(g => {
+      if(g.completed) return g;
+      if(!g.scores || !g.commence_time) return g;
+      const age = (Date.now() - new Date(g.commence_time)) / 3600000;
+      // If game started >3.5 hours ago and has scores, treat as completed
+      if(age > 3.5) {
+        console.log(`[Scores] Treating ${g.away_team}@${g.home_team} as completed (${age.toFixed(1)}h old)`);
+        return {...g, completed: true};
+      }
+      return g;
+    });
+  } catch(e) {
+    console.error("[Scores] fetch error:", e);
+    return null;
+  }
 }
 
 // Fix #2: News agent now calls proxy correctly
@@ -1737,7 +1761,7 @@ export default function NBAEdge() {
 
     let runningBankroll = currentBankroll;
     const newEntries = fresh.map(bet => {
-      const wagerPct = bet.kellyPct / 100;
+      const wagerPct = Math.max(bet.kellyPct || 1, 0.5) / 100; // minimum 0.5% wager
       const wagerAmt = +(runningBankroll * wagerPct).toFixed(2);
       const payout = +(wagerAmt * (americanToDecimal(bet.bestOdds)-1)).toFixed(2);
       return {
@@ -1789,11 +1813,14 @@ export default function NBAEdge() {
 
   // Auto-resolve bets + update ML model
   const resolveWithScores = useCallback(async (currentHistory, apiKey, currentML) => {
-    if(!apiKey) return { history: currentHistory, ml: currentML };
+    if(!apiKey) { console.log("[Resolve] No API key"); return { history: currentHistory, ml: currentML }; }
     const pending = currentHistory.filter(h=>h.status==="pending");
-    if(!pending.length) return { history: currentHistory, ml: currentML };
+    if(!pending.length) { console.log("[Resolve] No pending bets"); return { history: currentHistory, ml: currentML }; }
+    console.log(`[Resolve] Attempting to resolve ${pending.length} pending bets...`);
+    pending.forEach(p => console.log(`  - ${p.game} | ${p.selection} | kellyPct=${p.kellyPct} wagerAmt=${p.wagerAmt}`));
     const scores = await fetchScores(apiKey);
-    if(!scores) return { history: currentHistory, ml: currentML };
+    if(!scores) { console.log("[Resolve] fetchScores returned null"); return { history: currentHistory, ml: currentML }; }
+    console.log(`[Resolve] Got ${scores.length} scores, ${scores.filter(s=>s.completed).length} completed`);
 
     let updated = [...currentHistory];
     let updatedML = {...currentML};
@@ -1802,11 +1829,21 @@ export default function NBAEdge() {
 
     updated = updated.map(entry => {
       if(entry.status !== "pending") { runningBankroll = entry.bankrollAfter; return entry; }
-      const gameScore = scores.find(s =>
-        (s.home_team && entry.game.includes(s.home_team)) ||
-        (s.away_team && entry.game.includes(s.away_team))
-      );
-      if(!gameScore?.completed) return {...entry, bankrollBefore:+runningBankroll.toFixed(2), bankrollAfter:+runningBankroll.toFixed(2)};
+      // Match by team name — try partial match to handle name differences
+      const gameScore = scores.find(s => {
+        const homeMatch = s.home_team && (entry.game.includes(s.home_team) || s.home_team.split(" ").pop() && entry.game.includes(s.home_team.split(" ").pop()));
+        const awayMatch = s.away_team && (entry.game.includes(s.away_team) || s.away_team.split(" ").pop() && entry.game.includes(s.away_team.split(" ").pop()));
+        return homeMatch || awayMatch;
+      });
+      if(!gameScore) {
+        console.log(`[Resolve] No score found for: ${entry.game}`);
+        return {...entry, bankrollBefore:+runningBankroll.toFixed(2), bankrollAfter:+runningBankroll.toFixed(2)};
+      }
+      if(!gameScore.completed) {
+        console.log(`[Resolve] Game not complete: ${entry.game} (${gameScore.away_team}@${gameScore.home_team})`);
+        return {...entry, bankrollBefore:+runningBankroll.toFixed(2), bankrollAfter:+runningBankroll.toFixed(2)};
+      }
+      console.log(`[Resolve] Matched: ${entry.game} → ${gameScore.away_team}@${gameScore.home_team} scores:`, gameScore.scores);
 
       const homeScore=gameScore.scores?.find(s=>s.name===gameScore.home_team)?.score;
       const awayScore=gameScore.scores?.find(s=>s.name===gameScore.away_team)?.score;
@@ -1846,9 +1883,13 @@ export default function NBAEdge() {
       }
       if(won===null) return {...entry, bankrollBefore:+runningBankroll.toFixed(2), bankrollAfter:+runningBankroll.toFixed(2)};
 
-      const wagerAmt=+(runningBankroll*(entry.kellyPct||2)/100).toFixed(2);
-      const decOdds = entry.bestOdds ? americanToDecimal(entry.bestOdds) : 1.91; // default -110 if no odds
+      // Use stored wagerAmt if >0, otherwise recalculate from kellyPct
+      const wagerAmt = entry.wagerAmt > 0
+        ? entry.wagerAmt
+        : +(runningBankroll * Math.max(entry.kellyPct||2, 1) / 100).toFixed(2);
+      const decOdds = entry.bestOdds ? americanToDecimal(entry.bestOdds) : 1.91;
       const payout=+(wagerAmt*(decOdds-1)).toFixed(2);
+      console.log(`[Resolve] ${entry.selection}: ${won?"WON":"LOST"} · wager $${wagerAmt} · payout $${payout}`);
       const bankrollBefore=+runningBankroll.toFixed(2);
       if(won) runningBankroll+=payout; else runningBankroll-=wagerAmt;
       runningBankroll=Math.max(0,+runningBankroll.toFixed(2));
@@ -2038,13 +2079,19 @@ export default function NBAEdge() {
           const scores = await fetchScores(activeKey);
           if(scores) {
             resolveConvictionPlays(scores);
-            // Filter out bets for completed games from display
+            // Filter out bets for completed games — use both API completed flag and gameTime
             setBets(prev => prev.filter(bet => {
+              // Time-based: if game started >3.5 hours ago, remove from active view
+              if(bet.gameTime) {
+                const ageHrs = (Date.now() - new Date(bet.gameTime)) / 3600000;
+                if(ageHrs > 3.5) return false;
+              }
+              // API-based: check scores endpoint
               const gameScore = scores.find(s =>
                 (s.home_team && bet.game?.includes(s.home_team)) ||
                 (s.away_team && bet.game?.includes(s.away_team))
               );
-              return !gameScore?.completed; // keep only unresolved games
+              return !gameScore?.completed;
             }));
           }
         }
@@ -2171,25 +2218,27 @@ export default function NBAEdge() {
   const BET_TYPES=["All","Moneyline","Spread","Game Total","Player Prop"];
   const filtered=filter==="All"?bets:bets.filter(b=>b.type===filter);
   const filteredConviction=filter==="All"?convictionPlays:convictionPlays.filter(p=>p.betType===filter);
-  const resolved=history.filter(h=>h.status!=="pending");
+  const resolved=history.filter(h=>h.status==="won"||h.status==="lost");
   const won=resolved.filter(h=>h.status==="won");
   const totalWagered=resolved.reduce((s,h)=>s+h.wagerAmt,0);
   const totalPnl=bankroll-STARTING_BANKROLL;
+  const resolvedPnl=resolved.reduce((s,h)=>s+(h.status==="won"?h.potentialPayout:-h.wagerAmt),0);
   const winRate=resolved.length>0?((won.length/resolved.length)*100).toFixed(0):0;
   const mlConfidence = mlModel.totalBets >= 5 ? Math.min(50+mlModel.totalBets*2, 95) : 0;
 
   const chartData=(()=>{
-    // Use all resolved entries + show running bankroll including pending
     const sorted = [...history].sort((a,b)=>new Date(a.date)-new Date(b.date));
     if(sorted.length === 0) return [];
-    // Build running bankroll correctly — pending bets don't move bankroll yet
-    let running = STARTING_BANKROLL;
-    return sorted.map(h => {
-      if(h.status === "won") running = h.bankrollAfter;
-      else if(h.status === "lost") running = h.bankrollAfter;
-      // pending: bankroll unchanged
-      return {...h, chartBankroll: running};
-    });
+    // Only chart resolved entries so the line moves meaningfully
+    const resolved = sorted.filter(h => h.status === "won" || h.status === "lost");
+    if(resolved.length === 0) {
+      // No resolved bets yet — return starting point so chart shows flat line
+      return [{...sorted[0], chartBankroll: STARTING_BANKROLL, date: sorted[0].date}];
+    }
+    // Add starting point then each resolved bet's bankroll
+    const points = [{chartBankroll: STARTING_BANKROLL, date: sorted[0].date, status:"start", selection:"Start"}];
+    resolved.forEach(h => points.push({...h, chartBankroll: h.bankrollAfter}));
+    return points;
   })();
 
   const s = {
