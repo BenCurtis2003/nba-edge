@@ -626,6 +626,293 @@ async function runNewsAgent(bet, anthropicKey) {
 }
 
 
+
+// ══════════════════════════════════════════════════════════════
+// CONVICTION PLAYS ENGINE
+// Finds high-probability bets using team stats + ML signal weighting
+// Uses ESPN API (CORS-safe) + Odds API game data
+// ══════════════════════════════════════════════════════════════
+
+const DEFAULT_SIGNAL_WEIGHTS = {
+  recentForm:    0.22,  // last 10 games win rate
+  homeAdvantage: 0.12,  // home court
+  restAdvantage: 0.18,  // rest days differential
+  netRating:     0.20,  // team net rating / point diff
+  atsRecord:     0.14,  // against the spread momentum
+  h2hRecord:     0.08,  // head to head history
+  paceMismatch:  0.06,  // pace differential
+};
+
+const CONVICTION_ML_KEY = "nba_edge_conviction_ml_v1";
+
+const defaultConvictionML = {
+  totalPlays: 0, totalWins: 0,
+  signalAccuracy: {
+    recentForm:    { fired:0, won:0 },
+    homeAdvantage: { fired:0, won:0 },
+    restAdvantage: { fired:0, won:0 },
+    netRating:     { fired:0, won:0 },
+    atsRecord:     { fired:0, won:0 },
+    h2hRecord:     { fired:0, won:0 },
+    paceMismatch:  { fired:0, won:0 },
+  },
+  learnedWeights: null,
+  byTeam: {},
+};
+
+function loadConvictionML() {
+  try { const s=localStorage.getItem(CONVICTION_ML_KEY); return s?JSON.parse(s):defaultConvictionML; } catch { return defaultConvictionML; }
+}
+function saveConvictionML(ml) {
+  try { localStorage.setItem(CONVICTION_ML_KEY, JSON.stringify(ml)); } catch {} }
+
+function updateConvictionML(ml, play, won) {
+  const u = JSON.parse(JSON.stringify(ml));
+  u.totalPlays++; if(won) u.totalWins++;
+  play.signals?.forEach(s => {
+    if(s.score >= 65) {
+      const d = u.signalAccuracy[s.key] || {fired:0,won:0};
+      d.fired++; if(won) d.won++;
+      u.signalAccuracy[s.key] = d;
+    }
+  });
+  const teams = play.game?.split(" @ ") || [];
+  teams.forEach(team => {
+    const t = u.byTeam[team] || {plays:0,wins:0};
+    t.plays++; if(won) t.wins++;
+    u.byTeam[team] = t;
+  });
+  if(u.totalPlays >= 15) {
+    const learned = {}; let total = 0;
+    Object.entries(u.signalAccuracy).forEach(([key, data]) => {
+      const base = DEFAULT_SIGNAL_WEIGHTS[key] || 0.1;
+      if(data.fired < 3) { learned[key] = base; total += base; return; }
+      const acc = data.won / data.fired;
+      const baseline = u.totalWins / u.totalPlays;
+      const power = Math.max(0.02, base * (acc / Math.max(baseline, 0.01)));
+      learned[key] = power; total += power;
+    });
+    Object.keys(learned).forEach(k => { learned[k] = learned[k] / total; });
+    u.learnedWeights = learned;
+  }
+  return u;
+}
+
+function getSignalWeights(ml) { return ml.learnedWeights || DEFAULT_SIGNAL_WEIGHTS; }
+
+// ESPN public API — CORS-safe, no key needed
+async function fetchESPNTeamData() {
+  try {
+    const res = await fetch("https://site.api.espn.com/apis/site/v2/sports/basketball/nba/teams?limit=30");
+    if(!res.ok) return null;
+    const data = await res.json();
+    const teams = {};
+    (data.sports?.[0]?.leagues?.[0]?.teams || []).forEach(({team}) => {
+      teams[team.displayName] = {
+        id: team.id, abbr: team.abbreviation,
+        wins: +team.record?.items?.[0]?.stats?.find(s=>s.name==="wins")?.value || 0,
+        losses: +team.record?.items?.[0]?.stats?.find(s=>s.name==="losses")?.value || 0,
+        name: team.displayName,
+      };
+    });
+    return teams;
+  } catch { return null; }
+}
+
+async function fetchESPNTeamStats(espnId) {
+  try {
+    const res = await fetch(`https://site.api.espn.com/apis/site/v2/sports/basketball/nba/teams/${espnId}/schedule?seasontype=2&limit=15`);
+    if(!res.ok) return null;
+    const data = await res.json();
+    const events = data.events || [];
+    return events.slice(0, 12).map(e => {
+      const comp = e.competitions?.[0];
+      const homeComp = comp?.competitors?.find(c=>c.homeAway==="home");
+      const awayComp = comp?.competitors?.find(c=>c.homeAway==="away");
+      const myComp = comp?.competitors?.find(c=>c.team?.id===String(espnId));
+      const oppComp = comp?.competitors?.find(c=>c.team?.id!==String(espnId));
+      const myScore = +myComp?.score || 0;
+      const oppScore = +oppComp?.score || 0;
+      return {
+        won: myComp?.winner === true,
+        isHome: myComp?.homeAway === "home",
+        ptsDiff: myScore - oppScore,
+        myScore, oppScore,
+        date: e.date,
+      };
+    }).filter(g => g.myScore > 0); // only completed games
+  } catch { return null; }
+}
+
+async function buildConvictionPlays(games, convictionML) {
+  if(!games || games.length === 0) return [];
+  const weights = getSignalWeights(convictionML);
+  const plays = [];
+
+  // Fetch ESPN team roster
+  const espnTeams = await fetchESPNTeamData();
+
+  for(const game of games) {
+    const away = game.away_team;
+    const home = game.home_team;
+    const gameLabel = `${away} @ ${home}`;
+    const gameTime = game.commence_time;
+
+    const findESPN = (name) => {
+      if(!espnTeams) return null;
+      const exact = espnTeams[name];
+      if(exact) return exact;
+      const nameParts = name.toLowerCase().split(" ");
+      return Object.values(espnTeams).find(t =>
+        nameParts.some(p => p.length > 3 && t.name.toLowerCase().includes(p))
+      );
+    };
+
+    for(const [side, oppSide, isHome] of [[home, away, true],[away, home, false]]) {
+      const espnTeam = findESPN(side);
+      const espnOpp = findESPN(oppSide);
+      if(!espnTeam || !espnOpp) continue;
+
+      const signals = [];
+      let totalScore = 0, totalWeight = 0;
+
+      const addSignal = (key, label, score, note, emoji) => {
+        signals.push({key, label, score:Math.round(score), note, emoji});
+        const w = weights[key] || DEFAULT_SIGNAL_WEIGHTS[key] || 0.1;
+        totalScore += score * w; totalWeight += w;
+      };
+
+      // Fetch recent game logs from ESPN
+      const [teamLog, oppLog] = await Promise.all([
+        fetchESPNTeamStats(espnTeam.id),
+        fetchESPNTeamStats(espnOpp.id),
+      ]);
+
+      // SIGNAL 1: Recent Form
+      if(teamLog && teamLog.length >= 3) {
+        const last10 = teamLog.slice(0,10);
+        const wins = last10.filter(g=>g.won).length;
+        const wr = wins/last10.length;
+        const score = wr>=0.8?92:wr>=0.7?80:wr>=0.6?67:wr>=0.5?52:wr>=0.4?36:22;
+        addSignal("recentForm","Recent Form",score,`${wins}/${last10.length} last 10 games (${Math.round(wr*100)}%)`,"📈");
+      } else {
+        addSignal("recentForm","Recent Form",50,"Insufficient game data","📈");
+      }
+
+      // SIGNAL 2: Home Court
+      addSignal("homeAdvantage","Home Court",isHome?72:38,
+        isHome?"Playing at home — +3.2pt avg advantage":"On the road — historically 3-4pt disadvantage","🏠");
+
+      // SIGNAL 3: Rest Advantage (approximate from schedule gaps)
+      let restScore = 50, restNote = "Similar rest";
+      if(teamLog && oppLog && teamLog.length && oppLog.length) {
+        const lastTeam = new Date(teamLog[0].date);
+        const lastOpp = new Date(oppLog[0].date);
+        const gameDate = new Date(gameTime);
+        const teamRest = Math.round((gameDate - lastTeam)/(1000*60*60*24));
+        const oppRest = Math.round((gameDate - lastOpp)/(1000*60*60*24));
+        const diff = teamRest - oppRest;
+        if(diff>=2){restScore=88;restNote=`${teamRest}d rest vs opp ${oppRest}d — major advantage`;}
+        else if(diff>=1){restScore=68;restNote=`${teamRest}d rest vs opp ${oppRest}d — slight edge`;}
+        else if(diff<=-2){restScore=18;restNote=`${teamRest}d rest vs opp ${oppRest}d — fatigue risk`;}
+        else if(diff<=-1){restScore=36;restNote=`${teamRest}d rest vs opp ${oppRest}d — slight fatigue`;}
+        else{restScore=52;restNote=`Both teams ${teamRest}d rest`;}
+      }
+      addSignal("restAdvantage","Rest Advantage",restScore,restNote,"😴");
+
+      // SIGNAL 4: Net Rating / Avg Point Differential
+      if(teamLog && teamLog.length >= 3) {
+        const avgDiff = teamLog.slice(0,8).reduce((s,g)=>s+g.ptsDiff,0)/Math.min(8,teamLog.length);
+        const score = avgDiff>=8?90:avgDiff>=5?78:avgDiff>=2?64:avgDiff>=0?52:avgDiff>=-3?38:avgDiff>=-6?24:12;
+        addSignal("netRating","Avg Point Margin",score,
+          `${avgDiff>=0?"+":""}${avgDiff.toFixed(1)} pts/game last 8 games`,"⚡");
+      } else {
+        const record = espnTeam.wins + espnTeam.losses;
+        const wr = record > 0 ? espnTeam.wins/record : 0.5;
+        addSignal("netRating","Win %",wr>=0.6?72:wr>=0.5?55:38,
+          `Season record ${espnTeam.wins}-${espnTeam.losses}`,"⚡");
+      }
+
+      // SIGNAL 5: ATS Momentum (home+away cover rate from score diffs vs spread approx)
+      if(teamLog && teamLog.length >= 5) {
+        const bigWins = teamLog.slice(0,8).filter(g=>g.won&&g.ptsDiff>=5).length;
+        const atsScore = bigWins>=5?80:bigWins>=3?65:bigWins>=2?52:38;
+        addSignal("atsRecord","Convincing Win Rate",atsScore,
+          `${bigWins} wins by 5+ pts in last 8 games`,"🎯");
+      } else {
+        addSignal("atsRecord","Convincing Win Rate",50,"Insufficient data","🎯");
+      }
+
+      // SIGNAL 6: Opponent weakness (opp recent form)
+      if(oppLog && oppLog.length >= 3) {
+        const oppWins = oppLog.slice(0,8).filter(g=>g.won).length;
+        const oppWR = oppWins/Math.min(8,oppLog.length);
+        // Weak opponent = good for us
+        const score = oppWR<=0.3?82:oppWR<=0.4?68:oppWR<=0.5?55:oppWR<=0.6?42:oppWR<=0.7?30:20;
+        addSignal("h2hRecord","Opponent Form",score,
+          `Opp ${oppWins}/${Math.min(8,oppLog.length)} last games — ${oppWR<=0.4?"struggling":"in form"}`,"🔍");
+      } else {
+        addSignal("h2hRecord","Opponent Form",50,"No opponent data","🔍");
+      }
+
+      // ML TEAM SIGNAL
+      const teamMLData = convictionML.byTeam?.[side];
+      if(teamMLData && teamMLData.plays >= 3) {
+        const wr = teamMLData.wins/teamMLData.plays;
+        const mlScore = wr>=0.7?85:wr>=0.6?70:wr>=0.5?55:35;
+        signals.push({key:"mlHistory",label:"ML Historical",score:mlScore,
+          note:`${teamMLData.wins}/${teamMLData.plays} conviction plays won (${Math.round(wr*100)}%)`,emoji:"🧠",isML:true});
+        totalScore += mlScore * 0.15; totalWeight += 0.15;
+      }
+
+      if(totalWeight === 0) continue;
+      const raw = Math.round(totalScore/totalWeight);
+      const calAdj = convictionML.totalPlays>=10 ? ((convictionML.totalWins/convictionML.totalPlays)-0.55)*8 : 0;
+      const finalScore = Math.min(95,Math.max(40,raw+calAdj));
+
+      if(finalScore < 55) continue; // min threshold
+
+      const tier = finalScore>=76?"HIGH":finalScore>=63?"MEDIUM":"WATCHLIST";
+      const tierColor = finalScore>=76?"#00ff88":finalScore>=63?"#ffd700":"#ff9944";
+
+      // Best odds for this side
+      let bestOdds=null, bestBook=null;
+      (game.bookmakers||[]).forEach(book => {
+        book.markets?.filter(m=>m.key==="h2h").forEach(mkt => {
+          mkt.outcomes?.forEach(o => {
+            if(o.name===side&&(bestOdds===null||o.price>bestOdds)){bestOdds=o.price;bestBook=book.key;}
+          });
+        });
+      });
+
+      const topSignals = [...signals].sort((a,b)=>{
+        const wa=weights[a.key]||DEFAULT_SIGNAL_WEIGHTS[a.key]||0.1;
+        const wb=weights[b.key]||DEFAULT_SIGNAL_WEIGHTS[b.key]||0.1;
+        return (b.score*wb)-(a.score*wa);
+      }).slice(0,3);
+
+      plays.push({
+        id:`conviction|${gameLabel}|${side}`,
+        type:"Conviction Play", game:gameLabel, selection:side, gameTime,
+        convictionScore:Math.round(finalScore), tier, tierColor,
+        signals, topSignals,
+        bestOdds, bestBook, isHome,
+        mlCalibrated: convictionML.totalPlays>=10,
+        learnedWeights: convictionML.learnedWeights!=null,
+        teamRecord:`${espnTeam.wins}-${espnTeam.losses}`,
+        oppRecord:`${espnOpp.wins}-${espnOpp.losses}`,
+      });
+    }
+  }
+
+  // Deduplicate — only keep stronger side per game
+  const seen = {};
+  return plays
+    .sort((a,b)=>b.convictionScore-a.convictionScore)
+    .filter(p=>{ if(seen[p.game]) return false; seen[p.game]=true; return true; })
+    .slice(0,6);
+}
+
 // ── NBA STATS API ─────────────────────────────────────────────
 // Free, unofficial — stats.nba.com game logs and team stats
 async function fetchPlayerGameLog(playerName) {
@@ -889,6 +1176,118 @@ function MiniChart({ history }) {
 }
 
 // ── MAIN APP ─────────────────────────────────────────────────
+
+function ConvictionSection({ plays, loading, convictionML, expandedConviction, setExpandedConviction }) {
+  if(loading) return (
+    <div style={{marginBottom:28,padding:"20px",background:"#0a1220",border:"1px solid #172030",borderRadius:12,textAlign:"center"}}>
+      <div style={{fontSize:12,color:"#3a5570"}}>🎯 Building conviction plays from ESPN data...</div>
+    </div>
+  );
+  if(!plays.length) return (
+    <div style={{marginBottom:28,padding:"20px 24px",background:"#0a1220",border:"1px solid #172030",borderRadius:12,display:"flex",alignItems:"center",gap:12}}>
+      <div style={{fontSize:20}}>🎯</div>
+      <div>
+        <div style={{fontSize:12,color:"#dde3ee",fontWeight:600,marginBottom:3}}>Conviction Plays</div>
+        <div style={{fontSize:11,color:"#3a5570"}}>Analyzing today's matchups via ESPN... Hit Refresh if this persists.</div>
+      </div>
+    </div>
+  );
+  return (
+    <div style={{marginBottom:32}}>
+      <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:6}}>
+        <div style={{fontSize:13,fontWeight:700,color:"#fff"}}>🎯 Conviction Plays</div>
+        <div style={{fontSize:10,color:"#3a5570",padding:"2px 8px",borderRadius:10,border:"1px solid #172030"}}>Stat-driven · ML-weighted · EV-agnostic</div>
+        {convictionML.learnedWeights&&(
+          <div style={{fontSize:9,color:"#b44fff",padding:"2px 8px",borderRadius:10,background:"rgba(180,79,255,0.08)",border:"1px solid rgba(180,79,255,0.2)"}}>
+            🧠 ML Active · {convictionML.totalPlays} plays learned
+          </div>
+        )}
+      </div>
+      <div style={{fontSize:11,color:"#3a5570",marginBottom:14}}>
+        Picks based on team form, rest, point differential & matchup data — not line pricing. ML reweights each signal based on what has actually predicted wins.
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(320px,1fr))",gap:12}}>
+        {plays.map((play)=>{
+          const isExp = expandedConviction === play.id;
+          return (
+            <div key={play.id} onClick={()=>setExpandedConviction(isExp?null:play.id)}
+              style={{background:"#0a1220",border:`1px solid ${play.tierColor}33`,borderRadius:12,padding:"16px 18px",cursor:"pointer",transition:"border-color 0.2s",boxShadow:isExp?`0 0 20px ${play.tierColor}18`:"none"}}
+              onMouseEnter={e=>e.currentTarget.style.borderColor=play.tierColor+"66"}
+              onMouseLeave={e=>e.currentTarget.style.borderColor=play.tierColor+"33"}>
+
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:10}}>
+                <div>
+                  <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:4}}>
+                    <div style={{fontSize:9,padding:"1px 7px",borderRadius:4,background:`${play.tierColor}18`,border:`1px solid ${play.tierColor}44`,color:play.tierColor,fontWeight:700}}>{play.tier}</div>
+                    {play.mlCalibrated&&<div style={{fontSize:9,color:"#b44fff",padding:"1px 6px",borderRadius:4,background:"rgba(180,79,255,0.08)",border:"1px solid rgba(180,79,255,0.2)"}}>🧠 ML</div>}
+                    {play.isHome&&<div style={{fontSize:9,color:"#00bfff",padding:"1px 6px",borderRadius:4,background:"rgba(0,191,255,0.08)",border:"1px solid rgba(0,191,255,0.2)"}}>🏠 HOME</div>}
+                  </div>
+                  <div style={{fontSize:16,fontWeight:700,color:"#fff",marginBottom:2}}>{play.selection}</div>
+                  <div style={{fontSize:10,color:"#3a5570"}}>{play.game} · {timeUntil(play.gameTime)} to tip</div>
+                </div>
+                <div style={{textAlign:"right"}}>
+                  <div style={{fontSize:24,fontWeight:800,color:play.tierColor,lineHeight:1}}>{play.convictionScore}</div>
+                  <div style={{fontSize:9,color:"#3a5570",marginTop:2}}>/ 100</div>
+                </div>
+              </div>
+
+              <div style={{display:"flex",gap:8,marginBottom:10}}>
+                <div style={{fontSize:10,color:"#dde3ee",padding:"2px 8px",borderRadius:4,background:"#060a10"}}>{play.selection} {play.teamRecord}</div>
+                <div style={{fontSize:10,color:"#3a5570",padding:"2px 8px",borderRadius:4,background:"#060a10"}}>vs {play.oppRecord}</div>
+                {play.bestOdds&&<div style={{fontSize:10,color:play.bestOdds<0?"#00bfff":"#ffd700",padding:"2px 8px",borderRadius:4,background:"#060a10",marginLeft:"auto"}}>{formatOdds(play.bestOdds)}</div>}
+              </div>
+
+              <div style={{fontSize:11,color:"#3a5570",lineHeight:1.8,marginBottom:isExp?12:0}}>
+                {play.topSignals?.map(s=>(
+                  <div key={s.key} style={{display:"flex",gap:6}}>
+                    <span>{s.emoji}</span>
+                    <span style={{color:s.score>=70?"#dde3ee":s.score>=50?"#3a5570":"#ff6b6b"}}>{s.note}</span>
+                  </div>
+                ))}
+              </div>
+
+              {isExp&&(
+                <div style={{marginTop:14,borderTop:"1px solid #172030",paddingTop:14}}>
+                  <div style={{fontSize:10,color:"#3a5570",letterSpacing:"0.08em",textTransform:"uppercase",marginBottom:12}}>
+                    Full Signal Breakdown {play.learnedWeights?"· ML-Reweighted":"· Default Weights"}
+                  </div>
+                  {play.signals?.map(s=>{
+                    const w = getSignalWeights(convictionML)[s.key] || DEFAULT_SIGNAL_WEIGHTS[s.key] || 0.1;
+                    return (
+                      <div key={s.key} style={{marginBottom:12}}>
+                        <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}>
+                          <div style={{display:"flex",alignItems:"center",gap:6}}>
+                            <span>{s.emoji}</span>
+                            <span style={{fontSize:10,color:"#dde3ee"}}>{s.label}</span>
+                            {s.isML&&<span style={{fontSize:8,color:"#b44fff",padding:"1px 4px",borderRadius:3,background:"rgba(180,79,255,0.1)"}}>ML</span>}
+                          </div>
+                          <div style={{display:"flex",alignItems:"center",gap:8}}>
+                            <span style={{fontSize:9,color:"#3a5570"}}>wt {Math.round(w*100)}%</span>
+                            <span style={{fontSize:11,fontWeight:700,color:s.score>=70?"#00ff88":s.score>=50?"#ffd700":"#ff6b6b"}}>{s.score}/100</span>
+                          </div>
+                        </div>
+                        <div style={{height:3,background:"#172030",borderRadius:2,marginBottom:3}}>
+                          <div style={{height:"100%",width:`${s.score}%`,background:s.score>=70?"#00ff88":s.score>=50?"#ffd700":"#ff6b6b",borderRadius:2,transition:"width 0.5s"}}/>
+                        </div>
+                        <div style={{fontSize:9,color:"#3a5570"}}>{s.note}</div>
+                      </div>
+                    );
+                  })}
+                  {play.learnedWeights&&(
+                    <div style={{marginTop:8,padding:"8px 12px",background:"rgba(180,79,255,0.06)",border:"1px solid rgba(180,79,255,0.2)",borderRadius:8,fontSize:10,color:"#b44fff"}}>
+                      🧠 Weights ML-optimized from {convictionML.totalPlays} plays · {convictionML.totalWins} wins ({Math.round(convictionML.totalWins/convictionML.totalPlays*100)}% rate)
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 export default function NBAEdge() {
   const [oddsKey, setOddsKey] = useState("d6a4536a32cc8112ece4e45d3501da03");
   const [rundownKey, setRundownKey] = useState(()=>localStorage.getItem("nba_edge_rundown_key")||"");
@@ -901,12 +1300,16 @@ export default function NBAEdge() {
   const [lastUpdated, setLastUpdated] = useState(null);
   const [filter, setFilter] = useState("All");
   const [expanded, setExpanded] = useState(null);
+  const [expandedConviction, setExpandedConviction] = useState(null);
   const [useMock, setUseMock] = useState(false);
   const [logs, setLogs] = useState([]);
   const [mlModel, setMlModel] = useState(()=>loadML());
   const [marketBias, setMarketBias] = useState(null);
   const [lastPoll, setLastPoll] = useState(null);
   const [bestAvailableEdge, setBestAvailableEdge] = useState(null);
+  const [convictionPlays, setConvictionPlays] = useState([]);
+  const [convictionML, setConvictionML] = useState(()=>loadConvictionML());
+  const [convictionLoading, setConvictionLoading] = useState(false);
 
   // Fix #1: History with deduplication — one entry per bet per calendar day
   const [history, setHistory] = useState(() => {
@@ -973,6 +1376,26 @@ export default function NBAEdge() {
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(updated)); } catch {}
     return updated;
   }, []);
+
+  // Resolve conviction plays when scores come in — updates ML signal weights
+  const resolveConvictionPlays = useCallback(async (scores) => {
+    if(!scores || convictionPlays.length === 0) return;
+    let updatedML = loadConvictionML();
+    let anyResolved = false;
+    convictionPlays.forEach(play => {
+      const [awayTeam, homeTeam] = play.game.split(" @ ");
+      const score = scores.find(s => s.home_team === homeTeam && s.away_team === awayTeam);
+      if(!score?.completed || !score.scores) return;
+      const homeScore = score.scores.find(s=>s.name===homeTeam)?.score;
+      const awayScore = score.scores.find(s=>s.name===awayTeam)?.score;
+      if(homeScore == null || awayScore == null) return;
+      const homeWon = +homeScore > +awayScore;
+      const won = play.isHome ? homeWon : !homeWon;
+      updatedML = updateConvictionML(updatedML, play, won);
+      anyResolved = true;
+    });
+    if(anyResolved) { saveConvictionML(updatedML); setConvictionML(updatedML); }
+  }, [convictionPlays]);
 
   // Auto-resolve bets + update ML model
   const resolveWithScores = useCallback(async (currentHistory, apiKey, currentML) => {
@@ -1082,13 +1505,62 @@ export default function NBAEdge() {
     setLastUpdated(new Date());
     setLoading(false);
 
+    // Build conviction plays — runs independently of Odds API using NBA Stats + schedule
+    setConvictionLoading(true);
+    try {
+      const currentConvML = loadConvictionML();
+      // Fetch today's NBA schedule from NBA Stats (free, no key needed)
+      let games = [];
+      if(oddsKey) {
+        // Try Odds API first since we already have the key — gives us bookmaker odds too
+        const gameRes2 = await fetch(`https://api.the-odds-api.com/v4/sports/basketball_nba/odds/?apiKey=${oddsKey}&regions=us&markets=h2h&bookmakers=${SPORTSBOOKS.join(",")}&oddsFormat=american`);
+        if(gameRes2.ok) games = await gameRes2.json();
+      }
+      if(!games.length) {
+        // Fallback: NBA Stats scoreboard for today's matchups
+        const today = new Date().toLocaleDateString("en-US",{month:"2-digit",day:"2-digit",year:"numeric"}).replace(/\//g,"%2F");
+        const sbRes = await fetch(`https://stats.nba.com/stats/scoreboardv2?DayOffset=0&LeagueID=00&gameDate=${today}`, {
+          headers:{"Referer":"https://www.nba.com","x-nba-stats-origin":"stats","x-nba-stats-token":"true"}
+        });
+        if(sbRes.ok) {
+          const sbData = await sbRes.json();
+          const rows = sbData.resultSets?.[0]?.rowSet || [];
+          const hdrs = sbData.resultSets?.[0]?.headers || [];
+          const get = (row, col) => row[hdrs.indexOf(col)];
+          games = rows.map(r => ({
+            away_team: get(r,"VISITOR_TEAM_CITY")+" "+get(r,"VISITOR_TEAM_NICKNAME"),
+            home_team: get(r,"HOME_TEAM_CITY")+" "+get(r,"HOME_TEAM_NICKNAME"),
+            commence_time: get(r,"GAME_DATE_EST")+"T"+get(r,"GAME_STATUS_TEXT"),
+            bookmakers: [],
+          }));
+        }
+      }
+      if(games.length > 0) {
+        const plays = await buildConvictionPlays(games, currentConvML);
+        setConvictionPlays(plays);
+        log(`🎯 ${plays.length} conviction plays · ${plays.filter(p=>p.tier==="HIGH").length} HIGH confidence`);
+      } else {
+        log("⚠️ No game schedule available for conviction plays");
+      }
+    } catch(e) { console.error("Conviction plays error:", e); log("⚠️ Conviction plays error: "+e.message); }
+    setConvictionLoading(false);
+
     // Fix #1: Pass current history to deduplication function
     setHistory(prev => {
       const updated = autoAddToHistory(rawBets, bankroll, prev);
       setBankroll(updated.length>0?updated[updated.length-1].bankrollAfter:bankroll);
 
-      // Resolve pending bets
-      resolveWithScores(updated, oddsKey, currentML);
+      // Resolve pending bets + conviction plays
+      resolveWithScores(updated, oddsKey, currentML).then(async result => {
+        if(result && result.history) {
+          setHistory(result.history);
+          saveML(result.ml);
+          setML(result.ml);
+          // Also resolve conviction plays with same scores
+          const scores = await fetchScores(oddsKey);
+          if(scores) resolveConvictionPlays(scores);
+        }
+      });
       return updated;
     });
 
@@ -1407,6 +1879,15 @@ export default function NBAEdge() {
             ))}
           </div>
         )}
+
+        {/* CONVICTION PLAYS — stat-driven, ML-weighted, EV-agnostic */}
+        {filter!=="Info"&&filter!=="History"&&<ConvictionSection
+          plays={convictionPlays}
+          loading={convictionLoading}
+          convictionML={convictionML}
+          expandedConviction={expandedConviction}
+          setExpandedConviction={setExpandedConviction}
+        />}
 
         {/* TOP PICKS — bets where EV + confidence both align */}
         {filter!=="Info"&&filter!=="History"&&(()=>{
