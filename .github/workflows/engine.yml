@@ -1,0 +1,16 @@
+name: NBA Edge Engine
+
+on:
+  schedule:
+    - cron: '*/8 * * * *'
+  workflow_dispatch:
+
+jobs:
+  run-engine:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger betting engine
+        run: |
+          curl -s -X GET "${{ secrets.APP_URL }}/api/cron/run-engine" \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            -w "\nHTTP Status: %{http_code}\n"
