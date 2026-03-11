@@ -1,0 +1,17 @@
+{
+  "name": "nba-edge-server",
+  "version": "2.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start"
+  },
+  "dependencies": {
+    "next": "14.1.0",
+    "react": "18.2.0",
+    "react-dom": "18.2.0",
+    "@vercel/kv": "^1.0.1",
+    "recharts": "^2.12.0"
+  }
+}

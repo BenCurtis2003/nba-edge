@@ -1,0 +1,12 @@
+{
+  "crons": [
+    {
+      "path": "/api/cron/run-engine",
+      "schedule": "*/8 * * * *"
+    },
+    {
+      "path": "/api/cron/resolve-bets",
+      "schedule": "*/30 * * * *"
+    }
+  ]
+}
