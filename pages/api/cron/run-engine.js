@@ -46,7 +46,7 @@ export default async function handler(req, res) {
     const pendingBets = history.filter(h => h.status === "pending");
     if(pendingBets.length > 0) {
       const scores = await fetchScores(ODDS_KEY);
-      console.log(`[AutoResolve] ${scores.length} completed scores found, ${pendingBets.length} pending bets`);
+      console.log(`[AutoResolve] ${scores.length} completed scores, ${pendingBets.length} pending bets`);
       if(scores.length > 0) {
         const { history: updatedHistory, bankroll: newBankroll, changed } = resolveHistory(history, scores);
         if(changed) {
@@ -82,7 +82,6 @@ export default async function handler(req, res) {
       usingMLWeights: !!mlWeights,
       gamesFromAPI: games?.length || 0,
       espnGames: espnGames.length,
-      evBetsFound: evBets.length, convictionFound: convictionPlays.length,
       kalshiMarkets: (games||[]).reduce((n,g) => n + ((g.bookmakers||[]).some(b=>b.key==="kalshi") ? 1 : 0), 0),
       teamStatsLoaded: teamStats ? Object.keys(teamStats).length : 0,
       sampleRecord: convictionPlays[0] ? `${convictionPlays[0].selection}: ${convictionPlays[0].teamRecord}` : "none",
