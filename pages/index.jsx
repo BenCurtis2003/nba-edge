@@ -133,8 +133,8 @@ const BOOK_DISPLAY = {
   kalshi:"Kalshi 🔮",
 };
 
-// The 5 major books always shown (in priority order)
-const TOP_5_BOOKS = ["draftkings","fanduel","betmgm","betrivers","bovada"];
+// The 5 major books always shown on every card (in priority order)
+const TOP_5_BOOKS = ["draftkings","fanduel","betmgm","betrivers","pinnacle"];
 
 function BookOddsTable({ allLines, bestBook, type }) {
   if(!allLines) return null;
