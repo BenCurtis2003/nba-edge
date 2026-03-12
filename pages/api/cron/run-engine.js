@@ -10,9 +10,26 @@ export default async function handler(req, res) {
   const start = Date.now();
 
   try {
-    // 1. Fetch odds + cached standings in parallel
+    // 0. Check if there are any upcoming games worth fetching odds for.
+    // ESPN scoreboard tells us if all today's games have tipped — if so, skip
+    // the Odds API call entirely to preserve quota until tomorrow's slate opens.
+    let hasUpcomingGames = true;
+    try {
+      const sbCheck = await fetch("https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard", { cache:"no-store" });
+      if (sbCheck.ok) {
+        const sbData = await sbCheck.json();
+        const now = new Date();
+        const upcoming = (sbData.events||[]).filter(e => new Date(e.date) > now);
+        hasUpcomingGames = upcoming.length > 0;
+        if (!hasUpcomingGames) {
+          console.log("[Engine] All games tipped — skipping Odds API to preserve quota");
+        }
+      }
+    } catch(e) { /* proceed normally if check fails */ }
+
+    // 1. Fetch odds + cached standings in parallel (skip odds if no upcoming games)
     const [games, cachedStats] = await Promise.all([
-      ODDS_KEY ? fetchLiveOdds(ODDS_KEY) : Promise.resolve(null),
+      ODDS_KEY && hasUpcomingGames ? fetchLiveOdds(ODDS_KEY) : Promise.resolve(null),
       getCachedStandings(),
     ]);
 
@@ -126,6 +143,7 @@ export default async function handler(req, res) {
       teamStatsLoaded: teamStats ? Object.keys(teamStats).length : 0,
       sampleRecord: convictionPlays[0] ? `${convictionPlays[0].selection}: ${convictionPlays[0].teamRecord}` : "none",
       sampleEV: evBets[0] ? `${evBets[0].selection} ${(evBets[0].edge*100).toFixed(1)}% edge` : "none",
+      hasUpcomingGames,
       propBetsFound: evProps.length,
       propBetsPlaced: newPropEntries.length,
     });

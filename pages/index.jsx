@@ -787,7 +787,9 @@ export default function App() {
           {filteredBets.length === 0 ? (
             <div style={{color:"#3a5570", fontSize:12, padding:"20px 0"}}>
               {currentBets.length===0
-                ? "Engine runs every 8 minutes. Check back soon for today's EV bets."
+                ? (data?.hasUpcomingGames === false
+                    ? "All of tonight\'s games are underway. New lines open ~9 AM ET — check back tomorrow for fresh EV bets."
+                    : "Engine runs every 8 minutes. Check back soon for today\'s EV bets.")
                 : "No bets match this filter."}
             </div>
           ) : (
@@ -845,7 +847,9 @@ export default function App() {
               {evProps.length === 0 ? (
                 <div style={{color:"#3a5570", fontSize:12, padding:"20px 0"}}>
                   {propBets.length === 0
-                    ? "No prop edges found right now — engine runs every 8 minutes for pregame lines."
+                    ? (data?.hasUpcomingGames === false
+                        ? "All of tonight\'s games are underway. Prop lines open ~9 AM ET tomorrow."
+                        : "No prop edges found right now — engine runs every 8 minutes for pregame lines.")
                     : "All props with edge met conviction threshold above."}
                 </div>
               ) : (
