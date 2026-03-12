@@ -392,8 +392,8 @@ function PropCard({ prop }) {
     betrivers:"#d4213d", pinnacle:"#00e5ff", caesars:"#b8963e", kalshi:"#b44fff" };
   const formatOdds = o => o > 0 ? `+${o}` : `${o}`;
   const edgeColor = prop.edge >= 0.08 ? "#00ff88" : prop.edge >= 0.05 ? "#ffd700" : "#ff9944";
-  const convColor = prop.convictionScore >= 75 ? "#00ff88" : prop.convictionScore >= 65 ? "#ffd700" : "#ff9944";
-  const autoBet = prop.convictionScore >= 65;
+  const convColor = prop.convictionScore >= 75 ? "#00ff88" : prop.convictionScore >= 70 ? "#ffd700" : "#ff9944";
+  const autoBet = prop.convictionScore >= 70;
 
   const marketEmoji = {
     player_points:"🎯", player_rebounds:"🏀", player_assists:"🎪",
@@ -813,19 +813,19 @@ export default function App() {
         <div style={s.section}>
           {/* Props Conviction Section */}
           {(() => {
-            const convictionProps = propBets.filter(p => p.convictionScore >= 65);
+            const convictionProps = propBets.filter(p => p.convictionScore >= 70);
             const evProps = propBets.filter(p => p.convictionScore < 65);
             return (<>
               <div style={s.sectionTitle}>
                 🎯 Props Conviction Plays
                 <span style={{fontSize:9, padding:"2px 8px", borderRadius:10,
                   border:"1px solid #172030", color:"#3a5570", fontWeight:400}}>
-                  Stat-driven · ML-weighted · auto-bet ≥65
+                  Stat-driven · ML-weighted · auto-bet ≥70
                 </span>
               </div>
               {convictionProps.length === 0 ? (
                 <div style={{color:"#3a5570", fontSize:12, padding:"20px 0"}}>
-                  No props with conviction ≥65 right now — engine runs every 8 minutes.
+                  No props with conviction ≥70 right now — engine runs every 8 minutes.
                   <div style={{marginTop:6, fontSize:10}}>Last run: {data?.lastRun ? new Date(data.lastRun).toLocaleTimeString() : "never"}</div>
                 </div>
               ) : (
