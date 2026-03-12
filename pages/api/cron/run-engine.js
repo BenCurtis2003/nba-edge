@@ -6,25 +6,32 @@ export default async function handler(req, res) {
   if(process.env.NODE_ENV === "production" && req.headers.authorization !== `Bearer ${process.env.CRON_SECRET}`)
     return res.status(401).json({ error: "Unauthorized" });
 
-  const ODDS_KEY = process.env.ODDS_API_KEY;
+  const ODDS_KEY = process.env.ODDS_API_KEY_1 || process.env.ODDS_API_KEY; // kept for backwards compat
   const start = Date.now();
 
   try {
     // 0. Check if there are any upcoming games worth fetching odds for.
-    // ESPN scoreboard tells us if all today's games have tipped — if so, skip
-    // the Odds API call entirely to preserve quota until tomorrow's slate opens.
+    // Check today + tomorrow — Odds API opens next day lines by ~10 AM ET.
     let hasUpcomingGames = true;
     try {
-      const sbCheck = await fetch("https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard", { cache:"no-store" });
-      if (sbCheck.ok) {
-        const sbData = await sbCheck.json();
-        const now = new Date();
-        const upcoming = (sbData.events||[]).filter(e => new Date(e.date) > now);
-        hasUpcomingGames = upcoming.length > 0;
-        if (!hasUpcomingGames) {
-          console.log("[Engine] All games tipped — skipping Odds API to preserve quota");
-        }
+      const tomorrow = new Date(Date.now() + 86400000).toISOString().slice(0,10).replace(/-/g,"");
+      const [todayRes, tomorrowRes] = await Promise.all([
+        fetch("https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard", { cache:"no-store" }),
+        fetch(`https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard?dates=${tomorrow}`, { cache:"no-store" }),
+      ]);
+      const now = new Date();
+      let upcoming = [];
+      if (todayRes.ok) {
+        const d = await todayRes.json();
+        upcoming = upcoming.concat((d.events||[]).filter(e => new Date(e.date) > now));
       }
+      if (tomorrowRes.ok) {
+        const d = await tomorrowRes.json();
+        upcoming = upcoming.concat(d.events||[]);
+      }
+      hasUpcomingGames = upcoming.length > 0;
+      if (!hasUpcomingGames) console.log("[Engine] No upcoming games found — skipping Odds API");
+      else console.log(`[Engine] ${upcoming.length} upcoming games found`);
     } catch(e) { /* proceed normally if check fails */ }
 
     // 1. Fetch odds + cached standings in parallel (skip odds if no upcoming games)
