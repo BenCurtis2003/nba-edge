@@ -1,5 +1,6 @@
 import { fetchLiveOdds, extractEVBets, buildConvictionPlays, placeBets, fetchAndCacheTeamStats, fetchScores, resolveHistory } from "../../../lib/engine";
-import { getHistory, getBankroll, getMLModel, getCachedStandings, saveCurrentBets, saveConvictionPlays, saveLastRun, appendHistory, saveStandings, saveHistory, saveBankroll, updateMLAfterResolution } from "../../../lib/store";
+import { fetchPlayerProps, extractPropEV, placePropBets, resolveProps } from "../../../lib/props";
+import { getHistory, getBankroll, getMLModel, getCachedStandings, saveCurrentBets, saveConvictionPlays, saveLastRun, appendHistory, saveStandings, saveHistory, saveBankroll, updateMLAfterResolution, getPropBets, savePropBets } from "../../../lib/store";
 
 export default async function handler(req, res) {
   if(process.env.NODE_ENV === "production" && req.headers.authorization !== `Bearer ${process.env.CRON_SECRET}`)
@@ -34,6 +35,11 @@ export default async function handler(req, res) {
 
     // 3. Extract EV bets
     const evBets = games ? extractEVBets(games) : [];
+
+    // Fetch + extract player props (pregame only, quota-aware)
+    const propGames = games ? await fetchPlayerProps(ODDS_KEY, games) : [];
+    const evProps = extractPropEV(propGames);
+    console.log(`[Props] ${evProps.length} EV props found across ${propGames.length} games`);
     console.log(`[Engine] ${evBets.length} EV bets`);
 
     // 4. ESPN game list for conviction engine
@@ -82,14 +88,25 @@ export default async function handler(req, res) {
     }
 
     // 8. Place new bets (use fresh history + bankroll after resolution)
-    const freshHistory = resolvedCount > 0 ? await getHistory() : history;
+    // Resolve pending prop bets via ESPN box scores
+    const { history: histAfterPropResolve, changed: propsChanged } = await resolveProps(
+      resolvedCount > 0 ? await getHistory() : history
+    );
+    if (propsChanged) {
+      await saveHistory(histAfterPropResolve);
+    }
+
+    const freshHistory = propsChanged ? await getHistory() : (resolvedCount > 0 ? await getHistory() : history);
     const { newEntries } = placeBets(evBets, convictionPlays, currentBankroll, freshHistory);
+    const { newEntries: newPropEntries } = placePropBets(evProps, currentBankroll, freshHistory);
 
     // 9. Save everything
     await Promise.all([
       saveCurrentBets(evBets),
       saveConvictionPlays(convictionPlays),
+      savePropBets(evProps),
       newEntries.length > 0 ? appendHistory(newEntries) : Promise.resolve(),
+      newPropEntries.length > 0 ? appendHistory(newPropEntries) : Promise.resolve(),
       saveLastRun(new Date().toISOString()),
     ]);
 
@@ -106,6 +123,8 @@ export default async function handler(req, res) {
       teamStatsLoaded: teamStats ? Object.keys(teamStats).length : 0,
       sampleRecord: convictionPlays[0] ? `${convictionPlays[0].selection}: ${convictionPlays[0].teamRecord}` : "none",
       sampleEV: evBets[0] ? `${evBets[0].selection} ${(evBets[0].edge*100).toFixed(1)}% edge` : "none",
+      propBetsFound: evProps.length,
+      propBetsPlaced: newPropEntries.length,
     });
   } catch(e) {
     console.error("[Engine] error:", e);

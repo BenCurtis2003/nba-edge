@@ -3,6 +3,7 @@
 // No authentication required — this is the live track record.
 
 import { getPortfolioSnapshot } from "../../lib/store";
+import { getPropBets } from "../../lib/store";
 
 export default async function handler(req, res) {
   // Cache for 30 seconds — fresh enough for live feel, avoids KV hammering
@@ -34,6 +35,7 @@ export default async function handler(req, res) {
       lastRun,
       mlStatus: ml.totalBets >= 15 ? "Active" : "Learning",
       mlBets: ml.totalBets || 0,
+      propBets: await getPropBets(),
     });
   } catch(e) {
     console.error("[API] portfolio error:", e);

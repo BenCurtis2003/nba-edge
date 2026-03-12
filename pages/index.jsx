@@ -384,6 +384,92 @@ function Step({ n, title, desc }) {
   );
 }
 
+function PropCard({ prop }) {
+  const BOOK_DISPLAY = { draftkings:"DraftKings", fanduel:"FanDuel", betmgm:"BetMGM",
+    betrivers:"BetRivers", pinnacle:"Pinnacle", caesars:"Caesars", kalshi:"Kalshi 🔮" };
+  const SPORTSBOOK_COLORS = { draftkings:"#00d548", fanduel:"#1493ff", betmgm:"#c9a84c",
+    betrivers:"#d4213d", pinnacle:"#00e5ff", caesars:"#b8963e", kalshi:"#b44fff" };
+  const formatOdds = o => o > 0 ? `+${o}` : `${o}`;
+  const edgeColor = prop.edge >= 0.08 ? "#00ff88" : prop.edge >= 0.05 ? "#ffd700" : "#ff9944";
+  const convColor = prop.convictionScore >= 75 ? "#00ff88" : prop.convictionScore >= 65 ? "#ffd700" : "#ff9944";
+  const autoBet = prop.convictionScore >= 65;
+
+  const marketEmoji = {
+    player_points:"🎯", player_rebounds:"🏀", player_assists:"🎪",
+    player_threes:"3️⃣", player_points_rebounds_assists:"⚡",
+    player_points_rebounds:"💪", player_points_assists:"🎯",
+  }[prop.market] || "📊";
+
+  return (
+    <div style={{background:"#0a1220", border:`1px solid ${autoBet?"#b44fff33":"#172030"}`,
+      borderRadius:12, padding:"14px 16px", position:"relative", overflow:"hidden"}}>
+      {autoBet && <div style={{position:"absolute",top:0,left:0,right:0,height:2,background:"linear-gradient(90deg,#b44fff,#00bfff)"}}/>}
+
+      {/* Header */}
+      <div style={{display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:8}}>
+        <div>
+          <div style={{fontSize:13, fontWeight:700, color:"#fff", marginBottom:2}}>
+            {marketEmoji} {prop.player}
+          </div>
+          <div style={{fontSize:9, color:"#3a5570"}}>{prop.game}</div>
+        </div>
+        <div style={{textAlign:"right"}}>
+          <div style={{fontSize:20, fontWeight:800, color:convColor}}>{prop.convictionScore}<span style={{fontSize:10,color:"#3a5570"}}>/100</span></div>
+          {autoBet && <div style={{fontSize:8, color:"#b44fff", fontWeight:700}}>✓ AUTO-BET</div>}
+        </div>
+      </div>
+
+      {/* Bet line */}
+      <div style={{background:"#0e1a28", borderRadius:8, padding:"10px 12px", marginBottom:10}}>
+        <div style={{display:"flex", alignItems:"center", gap:8, marginBottom:4}}>
+          <span style={{fontSize:14, fontWeight:800, color: prop.side==="Over"?"#00ff88":"#ff6b6b"}}>
+            {prop.side} {prop.line}
+          </span>
+          <span style={{fontSize:11, color:"#3a5570"}}>{prop.marketLabel}</span>
+        </div>
+        <div style={{display:"flex", gap:6, flexWrap:"wrap", alignItems:"center"}}>
+          <span style={{fontSize:11, fontWeight:700, color: prop.bestOdds > 0?"#ffd700":"#00bfff"}}>
+            {formatOdds(prop.bestOdds)}
+          </span>
+          <span style={{fontSize:9, color: SPORTSBOOK_COLORS[prop.bestBook]||"#8899aa",
+            background:"#172030", padding:"2px 6px", borderRadius:4}}>
+            {BOOK_DISPLAY[prop.bestBook]||prop.bestBook}
+          </span>
+          <span style={{fontSize:9, fontWeight:700, color:edgeColor,
+            background:"#172030", padding:"2px 6px", borderRadius:4}}>
+            +{(prop.edge*100).toFixed(1)}% edge
+          </span>
+        </div>
+      </div>
+
+      {/* All lines */}
+      {prop.allLines && Object.keys(prop.allLines).length > 1 && (
+        <div style={{marginBottom:10}}>
+          <div style={{fontSize:8, color:"#3a5570", marginBottom:4, letterSpacing:"0.06em", textTransform:"uppercase"}}>All Lines</div>
+          <div style={{display:"flex", gap:6, flexWrap:"wrap"}}>
+            {Object.entries(prop.allLines).map(([bk, val]) => (
+              <div key={bk} style={{fontSize:9, color: bk===prop.bestBook?"#fff":"#3a5570",
+                background: bk===prop.bestBook?"#172030":"transparent",
+                border:"1px solid #172030", borderRadius:4, padding:"2px 6px"}}>
+                <span style={{color:SPORTSBOOK_COLORS[bk]||"#3a5570", marginRight:3}}>{BOOK_DISPLAY[bk]||bk}</span>
+                <span style={{fontWeight:700}}>{formatOdds(val.odds)}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Footer */}
+      <div style={{display:"flex", justifyContent:"space-between", fontSize:9, color:"#3a5570"}}>
+        <span>True prob: <span style={{color:"#8899aa"}}>{prop.trueProb?.toFixed(1)}%</span></span>
+        <span>Kelly: <span style={{color:"#b44fff"}}>{prop.kellyPct?.toFixed(1)}%</span></span>
+        <span>EV: <span style={{color:"#00ff88"}}>+{prop.ev?.toFixed(1)}%</span></span>
+      </div>
+    </div>
+  );
+}
+
+
 function InfoTab() {
   return (
     <div style={{padding:"0 32px"}}>
@@ -503,7 +589,7 @@ export default function App() {
     return () => clearInterval(interval);
   }, [fetchPortfolio]);
 
-  const tabs = ["All","Moneyline","Spread","Game Total","Conviction","History","Info"];
+  const tabs = ["All","Moneyline","Spread","Game Total","Props","Conviction","History","Info"];
 
   // Chart data
   const chartData = (() => {
@@ -520,6 +606,7 @@ export default function App() {
   const conviction = data?.convictionPlays || [];
   const history = data?.history || [];
   const currentBets = data?.currentBets || [];
+  const propBets = data?.propBets || [];
 
   const filteredConviction = tab==="Conviction"||tab==="All" ? conviction : [];
   const filteredHistory = tab==="History" ? history : [];
@@ -662,6 +749,27 @@ export default function App() {
 
       {/* History */}
       {tab==="Info" && <InfoTab />}
+
+      {/* Props Tab */}
+      {tab==="Props" && (
+        <div style={s.section}>
+          <div style={{...s.sectionTitle, marginBottom:16}}>
+            🏀 Player Props
+            <span style={{fontSize:9, color:"#3a5570", fontWeight:400}}>
+              {propBets.length} props with edge · auto-bet ≥65 conviction
+            </span>
+          </div>
+          {propBets.length === 0 ? (
+            <div style={{padding:"40px", textAlign:"center", color:"#3a5570", fontSize:12, background:"#0a1220", borderRadius:12, border:"1px solid #172030"}}>
+              No prop edges found right now. Props are scanned every 8 minutes for pregame lines.
+            </div>
+          ) : (
+            <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(320px,1fr))", gap:12}}>
+              {propBets.map(prop => <PropCard key={prop.id} prop={prop}/>)}
+            </div>
+          )}
+        </div>
+      )}
 
       {tab==="History" && (
         <div style={s.section}>
