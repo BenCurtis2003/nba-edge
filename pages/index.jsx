@@ -298,8 +298,9 @@ function HistoryRow({ h }) {
           <div style={{fontSize:9, color:"#3a5570", marginBottom:4}}>{h.game}</div>
           <div style={{display:"flex", gap:5, flexWrap:"wrap", alignItems:"center"}}>
             <span style={{...s.badge(h.isConviction?"#b44fff":h.type==="Moneyline"?"#00bfff":h.type==="Spread"?"#ffd700":"#ff69b4")}}>
-              {h.isConviction?`🎯 ${h.betType||"Conviction"}`:h.type}
+              {h.isConviction?`🎯 Conviction`:h.type}
             </span>
+            {!h.isConviction&&<span style={{...s.badge("#00ff88")}}>⚡ +EV</span>}
             {h.bestOdds&&<span style={{fontSize:9,fontWeight:700,color:h.bestOdds<0?"#00bfff":"#ffd700"}}>{formatOdds(h.bestOdds)}</span>}
             {h.bestBook&&<span style={{fontSize:8,color:SPORTSBOOK_COLORS[h.bestBook]||"#3a5570"}}>{h.bestBook}</span>}
             <span style={{...s.badge("#b44fff")}}>
