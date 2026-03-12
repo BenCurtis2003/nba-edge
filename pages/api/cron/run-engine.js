@@ -15,13 +15,21 @@ export default async function handler(req, res) {
       getCachedStandings(),
     ]);
 
-    // 2. Get team stats — use KV cache if fresh, else re-fetch from ESPN
-    let teamStats = (cachedStats && Object.keys(cachedStats).length >= 20) ? cachedStats : null;
+    // 2. Get team stats — use KV cache only if it has real data (wins > 0 for most teams)
+    let teamStats = null;
+    if(cachedStats && Object.keys(cachedStats).length >= 20) {
+      // Validate cache has real records (not all zeros)
+      const nonZero = Object.values(cachedStats).filter(t => (t.wins||0) > 0).length;
+      if(nonZero >= 15) {
+        teamStats = cachedStats;
+        console.log(`[Engine] Using cached team stats (${Object.keys(cachedStats).length} teams, ${nonZero} with records)`);
+      } else {
+        console.log(`[Engine] Cache has ${nonZero} non-zero records — forcing fresh fetch`);
+      }
+    }
     if(!teamStats) {
       console.log("[Engine] Fetching fresh team stats from ESPN...");
       teamStats = await fetchAndCacheTeamStats(saveStandings);
-    } else {
-      console.log(`[Engine] Using cached team stats (${Object.keys(teamStats).length} teams)`);
     }
 
     // 3. Extract EV bets
