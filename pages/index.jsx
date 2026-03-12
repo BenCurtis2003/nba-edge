@@ -811,22 +811,50 @@ export default function App() {
       {/* Props Tab */}
       {tab==="Props" && (
         <div style={s.section}>
-          <div style={{...s.sectionTitle, marginBottom:16}}>
-            🏀 Player Props
-            <span style={{fontSize:9, color:"#3a5570", fontWeight:400}}>
-              {propBets.length} props with edge · auto-bet ≥65 conviction
-            </span>
-          </div>
-          {propBets.length === 0 ? (
-            <div style={{color:"#3a5570", fontSize:12, padding:"20px 0"}}>
-              No prop edges found right now — engine runs every 8 minutes for pregame lines.
-              <div style={{marginTop:6, fontSize:10}}>Last run: {data?.lastRun ? new Date(data.lastRun).toLocaleTimeString() : "never"}</div>
-            </div>
-          ) : (
-            <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(320px,1fr))", gap:12}}>
-              {propBets.map(prop => <PropCard key={prop.id} prop={prop}/>)}
-            </div>
-          )}
+          {/* Props Conviction Section */}
+          {(() => {
+            const convictionProps = propBets.filter(p => p.convictionScore >= 65);
+            const evProps = propBets.filter(p => p.convictionScore < 65);
+            return (<>
+              <div style={s.sectionTitle}>
+                🎯 Props Conviction Plays
+                <span style={{fontSize:9, padding:"2px 8px", borderRadius:10,
+                  border:"1px solid #172030", color:"#3a5570", fontWeight:400}}>
+                  Stat-driven · ML-weighted · auto-bet ≥65
+                </span>
+              </div>
+              {convictionProps.length === 0 ? (
+                <div style={{color:"#3a5570", fontSize:12, padding:"20px 0"}}>
+                  No props with conviction ≥65 right now — engine runs every 8 minutes.
+                  <div style={{marginTop:6, fontSize:10}}>Last run: {data?.lastRun ? new Date(data.lastRun).toLocaleTimeString() : "never"}</div>
+                </div>
+              ) : (
+                <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(320px,1fr))", gap:12, marginBottom:24}}>
+                  {convictionProps.map(prop => <PropCard key={prop.id} prop={prop}/>)}
+                </div>
+              )}
+
+              {/* Props +EV Section */}
+              <div style={{...s.sectionTitle, marginTop:8}}>
+                ⚡ Props +EV Bets
+                <span style={{fontSize:9, padding:"2px 8px", borderRadius:10,
+                  border:"1px solid #00ff8833", color:"#00ff88", fontWeight:400}}>
+                  +EV · Odds API · {evProps.length} bets
+                </span>
+              </div>
+              {evProps.length === 0 ? (
+                <div style={{color:"#3a5570", fontSize:12, padding:"20px 0"}}>
+                  {propBets.length === 0
+                    ? "No prop edges found right now — engine runs every 8 minutes for pregame lines."
+                    : "All props with edge met conviction threshold above."}
+                </div>
+              ) : (
+                <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(320px,1fr))", gap:12}}>
+                  {evProps.map(prop => <PropCard key={prop.id} prop={prop}/>)}
+                </div>
+              )}
+            </>);
+          })()}
         </div>
       )}
 
