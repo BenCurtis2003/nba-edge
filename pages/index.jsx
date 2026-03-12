@@ -294,7 +294,7 @@ function HistoryRow({ h }) {
           </div>
         </div>
         <div>
-          <div style={{fontSize:12, fontWeight:600, color:"#fff", marginBottom:2}}>{h.selection}</div>
+          <div style={{fontSize:12, fontWeight:600, color:"#fff", marginBottom:2}}>{h.selection.replace(/ ML$/i,"").replace(/ Moneyline$/i,"")}</div>
           <div style={{fontSize:9, color:"#3a5570", marginBottom:4}}>{h.game}</div>
           <div style={{display:"flex", gap:5, flexWrap:"wrap", alignItems:"center"}}>
             {!h.isConviction&&<span style={{...s.badge("#00ff88")}}>⚡ +EV</span>}
