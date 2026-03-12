@@ -511,7 +511,7 @@ function InfoTab() {
       <InfoSection title="🎯 How to Read Conviction Plays">
         <p style={{fontSize:11, color:"#3a5570", marginBottom:14, lineHeight:1.6}}>
           Conviction Plays score every team in every game from 0–100 using 7 statistical signals.
-          They appear on the Conviction tab and at the top of All.
+          They appear alongside EV bets in the Moneyline, Spread, and Game Total tabs.
         </p>
         <InfoRow label="Score 75–100 (HIGH)" value="Strong statistical edge. These are auto-bet at 2% of bankroll." color="#00ff88"/>
         <InfoRow label="Score 58–74 (MEDIUM)" value="Moderate edge. Worth watching — consider betting smaller." color="#ffd700"/>
@@ -589,7 +589,7 @@ export default function App() {
     return () => clearInterval(interval);
   }, [fetchPortfolio]);
 
-  const tabs = ["All","Moneyline","Spread","Game Total","Props","Conviction","History","Info"];
+  const tabs = ["All","Moneyline","Spread","Game Total","Props","History","Info"];
 
   // Chart data
   const chartData = (() => {
@@ -608,7 +608,7 @@ export default function App() {
   const currentBets = data?.currentBets || [];
   const propBets = data?.propBets || [];
 
-  const filteredConviction = tab==="Conviction"||tab==="All" ? conviction : [];
+  const filteredConviction = tab==="All" ? conviction : conviction.filter(p => (p.betType||"Moneyline")===tab);
   const filteredHistory = tab==="History" ? history : [];
   const filteredBets = tab==="All"||tab==="Moneyline"||tab==="Spread"||tab==="Game Total"
     ? currentBets.filter(b => tab==="All" || b.type===tab)
@@ -686,27 +686,22 @@ export default function App() {
       </div>
 
       {/* Conviction Plays */}
-      {(tab==="All"||tab==="Conviction") && (
+      {(tab==="All"||tab==="Moneyline"||tab==="Spread"||tab==="Game Total") && (
         <div style={s.section}>
           <div style={s.sectionTitle}>
-            🎯 Conviction Plays
+            🎯 {tab==="All" ? "Conviction Plays" : `${tab} Conviction Plays`}
             <span style={{fontSize:9, padding:"2px 8px", borderRadius:10,
               border:"1px solid #172030", color:"#3a5570", fontWeight:400}}>
-              Stat-driven · ML-weighted · EV-agnostic
+              Stat-driven · ML-weighted · auto-bet ≥70
             </span>
           </div>
-          <div style={{fontSize:11, color:"#3a5570", marginBottom:14}}>
-            Picks based on team form, rest, point differential & matchup data.
-            Plays ≥70/100 are automatically placed in the portfolio.
-          </div>
-          {conviction.length === 0 ? (
+          {filteredConviction.length === 0 ? (
             <div style={{color:"#3a5570", fontSize:12, padding:"20px 0"}}>
-              No conviction plays yet — engine hasn't run or no games today.
-              <div style={{marginTop:6, fontSize:10}}>Last run: {data?.lastRun ? new Date(data.lastRun).toLocaleTimeString() : "never"}</div>
+              No {tab==="All"?"conviction plays":tab.toLowerCase()+" conviction plays"} yet — engine hasn't run or no games today.
             </div>
-          ) : Array.from({length: Math.ceil(conviction.slice(0,9).length / 3)}, (_, rowIdx) => (
+          ) : Array.from({length: Math.ceil(filteredConviction.slice(0,9).length / 3)}, (_, rowIdx) => (
             <div key={rowIdx} style={{...s.convGrid, marginBottom:12}}>
-              {conviction.slice(0,9).slice(rowIdx*3, rowIdx*3+3).map(p => (
+              {filteredConviction.slice(0,9).slice(rowIdx*3, rowIdx*3+3).map(p => (
                 <ConvictionCard key={p.id} play={p}
                   groupExpanded={!!expandedConvRows[rowIdx]}
                   onExpand={() => setExpandedConvRows(r => ({...r, [rowIdx]: !r[rowIdx]}))}
