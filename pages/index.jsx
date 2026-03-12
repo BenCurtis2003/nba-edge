@@ -153,7 +153,7 @@ function BookOddsTable({ allLines, bestBook, type }) {
   return (
     <div style={{marginBottom:14}}>
       <div style={{display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:8}}>
-        <div style={{fontSize:9, color:"#3a5570", letterSpacing:"0.08em"}}>ALL SPORTSBOOK LINES</div>
+        <div style={{fontSize:9, color:"#3a5570", letterSpacing:"0.08em"}}>TOP SPORTSBOOK LINES</div>
         {sorted.some(([bk]) => bk === "kalshi") && (
           <span style={{fontSize:8, color:"#00e5ff", padding:"1px 6px", borderRadius:3,
             background:"rgba(0,229,255,0.08)", border:"1px solid rgba(0,229,255,0.2)"}}>
@@ -161,7 +161,7 @@ function BookOddsTable({ allLines, bestBook, type }) {
           </span>
         )}
       </div>
-      <div style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap:4}}>
+      <div style={{display:"grid", gridTemplateColumns: sorted.length <= 3 ? "1fr 1fr 1fr" : "1fr 1fr", gap:4}}>
         {sorted.map(([bk, val]) => {
           const isBest = bk === bestBook;
           const odds = val.odds;
