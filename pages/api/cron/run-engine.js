@@ -1,4 +1,4 @@
-import { fetchLiveOdds, extractEVBets, buildConvictionPlays, placeBets, fetchAndCacheTeamStats, setTeamStatsCache } from "../../../lib/engine";
+import { fetchLiveOdds, extractEVBets, buildConvictionPlays, placeBets, fetchAndCacheTeamStats } from "../../../lib/engine";
 import { getHistory, getBankroll, getMLModel, getCachedStandings, saveCurrentBets, saveConvictionPlays, saveLastRun, appendHistory, saveStandings } from "../../../lib/store";
 
 export default async function handler(req, res) {
@@ -9,26 +9,26 @@ export default async function handler(req, res) {
   const start = Date.now();
 
   try {
-    // 1. Fetch live odds + team stats in parallel (both needed before conviction scoring)
-    const [gamesResult, cachedStats] = await Promise.all([
+    // 1. Fetch odds + cached standings in parallel
+    const [games, cachedStats] = await Promise.all([
       ODDS_KEY ? fetchLiveOdds(ODDS_KEY) : Promise.resolve(null),
       getCachedStandings(),
     ]);
-    const games = gamesResult;
 
-    // 2. Get fresh team stats — use cache if < 6hrs old, otherwise re-fetch
-    let teamStats = cachedStats && Object.keys(cachedStats).length > 5 ? cachedStats : null;
+    // 2. Get team stats — use KV cache if fresh, else re-fetch from ESPN
+    let teamStats = (cachedStats && Object.keys(cachedStats).length >= 20) ? cachedStats : null;
     if(!teamStats) {
+      console.log("[Engine] Fetching fresh team stats from ESPN...");
       teamStats = await fetchAndCacheTeamStats(saveStandings);
+    } else {
+      console.log(`[Engine] Using cached team stats (${Object.keys(teamStats).length} teams)`);
     }
-    // Inject into engine module cache so fetchTeamData() uses real records
-    if(teamStats) setTeamStatsCache(teamStats);
 
-    // 3. Extract EV bets from odds
+    // 3. Extract EV bets
     const evBets = games ? extractEVBets(games) : [];
-    console.log(`[Engine] ${evBets.length} EV bets found`);
+    console.log(`[Engine] ${evBets.length} EV bets`);
 
-    // 4. Build game list for conviction engine
+    // 4. ESPN game list for conviction engine
     let espnGames = games || [];
     if(!games) {
       const r = await fetch("https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard");
@@ -42,20 +42,19 @@ export default async function handler(req, res) {
       }
     }
 
-    // 5. Load ML weights
+    // 5. ML weights
     const ml = await getMLModel();
     const mlWeights = ml?.learnedWeights || null;
-    if(mlWeights) console.log("[Engine] Using ML-learned weights");
 
-    // 6. Build conviction plays (now has real team stats from setTeamStatsCache)
-    const convictionPlays = await buildConvictionPlays(espnGames, mlWeights);
-    console.log(`[Engine] ${convictionPlays.length} conviction plays, teamStats: ${teamStats ? Object.keys(teamStats).length : 0} teams`);
+    // 6. Build conviction plays — pass teamStats directly so no module cache needed
+    const convictionPlays = await buildConvictionPlays(espnGames, mlWeights, teamStats || {});
+    console.log(`[Engine] ${convictionPlays.length} conviction plays · sample record: ${convictionPlays[0]?.teamRecord}`);
 
     // 7. Place bets
     const [history, bankroll] = await Promise.all([getHistory(), getBankroll()]);
     const { newEntries } = placeBets(evBets, convictionPlays, bankroll, history);
 
-    // 8. Persist
+    // 8. Save everything
     await Promise.all([
       saveCurrentBets(evBets),
       saveConvictionPlays(convictionPlays),
@@ -69,6 +68,7 @@ export default async function handler(req, res) {
       newBetsPlaced: newEntries.length, bankroll,
       usingMLWeights: !!mlWeights,
       teamStatsLoaded: teamStats ? Object.keys(teamStats).length : 0,
+      sampleRecord: convictionPlays[0] ? `${convictionPlays[0].selection}: ${convictionPlays[0].teamRecord}` : "none",
     });
   } catch(e) {
     console.error("[Engine] error:", e);

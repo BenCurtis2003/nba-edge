@@ -391,52 +391,6 @@ export default function App() {
           color="#b44fff"/>
       </div>
 
-      {/* Portfolio Chart — always visible */}
-      <div style={s.section}>
-        <div style={{background:"#0a1220", border:"1px solid #172030", borderRadius:12, padding:"20px 24px"}}>
-          <div style={{display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:4}}>
-            <div style={{fontSize:13, fontWeight:700, color:"#fff"}}>Portfolio Performance</div>
-            <div style={{fontSize:10, color: (data?.totalPnl||0) >= 0 ? "#00ff88" : "#ff6b6b", fontWeight:700}}>
-              {(data?.totalPnl||0) >= 0 ? "+" : ""}${(data?.totalPnl||0).toFixed(2)} P&L
-            </div>
-          </div>
-          <div style={{fontSize:10, color:"#3a5570", marginBottom:16}}>
-            $100 starting bankroll · Kelly Criterion sizing · ML-weighted signals
-          </div>
-          {chartData.length <= 1 ? (
-            <div style={{height:160, display:"flex", flexDirection:"column", alignItems:"center",
-              justifyContent:"center", borderTop:"1px solid #0e1a28", paddingTop:20}}>
-              <div style={{fontSize:28, marginBottom:8, opacity:0.3}}>📈</div>
-              <div style={{fontSize:11, color:"#3a5570"}}>Chart populates as bets resolve</div>
-              <div style={{fontSize:10, color:"#1e3040", marginTop:4}}>
-                {history.filter(h=>h.status==="pending").length} bets pending · check back after tonight's games
-              </div>
-            </div>
-          ) : (
-            <ResponsiveContainer width="100%" height={200}>
-              <LineChart data={chartData}>
-                <XAxis dataKey="date"
-                  tickFormatter={d => d==="Start"?"Start":new Date(d).toLocaleDateString("en-US",{month:"short",day:"numeric"})}
-                  tick={{fill:"#3a5570",fontSize:9}} axisLine={false} tickLine={false}/>
-                <YAxis domain={["auto","auto"]}
-                  tickFormatter={v=>`$${v.toFixed(0)}`}
-                  tick={{fill:"#3a5570",fontSize:9}} axisLine={false} tickLine={false} width={45}/>
-                <Tooltip
-                  contentStyle={{background:"#0e1a28",border:"1px solid #172030",borderRadius:8,fontSize:10}}
-                  formatter={(v) => [`$${v.toFixed(2)}`, "Bankroll"]}
-                  labelFormatter={l => l==="Start"?"Start":new Date(l).toLocaleDateString()}/>
-                <ReferenceLine y={100} stroke="#172030" strokeDasharray="3 3"/>
-                <Line type="monotone" dataKey="bankroll" stroke="#00bfff" strokeWidth={2}
-                  dot={p => p.payload.status!=="start"
-                    ? <circle key={p.key} cx={p.cx} cy={p.cy} r={4}
-                        fill={p.payload.status==="won"?"#00ff88":"#ff6b6b"} stroke="none"/>
-                    : <circle key={p.key} cx={p.cx} cy={p.cy} r={3} fill="#3a5570" stroke="none"/>}/>
-              </LineChart>
-            </ResponsiveContainer>
-          )}
-        </div>
-      </div>
-
       {/* Tabs */}
       <div style={{padding:"0 32px", marginBottom:20}}>
         <div style={{display:"flex", gap:8, flexWrap:"wrap"}}>
