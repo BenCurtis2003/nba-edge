@@ -301,11 +301,8 @@ function HistoryRow({ h }) {
             <span style={{...s.badge(h.isConviction?"#b44fff":h.type==="Moneyline"?"#00bfff":h.type==="Spread"?"#ffd700":"#ff69b4")}}>
               {h.isConviction?`🎯 Conviction`:h.type}
             </span>
-            {h.bestOdds&&<span style={{fontSize:9,fontWeight:700,color:h.bestOdds<0?"#00bfff":"#ffd700"}}>{formatOdds(h.bestOdds)}</span>}
-            {h.bestBook&&<span style={{fontSize:8,color:SPORTSBOOK_COLORS[h.bestBook]||"#3a5570"}}>{h.bestBook}</span>}
-            <span style={{...s.badge("#b44fff")}}>
-              Kelly {h.kellyPct>0?h.kellyPct.toFixed(1):h.wagerAmt&&h.bankrollBefore?(h.wagerAmt/h.bankrollBefore*100).toFixed(1):"2.0"}%
-            </span>
+            {h.bestOdds&&<span style={{...s.badge("transparent"),border:`1px solid ${h.bestOdds<0?"#00bfff":"#ffd700"}`,color:h.bestOdds<0?"#00bfff":"#ffd700",fontWeight:700}}>{formatOdds(h.bestOdds)}</span>}
+            {h.bestBook&&<span style={{...s.badge("transparent"),border:"1px solid #1e3040",color:SPORTSBOOK_COLORS[h.bestBook]||"#8899aa"}}>{BOOK_DISPLAY[h.bestBook]||h.bestBook}</span>}
             {h.edge>0&&!h.isConviction&&<span style={{...s.badge("#00ff88")}}>+{h.edge?.toFixed(1)}% edge</span>}
           </div>
         </div>

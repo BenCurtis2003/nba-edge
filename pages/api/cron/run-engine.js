@@ -9,20 +9,34 @@ export default async function handler(req, res) {
   const start = Date.now();
 
   try {
+    // 1. Fetch odds + cached standings in parallel
     const [games, cachedStats] = await Promise.all([
       ODDS_KEY ? fetchLiveOdds(ODDS_KEY) : Promise.resolve(null),
       getCachedStandings(),
     ]);
 
+    // 2. Get team stats — use KV cache only if it has real data (wins > 0 for most teams)
     let teamStats = null;
     if(cachedStats && Object.keys(cachedStats).length >= 20) {
+      // Validate cache has real records (not all zeros)
       const nonZero = Object.values(cachedStats).filter(t => (t.wins||0) > 0).length;
-      if(nonZero >= 15) teamStats = cachedStats;
+      if(nonZero >= 15) {
+        teamStats = cachedStats;
+        console.log(`[Engine] Using cached team stats (${Object.keys(cachedStats).length} teams, ${nonZero} with records)`);
+      } else {
+        console.log(`[Engine] Cache has ${nonZero} non-zero records — forcing fresh fetch`);
+      }
     }
-    if(!teamStats) teamStats = await fetchAndCacheTeamStats(saveStandings);
+    if(!teamStats) {
+      console.log("[Engine] Fetching fresh team stats from ESPN...");
+      teamStats = await fetchAndCacheTeamStats(saveStandings);
+    }
 
+    // 3. Extract EV bets
     const evBets = games ? extractEVBets(games) : [];
+    console.log(`[Engine] ${evBets.length} EV bets`);
 
+    // 4. ESPN game list for conviction engine
     let espnGames = games || [];
     if(!games) {
       const r = await fetch("https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard");
@@ -36,27 +50,30 @@ export default async function handler(req, res) {
       }
     }
 
+    // 5. ML weights
     const ml = await getMLModel();
     const mlWeights = ml?.learnedWeights || null;
-    const convictionPlays = await buildConvictionPlays(espnGames, mlWeights, teamStats || {});
 
-    // Auto-resolve finished games
+    // 6. Build conviction plays — pass teamStats directly so no module cache needed
+    const convictionPlays = await buildConvictionPlays(espnGames, mlWeights, teamStats || {});
+    console.log(`[Engine] ${convictionPlays.length} conviction plays · sample record: ${convictionPlays[0]?.teamRecord}`);
+
+    // 7. Auto-resolve finished games before placing new bets
     const [history, bankroll] = await Promise.all([getHistory(), getBankroll()]);
     let resolvedCount = 0, currentBankroll = bankroll;
     const pendingBets = history.filter(h => h.status === "pending");
-    if(pendingBets.length > 0) {
+    if (pendingBets.length > 0) {
       const scores = await fetchScores(ODDS_KEY);
-      console.log(`[AutoResolve] ${scores.length} completed scores, ${pendingBets.length} pending bets`);
-      if(scores.length > 0) {
+      if (scores.length > 0) {
         const { history: updatedHistory, bankroll: newBankroll, changed } = resolveHistory(history, scores);
-        if(changed) {
+        if (changed) {
           const nowResolved = updatedHistory.filter(h =>
             pendingBets.some(p => p.id === h.id) && h.status !== "pending"
           );
           resolvedCount = nowResolved.length;
           currentBankroll = newBankroll;
           await Promise.all([saveHistory(updatedHistory), saveBankroll(newBankroll)]);
-          if(nowResolved.length > 0) await updateMLAfterResolution(nowResolved);
+          if (nowResolved.length > 0) await updateMLAfterResolution(nowResolved);
           const wins = nowResolved.filter(b => b.status === "won").length;
           const losses = nowResolved.filter(b => b.status === "lost").length;
           console.log(`[AutoResolve] ${resolvedCount} settled (${wins}W/${losses}L) · $${newBankroll.toFixed(2)}`);
@@ -64,9 +81,11 @@ export default async function handler(req, res) {
       }
     }
 
+    // 8. Place new bets (use fresh history + bankroll after resolution)
     const freshHistory = resolvedCount > 0 ? await getHistory() : history;
     const { newEntries } = placeBets(evBets, convictionPlays, currentBankroll, freshHistory);
 
+    // 9. Save everything
     await Promise.all([
       saveCurrentBets(evBets),
       saveConvictionPlays(convictionPlays),
@@ -82,7 +101,8 @@ export default async function handler(req, res) {
       usingMLWeights: !!mlWeights,
       gamesFromAPI: games?.length || 0,
       espnGames: espnGames.length,
-      kalshiMarkets: (games||[]).reduce((n,g) => n + ((g.bookmakers||[]).some(b=>b.key==="kalshi") ? 1 : 0), 0),
+      evBetsFound: evBets.length, convictionFound: convictionPlays.length,
+      kalshiMarkets: (games||[]).filter(g => (g.bookmakers||[]).some(b=>b.key==="kalshi")).length,
       teamStatsLoaded: teamStats ? Object.keys(teamStats).length : 0,
       sampleRecord: convictionPlays[0] ? `${convictionPlays[0].selection}: ${convictionPlays[0].teamRecord}` : "none",
       sampleEV: evBets[0] ? `${evBets[0].selection} ${(evBets[0].edge*100).toFixed(1)}% edge` : "none",
