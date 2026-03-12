@@ -1,5 +1,5 @@
-import { fetchLiveOdds, extractEVBets, buildConvictionPlays, placeBets, fetchAndCacheTeamStats, fetchKalshiOdds, mergeKalshiIntoGames } from "../../../lib/engine";
-import { getHistory, getBankroll, getMLModel, getCachedStandings, saveCurrentBets, saveConvictionPlays, saveLastRun, appendHistory, saveStandings } from "../../../lib/store";
+import { fetchLiveOdds, extractEVBets, buildConvictionPlays, placeBets, fetchAndCacheTeamStats, fetchScores, resolveHistory } from "../../../lib/engine";
+import { getHistory, getBankroll, getMLModel, getCachedStandings, saveCurrentBets, saveConvictionPlays, saveLastRun, appendHistory, saveStandings, saveHistory, saveBankroll, updateMLAfterResolution } from "../../../lib/store";
 
 export default async function handler(req, res) {
   if(process.env.NODE_ENV === "production" && req.headers.authorization !== `Bearer ${process.env.CRON_SECRET}`)
@@ -9,16 +9,11 @@ export default async function handler(req, res) {
   const start = Date.now();
 
   try {
-    // 1. Fetch odds + cached standings + Kalshi in parallel
-    const [rawGames, cachedStats, kalshiMarkets] = await Promise.all([
+    // 1. Fetch odds + cached standings in parallel
+    const [games, cachedStats] = await Promise.all([
       ODDS_KEY ? fetchLiveOdds(ODDS_KEY) : Promise.resolve(null),
       getCachedStandings(),
-      fetchKalshiOdds(),
     ]);
-
-    // Merge Kalshi odds into games as a synthetic sportsbook
-    const games = rawGames ? mergeKalshiIntoGames(rawGames, kalshiMarkets) : null;
-    console.log(`[Engine] Kalshi: ${kalshiMarkets.length} markets merged into ${games?.length || 0} games`);
 
     // 2. Get team stats — use KV cache only if it has real data (wins > 0 for most teams)
     let teamStats = null;
@@ -63,11 +58,34 @@ export default async function handler(req, res) {
     const convictionPlays = await buildConvictionPlays(espnGames, mlWeights, teamStats || {});
     console.log(`[Engine] ${convictionPlays.length} conviction plays · sample record: ${convictionPlays[0]?.teamRecord}`);
 
-    // 7. Place bets
+    // 7. Auto-resolve finished games before placing new bets
     const [history, bankroll] = await Promise.all([getHistory(), getBankroll()]);
-    const { newEntries } = placeBets(evBets, convictionPlays, bankroll, history);
+    let resolvedCount = 0, currentBankroll = bankroll;
+    const pendingBets = history.filter(h => h.status === "pending");
+    if (pendingBets.length > 0) {
+      const scores = await fetchScores(ODDS_KEY);
+      if (scores.length > 0) {
+        const { history: updatedHistory, bankroll: newBankroll, changed } = resolveHistory(history, scores);
+        if (changed) {
+          const nowResolved = updatedHistory.filter(h =>
+            pendingBets.some(p => p.id === h.id) && h.status !== "pending"
+          );
+          resolvedCount = nowResolved.length;
+          currentBankroll = newBankroll;
+          await Promise.all([saveHistory(updatedHistory), saveBankroll(newBankroll)]);
+          if (nowResolved.length > 0) await updateMLAfterResolution(nowResolved);
+          const wins = nowResolved.filter(b => b.status === "won").length;
+          const losses = nowResolved.filter(b => b.status === "lost").length;
+          console.log(`[AutoResolve] ${resolvedCount} settled (${wins}W/${losses}L) · $${newBankroll.toFixed(2)}`);
+        }
+      }
+    }
 
-    // 8. Save everything
+    // 8. Place new bets (use fresh history + bankroll after resolution)
+    const freshHistory = resolvedCount > 0 ? await getHistory() : history;
+    const { newEntries } = placeBets(evBets, convictionPlays, currentBankroll, freshHistory);
+
+    // 9. Save everything
     await Promise.all([
       saveCurrentBets(evBets),
       saveConvictionPlays(convictionPlays),
@@ -78,16 +96,16 @@ export default async function handler(req, res) {
     return res.status(200).json({
       ok: true, elapsed: Date.now()-start,
       evBets: evBets.length, convictionPlays: convictionPlays.length,
-      newBetsPlaced: newEntries.length, bankroll,
+      newBetsPlaced: newEntries.length, bankroll: currentBankroll,
+      autoResolved: resolvedCount,
       usingMLWeights: !!mlWeights,
-      gamesFromAPI: (rawGames||[]).length,
+      gamesFromAPI: games?.length || 0,
       espnGames: espnGames.length,
-      evBetsFound: evBets.length,
-      convictionFound: convictionPlays.length,
-      kalshiMarkets: kalshiMarkets.length,
+      evBetsFound: evBets.length, convictionFound: convictionPlays.length,
+      kalshiMarkets: (games||[]).reduce((n,g) => n + (g.bookmakers||[]).some(b=>b.key==="kalshi") ? 1 : 0, 0),
       teamStatsLoaded: teamStats ? Object.keys(teamStats).length : 0,
       sampleRecord: convictionPlays[0] ? `${convictionPlays[0].selection}: ${convictionPlays[0].teamRecord}` : "none",
-      sampleEV: evBets[0] ? `${evBets[0].selection} ${evBets[0].edge?.toFixed(1)}% edge` : "none",
+      sampleEV: evBets[0] ? `${evBets[0].selection} ${(evBets[0].edge*100).toFixed(1)}% edge` : "none",
     });
   } catch(e) {
     console.error("[Engine] error:", e);
