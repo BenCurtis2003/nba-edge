@@ -575,7 +575,7 @@ export default function App() {
           sub="on resolved bets"
           color={data?.roi>=0?"#00ff88":"#ff6b6b"}/>
         <StatCard label="BETS TODAY"
-          value={currentBets.length}
+          value={(() => { const today = new Date().toDateString(); return (data?.history||[]).filter(h => new Date(h.date).toDateString()===today).length; })()}
           sub={`${conviction.filter(p=>p.convictionScore>=70).length} auto-bet conviction plays`}
           color="#ffd700"/>
         <StatCard label="ML ENGINE"
