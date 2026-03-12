@@ -96,6 +96,9 @@ function ConvictionCard({ play }) {
       )}
       {expanded && play.signals && (
         <div style={{marginTop:12, borderTop:"1px solid #0e1a28", paddingTop:12}}>
+          {/* All book moneyline odds */}
+          <BookOddsTable allLines={play.allLines} bestBook={play.bestBook} />
+
           <div style={{fontSize:9, color:"#3a5570", marginBottom:8, letterSpacing:"0.08em"}}>
             SIGNAL BREAKDOWN
           </div>
@@ -121,22 +124,71 @@ function ConvictionCard({ play }) {
   );
 }
 
+const BOOK_DISPLAY = {
+  draftkings:"DraftKings", fanduel:"FanDuel", betmgm:"BetMGM",
+  caesars:"Caesars", pointsbet:"PointsBet", betrivers:"BetRivers",
+  lowvig:"LowVig", betonlineag:"BetOnline", bovada:"Bovada",
+  mybookieag:"MyBookie", betus:"BetUS", pinnacle:"Pinnacle",
+};
+
+function BookOddsTable({ allLines, bestBook, type }) {
+  if(!allLines || !Object.keys(allLines).length) return null;
+  const sorted = Object.entries(allLines).sort((a,b) => {
+    const ao = a[1].odds, bo = b[1].odds;
+    return bo - ao; // best odds first
+  });
+  return (
+    <div style={{marginBottom:14}}>
+      <div style={{fontSize:9, color:"#3a5570", letterSpacing:"0.08em", marginBottom:8}}>
+        ALL SPORTSBOOK LINES
+      </div>
+      <div style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap:4}}>
+        {sorted.map(([bk, val]) => {
+          const isBest = bk === bestBook;
+          const odds = val.odds;
+          const point = val.point;
+          return (
+            <div key={bk} style={{
+              display:"flex", justifyContent:"space-between", alignItems:"center",
+              padding:"5px 8px", borderRadius:6,
+              background: isBest ? "rgba(0,255,136,0.06)" : "#060d16",
+              border: `1px solid ${isBest ? "#00ff8833" : "#0e1a28"}`,
+            }}>
+              <div style={{display:"flex", alignItems:"center", gap:5}}>
+                {isBest && <span style={{fontSize:7, color:"#00ff88", fontWeight:700}}>★</span>}
+                <span style={{fontSize:9, color: isBest ? "#dde3ee" : "#7a90a8"}}>
+                  {BOOK_DISPLAY[bk] || bk}
+                </span>
+              </div>
+              <div style={{display:"flex", gap:6, alignItems:"center"}}>
+                {point != null && <span style={{fontSize:8, color:"#3a5570"}}>{point > 0 ? `+${point}` : point}</span>}
+                <span style={{
+                  fontSize:10, fontWeight:700,
+                  color: odds > 0 ? "#ffd700" : "#00bfff",
+                }}>
+                  {odds > 0 ? `+${odds}` : odds}
+                </span>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function EVBetCard({ bet }) {
   const [expanded, setExpanded] = useState(false);
   const typeColor = bet.type==="Moneyline"?"#00bfff":bet.type==="Spread"?"#ffd700":"#ff69b4";
   const edgeStrength = bet.edge >= 20 ? "STRONG" : bet.edge >= 10 ? "SOLID" : "LEAN";
   const edgeColor = bet.edge >= 20 ? "#00ff88" : bet.edge >= 10 ? "#ffd700" : "#ff9944";
-
-  // Kelly bar width
   const kellyWidth = Math.min(100, (bet.kellyPct / 8) * 100);
 
   return (
     <div onClick={() => setExpanded(e=>!e)} style={{
       background:"#0a1220", border:`1px solid ${expanded?"#00ff8833":"#172030"}`,
-      borderRadius:12, padding:"16px", cursor:"pointer",
-      transition:"border-color 0.2s",
+      borderRadius:12, padding:"16px", cursor:"pointer", transition:"border-color 0.2s",
     }}>
-      {/* Header */}
       <div style={{display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:6}}>
         <div style={{display:"flex", gap:5, flexWrap:"wrap"}}>
           <span style={s.badge(typeColor)}>{bet.type}</span>
@@ -144,31 +196,45 @@ function EVBetCard({ bet }) {
         </div>
         <span style={{fontSize:10, color:"#3a5570"}}>{expanded?"▲":"▼"}</span>
       </div>
-
-      {/* Selection */}
       <div style={{fontSize:14, fontWeight:700, color:"#fff", marginBottom:2}}>{bet.selection}</div>
       <div style={{fontSize:10, color:"#3a5570", marginBottom:10}}>{bet.game}</div>
-
-      {/* Odds + Book */}
       <div style={{display:"flex", gap:8, alignItems:"center", marginBottom:10}}>
         <span style={{fontSize:13, fontWeight:700, color:bet.bestOdds<0?"#00bfff":"#ffd700"}}>
           {formatOdds(bet.bestOdds)}
         </span>
         <span style={{fontSize:9, color:SPORTSBOOK_COLORS[bet.bestBook]||"#3a5570", fontWeight:600}}>
-          {bet.bestBook}
+          {BOOK_DISPLAY[bet.bestBook]||bet.bestBook}
         </span>
+        <span style={{fontSize:8, color:"#1e3040", marginLeft:"auto"}}>★ best line</span>
       </div>
-
-      {/* Edge / EV / Kelly summary */}
       <div style={{display:"flex", gap:14, fontSize:10}}>
         <div>Edge <span style={{color:"#00ff88", fontWeight:700}}>+{bet.edge?.toFixed(1)}%</span></div>
         <div>EV <span style={{color:"#00ff88", fontWeight:700}}>+{bet.ev?.toFixed(1)}%</span></div>
         <div>Kelly <span style={{color:"#b44fff", fontWeight:700}}>{bet.kellyPct?.toFixed(1)}%</span></div>
       </div>
 
-      {/* Expanded detail */}
       {expanded && (
         <div style={{marginTop:14, borderTop:"1px solid #0e1a28", paddingTop:14}}>
+          {/* All book lines */}
+          <BookOddsTable allLines={bet.allLines} bestBook={bet.bestBook} type={bet.type} />
+
+          {/* Probability breakdown */}
+          <div style={{marginBottom:14}}>
+            <div style={{fontSize:9, color:"#3a5570", letterSpacing:"0.08em", marginBottom:8}}>PROBABILITY ANALYSIS</div>
+            <div style={{display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:8}}>
+              {[
+                { label:"True Prob",    value:`${bet.ourProbability?.toFixed(1)}%`, color:"#00ff88" },
+                { label:"Book Implied", value:`${bet.bookImplied?.toFixed(1)}%`,    color:"#ff6b6b" },
+                { label:"Our Edge",     value:`+${bet.edge?.toFixed(1)}%`,           color:"#00bfff" },
+              ].map(({ label, value, color }) => (
+                <div key={label} style={{background:"#060d16", borderRadius:6, padding:"8px 10px",
+                  border:"1px solid #0e1a28", textAlign:"center"}}>
+                  <div style={{fontSize:8, color:"#3a5570", marginBottom:3}}>{label}</div>
+                  <div style={{fontSize:13, fontWeight:700, color}}>{value}</div>
+                </div>
+              ))}
+            </div>
+          </div>
 
           {/* Kelly sizing bar */}
           <div style={{marginBottom:14}}>
@@ -180,36 +246,15 @@ function EVBetCard({ bet }) {
               <div style={{height:"100%", width:`${kellyWidth}%`, borderRadius:2,
                 background:"linear-gradient(90deg, #b44fff, #ff69b4)", opacity:0.8}}/>
             </div>
-            <div style={{fontSize:8, color:"#1e3040", marginTop:3}}>
-              Max bet = 8% · This bet = {bet.kellyPct?.toFixed(1)}%
-            </div>
+            <div style={{fontSize:8, color:"#1e3040", marginTop:3}}>Max bet = 8% · This bet = {bet.kellyPct?.toFixed(1)}%</div>
           </div>
 
-          {/* Probability breakdown */}
-          <div style={{marginBottom:14}}>
-            <div style={{fontSize:9, color:"#3a5570", letterSpacing:"0.08em", marginBottom:8}}>PROBABILITY ANALYSIS</div>
-            <div style={{display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:8}}>
-              {[
-                { label:"True Prob", value:`${bet.ourProbability?.toFixed(1)}%`, color:"#00ff88" },
-                { label:"Book Implied", value:`${bet.bookImplied?.toFixed(1)}%`, color:"#ff6b6b" },
-                { label:"Our Edge", value:`+${bet.edge?.toFixed(1)}%`, color:"#00bfff" },
-              ].map(({ label, value, color }) => (
-                <div key={label} style={{background:"#060d16", borderRadius:6, padding:"8px 10px",
-                  border:"1px solid #0e1a28", textAlign:"center"}}>
-                  <div style={{fontSize:8, color:"#3a5570", marginBottom:3}}>{label}</div>
-                  <div style={{fontSize:13, fontWeight:700, color}}>{value}</div>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* EV explanation */}
           <div style={{background:"#060d16", borderRadius:8, padding:"10px 12px",
             border:"1px solid #0e1a28", fontSize:9, color:"#7a90a8", lineHeight:1.6}}>
             <span style={{color:"#00ff88", fontWeight:700}}>Why this bet? </span>
-            The true win probability ({bet.ourProbability?.toFixed(1)}%) is higher than the book's implied odds ({bet.bookImplied?.toFixed(1)}%),
-            giving a {bet.edge?.toFixed(1)}% edge. At {formatOdds(bet.bestOdds)} odds on {bet.bestBook},
-            this is a {bet.ev?.toFixed(1)}% expected value bet. Kelly Criterion recommends {bet.kellyPct?.toFixed(1)}% of bankroll.
+            True win probability ({bet.ourProbability?.toFixed(1)}%) exceeds the book implied odds ({bet.bookImplied?.toFixed(1)}%),
+            a {bet.edge?.toFixed(1)}% edge. At {formatOdds(bet.bestOdds)} on {BOOK_DISPLAY[bet.bestBook]||bet.bestBook},
+            this is a {bet.ev?.toFixed(1)}% EV bet. Kelly Criterion recommends {bet.kellyPct?.toFixed(1)}% of bankroll.
           </div>
         </div>
       )}
@@ -255,21 +300,30 @@ function HistoryRow({ h }) {
             {h.edge>0&&!h.isConviction&&<span style={{...s.badge("#00ff88")}}>+{h.edge?.toFixed(1)}% edge</span>}
           </div>
         </div>
-        <div style={{textAlign:"right", minWidth:110}}>
+        <div style={{textAlign:"right", minWidth:120}}>
           {pnl !== null && (
             <div style={{fontSize:18, fontWeight:800, color:accentColor}}>
               {pnl>0?"+":""}{fmt$(pnl)}
             </div>
           )}
           <div style={{fontSize:9, color:"#3a5570", marginTop:2}}>
-            Wagered <span style={{color:"#ffd700"}}>{fmt$(h.wagerAmt)}</span>
+            Wagered <span style={{color:"#ffd700", fontWeight:600}}>{fmt$(h.wagerAmt)}</span>
           </div>
-          <div style={{fontSize:9, color:"#3a5570"}}>
+          <div style={{fontSize:9, color:"#3a5570", marginTop:1}}>
+            To win <span style={{color:"#00ff88", fontWeight:600}}>
+              {(() => {
+                const odds = h.bestOdds || -110;
+                const wager = h.wagerAmt || 0;
+                const profit = odds > 0 ? wager * (odds/100) : wager * (100/Math.abs(odds));
+                return `+$${profit.toFixed(2)}`;
+              })()}
+            </span>
+          </div>
+          <div style={{fontSize:9, color:"#3a5570", marginTop:1}}>
             Kelly <span style={{color:"#b44fff",fontWeight:600}}>
               {h.kellyPct>0?h.kellyPct.toFixed(1):h.wagerAmt&&h.bankrollBefore?(h.wagerAmt/h.bankrollBefore*100).toFixed(1):"2.0"}%
             </span>
-            {" · "}
-            <span style={{color:"#dde3ee"}}>{fmt$(h.bankrollAfter)}</span>
+            {" · "}<span style={{color:"#dde3ee"}}>{fmt$(h.bankrollAfter)}</span>
           </div>
         </div>
       </div>
