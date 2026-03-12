@@ -80,8 +80,14 @@ export default async function handler(req, res) {
       evBets: evBets.length, convictionPlays: convictionPlays.length,
       newBetsPlaced: newEntries.length, bankroll,
       usingMLWeights: !!mlWeights,
+      gamesFromAPI: (rawGames||[]).length,
+      espnGames: espnGames.length,
+      evBetsFound: evBets.length,
+      convictionFound: convictionPlays.length,
+      kalshiMarkets: kalshiMarkets.length,
       teamStatsLoaded: teamStats ? Object.keys(teamStats).length : 0,
       sampleRecord: convictionPlays[0] ? `${convictionPlays[0].selection}: ${convictionPlays[0].teamRecord}` : "none",
+      sampleEV: evBets[0] ? `${evBets[0].selection} ${evBets[0].edge?.toFixed(1)}% edge` : "none",
     });
   } catch(e) {
     console.error("[Engine] error:", e);
