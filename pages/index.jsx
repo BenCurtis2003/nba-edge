@@ -818,8 +818,9 @@ export default function App() {
             </span>
           </div>
           {propBets.length === 0 ? (
-            <div style={{padding:"40px", textAlign:"center", color:"#3a5570", fontSize:12, background:"#0a1220", borderRadius:12, border:"1px solid #172030"}}>
-              No prop edges found right now. Props are scanned every 8 minutes for pregame lines.
+            <div style={{color:"#3a5570", fontSize:12, padding:"20px 0"}}>
+              No prop edges found right now — engine runs every 8 minutes for pregame lines.
+              <div style={{marginTop:6, fontSize:10}}>Last run: {data?.lastRun ? new Date(data.lastRun).toLocaleTimeString() : "never"}</div>
             </div>
           ) : (
             <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(320px,1fr))", gap:12}}>
