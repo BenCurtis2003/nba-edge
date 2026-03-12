@@ -59,13 +59,12 @@ function StatCard({ label, value, sub, color="#00ff88" }) {
 }
 
 function ConvictionCard({ play, groupExpanded, onExpand }) {
-  const [localExpanded, setLocalExpanded] = useState(false);
-  const expanded = groupExpanded || localExpanded;
+  const expanded = groupExpanded;
   const tierColor = play.tier==="HIGH"?"#00ff88":play.tier==="MEDIUM"?"#ffd700":"#ff9944";
   const isAutoBet = play.convictionScore >= 70;
   return (
     <div style={{...s.convCard, cursor:"pointer", borderColor: isAutoBet?"#00ff8822":"#172030"}}
-      onClick={() => { onExpand(); setLocalExpanded(e=>!e); }}>
+      onClick={() => onExpand()}>
       <div style={{display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:8}}>
         <div style={{display:"flex", gap:6, flexWrap:"wrap"}}>
           <span style={s.badge(tierColor)}>{play.tier}</span>
@@ -179,15 +178,14 @@ function BookOddsTable({ allLines, bestBook, type }) {
 }
 
 function EVBetCard({ bet, groupExpanded, onExpand }) {
-  const [localExpanded, setLocalExpanded] = useState(false);
-  const expanded = groupExpanded || localExpanded;
+  const expanded = groupExpanded;
   const typeColor = bet.type==="Moneyline"?"#00bfff":bet.type==="Spread"?"#ffd700":"#ff69b4";
   const edgeStrength = bet.edge >= 20 ? "STRONG" : bet.edge >= 10 ? "SOLID" : "LEAN";
   const edgeColor = bet.edge >= 20 ? "#00ff88" : bet.edge >= 10 ? "#ffd700" : "#ff9944";
   const kellyWidth = Math.min(100, (bet.kellyPct / 8) * 100);
 
   return (
-    <div onClick={() => { onExpand(); setLocalExpanded(e=>!e); }} style={{
+    <div onClick={() => onExpand()} style={{
       background:"#0a1220", border:`1px solid ${expanded?"#00ff8833":"#172030"}`,
       borderRadius:12, padding:"16px", cursor:"pointer", transition:"border-color 0.2s",
     }}>
@@ -345,8 +343,8 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState("All");
   const [lastFetch, setLastFetch] = useState(null);
-  const [expandedEvGroup, setExpandedEvGroup] = useState(null);   // null | "all"
-  const [expandedConvGroup, setExpandedConvGroup] = useState(null);
+  const [expandedEvRows, setExpandedEvRows] = useState({});    // { rowIndex: bool }
+  const [expandedConvRows, setExpandedConvRows] = useState({}); // { rowIndex: bool }
 
   const fetchPortfolio = useCallback(async () => {
     try {
@@ -477,14 +475,16 @@ export default function App() {
             Picks based on team form, rest, point differential & matchup data.
             Plays ≥70/100 are automatically placed in the portfolio.
           </div>
-          <div style={s.convGrid}>
-            {conviction.slice(0,9).map(p => (
-              <ConvictionCard key={p.id} play={p}
-                groupExpanded={expandedConvGroup === "all"}
-                onExpand={() => setExpandedConvGroup(g => g === "all" ? null : "all")}
-              />
-            ))}
-          </div>
+          {Array.from({length: Math.ceil(conviction.slice(0,9).length / 3)}, (_, rowIdx) => (
+            <div key={rowIdx} style={{...s.convGrid, marginBottom:12}}>
+              {conviction.slice(0,9).slice(rowIdx*3, rowIdx*3+3).map(p => (
+                <ConvictionCard key={p.id} play={p}
+                  groupExpanded={!!expandedConvRows[rowIdx]}
+                  onExpand={() => setExpandedConvRows(r => ({...r, [rowIdx]: !r[rowIdx]}))}
+                />
+              ))}
+            </div>
+          ))}
         </div>
       )}
 
@@ -504,14 +504,16 @@ export default function App() {
                 : "No bets match this filter."}
             </div>
           ) : (
-            <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(320px,1fr))", gap:12}}>
-              {filteredBets.map(bet => (
-                <EVBetCard key={bet.id} bet={bet}
-                  groupExpanded={expandedEvGroup === "all"}
-                  onExpand={() => setExpandedEvGroup(g => g === "all" ? null : "all")}
-                />
-              ))}
-            </div>
+            {Array.from({length: Math.ceil(filteredBets.length / 3)}, (_, rowIdx) => (
+              <div key={rowIdx} style={{display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:12, marginBottom:12}}>
+                {filteredBets.slice(rowIdx*3, rowIdx*3+3).map(bet => (
+                  <EVBetCard key={bet.id} bet={bet}
+                    groupExpanded={!!expandedEvRows[rowIdx]}
+                    onExpand={() => setExpandedEvRows(r => ({...r, [rowIdx]: !r[rowIdx]}))}
+                  />
+                ))}
+              </div>
+            ))}
           )}
         </div>
       )}
