@@ -133,64 +133,67 @@ const BOOK_DISPLAY = {
   kalshi:"Kalshi 🔮",
 };
 
-// Priority order for the 5 major books we always show
-const PRIORITY_BOOKS = ["draftkings","fanduel","betmgm","caesars","betrivers","bovada","pinnacle","betonlineag","betus","mybookieag","pointsbet","lowvig"];
+// The 5 major books always shown (in priority order)
+const TOP_5_BOOKS = ["draftkings","fanduel","betmgm","betrivers","bovada"];
 
 function BookOddsTable({ allLines, bestBook, type }) {
-  if(!allLines || !Object.keys(allLines).length) return null;
-
-  // Always include Kalshi if present; fill remaining 5 slots from priority list
+  if(!allLines) return null;
   const hasKalshi = "kalshi" in allLines;
-  const majorBooks = PRIORITY_BOOKS.filter(bk => bk in allLines).slice(0, 5);
-  const displayBooks = [...majorBooks, ...(hasKalshi ? ["kalshi"] : [])];
-  // If bestBook isn't in the display set, swap out the last major book for it
-  if(bestBook && bestBook !== "kalshi" && !majorBooks.includes(bestBook) && bestBook in allLines) {
-    displayBooks.splice(majorBooks.length - 1, 1, bestBook);
+
+  // Always render all 5 major books — show "—" if a book didn't post this game
+  const slots = TOP_5_BOOKS.map(bk => ({
+    bk,
+    val: allLines[bk] || null,  // null = book didn't post
+    isBest: bk === bestBook,
+  }));
+
+  // Sort: best book first among those that have lines, then books without lines at end
+  const withLines = slots.filter(s => s.val).sort((a,b) => {
+    if(a.isBest) return -1;
+    if(b.isBest) return 1;
+    return (b.val?.odds || -9999) - (a.val?.odds || -9999);
+  });
+  const noLines = slots.filter(s => !s.val);
+  const sorted = [...withLines, ...noLines];
+
+  // Kalshi always appended last if present
+  if(hasKalshi) {
+    sorted.push({ bk:"kalshi", val: allLines["kalshi"], isBest: bestBook==="kalshi" });
   }
 
-  const filtered = Object.fromEntries(displayBooks.map(bk => [bk, allLines[bk]]));
-  const sorted = Object.entries(filtered).sort((a,b) => b[1].odds - a[1].odds);
   return (
     <div style={{marginBottom:14}}>
       <div style={{display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:8}}>
         <div style={{fontSize:9, color:"#3a5570", letterSpacing:"0.08em"}}>TOP SPORTSBOOK LINES</div>
-        {sorted.some(([bk]) => bk === "kalshi") && (
+        {hasKalshi && (
           <span style={{fontSize:8, color:"#00e5ff", padding:"1px 6px", borderRadius:3,
             background:"rgba(0,229,255,0.08)", border:"1px solid rgba(0,229,255,0.2)"}}>
-            🔮 Kalshi prediction market included
+            🔮 Kalshi included
           </span>
         )}
       </div>
-      <div style={{display:"grid", gridTemplateColumns: sorted.length <= 3 ? "1fr 1fr 1fr" : "1fr 1fr", gap:4}}>
-        {sorted.map(([bk, val]) => {
-          const isBest = bk === bestBook;
-          const odds = val.odds;
-          const point = val.point;
-          return (
-            <div key={bk} style={{
-              display:"flex", justifyContent:"space-between", alignItems:"center",
-              padding:"5px 8px", borderRadius:6,
-              background: isBest ? "rgba(0,255,136,0.06)" : bk==="kalshi" ? "rgba(0,229,255,0.04)" : "#060d16",
-              border: `1px solid ${isBest ? "#00ff8833" : bk==="kalshi" ? "rgba(0,229,255,0.15)" : "#0e1a28"}`,
-            }}>
-              <div style={{display:"flex", alignItems:"center", gap:5}}>
-                {isBest && <span style={{fontSize:7, color:"#00ff88", fontWeight:700}}>★</span>}
-                <span style={{fontSize:9, color: isBest ? "#dde3ee" : "#7a90a8"}}>
-                  {BOOK_DISPLAY[bk] || bk}
-                </span>
-              </div>
-              <div style={{display:"flex", gap:6, alignItems:"center"}}>
-                {point != null && <span style={{fontSize:8, color:"#3a5570"}}>{point > 0 ? `+${point}` : point}</span>}
-                <span style={{
-                  fontSize:10, fontWeight:700,
-                  color: odds > 0 ? "#ffd700" : "#00bfff",
-                }}>
-                  {odds > 0 ? `+${odds}` : odds}
-                </span>
-              </div>
+      <div style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap:4}}>
+        {sorted.map(({bk, val, isBest}) => (
+          <div key={bk} style={{
+            display:"flex", justifyContent:"space-between", alignItems:"center",
+            padding:"5px 8px", borderRadius:6, opacity: val ? 1 : 0.35,
+            background: isBest ? "rgba(0,255,136,0.06)" : bk==="kalshi" ? "rgba(0,229,255,0.04)" : "#060d16",
+            border: `1px solid ${isBest ? "#00ff8833" : bk==="kalshi" ? "rgba(0,229,255,0.15)" : "#0e1a28"}`,
+          }}>
+            <div style={{display:"flex", alignItems:"center", gap:5}}>
+              {isBest && <span style={{fontSize:7, color:"#00ff88", fontWeight:700}}>★</span>}
+              <span style={{fontSize:9, color: isBest ? "#dde3ee" : "#7a90a8"}}>
+                {BOOK_DISPLAY[bk] || bk}
+              </span>
             </div>
-          );
-        })}
+            <div style={{display:"flex", gap:6, alignItems:"center"}}>
+              {val?.point != null && <span style={{fontSize:8, color:"#3a5570"}}>{val.point > 0 ? `+${val.point}` : val.point}</span>}
+              <span style={{fontSize:10, fontWeight:700, color: !val ? "#3a5570" : val.odds > 0 ? "#ffd700" : "#00bfff"}}>
+                {!val ? "—" : val.odds > 0 ? `+${val.odds}` : val.odds}
+              </span>
+            </div>
+          </div>
+        ))}
       </div>
     </div>
   );
