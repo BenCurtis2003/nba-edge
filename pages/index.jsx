@@ -385,6 +385,7 @@ function Step({ n, title, desc }) {
 }
 
 function PropCard({ prop }) {
+  const [expanded, setExpanded] = React.useState(false);
   const BOOK_DISPLAY = { draftkings:"DraftKings", fanduel:"FanDuel", betmgm:"BetMGM",
     betrivers:"BetRivers", pinnacle:"Pinnacle", caesars:"Caesars", kalshi:"Kalshi 🔮" };
   const SPORTSBOOK_COLORS = { draftkings:"#00d548", fanduel:"#1493ff", betmgm:"#c9a84c",
@@ -401,66 +402,124 @@ function PropCard({ prop }) {
   }[prop.market] || "📊";
 
   return (
-    <div style={{background:"#0a1220", border:`1px solid ${autoBet?"#b44fff33":"#172030"}`,
+    <div style={{background:"#0a1220", border:`1px solid ${autoBet?"#b44fff55":"#172030"}`,
       borderRadius:12, padding:"14px 16px", position:"relative", overflow:"hidden"}}>
-      {autoBet && <div style={{position:"absolute",top:0,left:0,right:0,height:2,background:"linear-gradient(90deg,#b44fff,#00bfff)"}}/>}
+      {autoBet && <div style={{position:"absolute",top:0,left:0,right:0,height:2,
+        background:"linear-gradient(90deg,#b44fff,#00bfff)"}}/>}
 
       {/* Header */}
       <div style={{display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:8}}>
         <div>
-          <div style={{fontSize:13, fontWeight:700, color:"#fff", marginBottom:2}}>
+          <div style={{fontSize:13, fontWeight:700, color:"#fff", marginBottom:1}}>
             {marketEmoji} {prop.player}
           </div>
           <div style={{fontSize:9, color:"#3a5570"}}>{prop.game}</div>
+          {prop.opponentTeam && <div style={{fontSize:9, color:"#1e3040"}}>vs {prop.opponentTeam}</div>}
         </div>
         <div style={{textAlign:"right"}}>
-          <div style={{fontSize:20, fontWeight:800, color:convColor}}>{prop.convictionScore}<span style={{fontSize:10,color:"#3a5570"}}>/100</span></div>
+          <div style={{fontSize:22, fontWeight:800, color:convColor}}>
+            {prop.convictionScore}<span style={{fontSize:10,color:"#3a5570"}}>/100</span>
+          </div>
           {autoBet && <div style={{fontSize:8, color:"#b44fff", fontWeight:700}}>✓ AUTO-BET</div>}
         </div>
       </div>
 
       {/* Bet line */}
       <div style={{background:"#0e1a28", borderRadius:8, padding:"10px 12px", marginBottom:10}}>
-        <div style={{display:"flex", alignItems:"center", gap:8, marginBottom:4}}>
-          <span style={{fontSize:14, fontWeight:800, color: prop.side==="Over"?"#00ff88":"#ff6b6b"}}>
+        <div style={{display:"flex", alignItems:"center", gap:8, marginBottom:6}}>
+          <span style={{fontSize:15, fontWeight:800, color: prop.side==="Over"?"#00ff88":"#ff6b6b"}}>
             {prop.side} {prop.line}
           </span>
-          <span style={{fontSize:11, color:"#3a5570"}}>{prop.marketLabel}</span>
+          <span style={{fontSize:10, color:"#3a5570"}}>{prop.marketLabel}</span>
+          <span style={{fontSize:10, fontWeight:700, color:edgeColor, marginLeft:"auto"}}>
+            +{(prop.edge*100).toFixed(1)}% edge
+          </span>
         </div>
+
+        {/* Season / L5 context */}
+        {(prop.playerSeasonAvg !== null || prop.playerL5Avg !== null) && (
+          <div style={{display:"flex", gap:12, marginBottom:6}}>
+            {prop.playerSeasonAvg !== null && (
+              <div style={{fontSize:9, color:"#3a5570"}}>
+                Season avg: <span style={{color:"#8899aa",fontWeight:600}}>{prop.playerSeasonAvg.toFixed(1)}</span>
+              </div>
+            )}
+            {prop.playerL5Avg !== null && (
+              <div style={{fontSize:9, color:"#3a5570"}}>
+                L5 avg: <span style={{
+                  color: prop.side==="Over"
+                    ? (prop.playerL5Avg > prop.line ? "#00ff88" : "#ff6b6b")
+                    : (prop.playerL5Avg < prop.line ? "#00ff88" : "#ff6b6b"),
+                  fontWeight:600
+                }}>{prop.playerL5Avg.toFixed(1)}</span>
+              </div>
+            )}
+          </div>
+        )}
+
         <div style={{display:"flex", gap:6, flexWrap:"wrap", alignItems:"center"}}>
-          <span style={{fontSize:11, fontWeight:700, color: prop.bestOdds > 0?"#ffd700":"#00bfff"}}>
+          <span style={{fontSize:12, fontWeight:700, color: prop.bestOdds>0?"#ffd700":"#00bfff"}}>
             {formatOdds(prop.bestOdds)}
           </span>
-          <span style={{fontSize:9, color: SPORTSBOOK_COLORS[prop.bestBook]||"#8899aa",
+          <span style={{fontSize:9, color:SPORTSBOOK_COLORS[prop.bestBook]||"#8899aa",
             background:"#172030", padding:"2px 6px", borderRadius:4}}>
             {BOOK_DISPLAY[prop.bestBook]||prop.bestBook}
-          </span>
-          <span style={{fontSize:9, fontWeight:700, color:edgeColor,
-            background:"#172030", padding:"2px 6px", borderRadius:4}}>
-            +{(prop.edge*100).toFixed(1)}% edge
           </span>
         </div>
       </div>
 
-      {/* All lines */}
-      {prop.allLines && Object.keys(prop.allLines).length > 1 && (
+      {/* Signal bars */}
+      {prop.signals?.length > 0 && (
         <div style={{marginBottom:10}}>
-          <div style={{fontSize:8, color:"#3a5570", marginBottom:4, letterSpacing:"0.06em", textTransform:"uppercase"}}>All Lines</div>
-          <div style={{display:"flex", gap:6, flexWrap:"wrap"}}>
-            {Object.entries(prop.allLines).map(([bk, val]) => (
-              <div key={bk} style={{fontSize:9, color: bk===prop.bestBook?"#fff":"#3a5570",
-                background: bk===prop.bestBook?"#172030":"transparent",
-                border:"1px solid #172030", borderRadius:4, padding:"2px 6px"}}>
-                <span style={{color:SPORTSBOOK_COLORS[bk]||"#3a5570", marginRight:3}}>{BOOK_DISPLAY[bk]||bk}</span>
-                <span style={{fontWeight:700}}>{formatOdds(val.odds)}</span>
-              </div>
-            ))}
+          <div style={{fontSize:8,color:"#3a5570",letterSpacing:"0.06em",textTransform:"uppercase",marginBottom:6}}>
+            SIGNAL BREAKDOWN
           </div>
+          {prop.signals.map(sig => (
+            <div key={sig.key} style={{display:"flex", alignItems:"center", gap:8, marginBottom:4}}>
+              <div style={{fontSize:9, color:"#3a5570", width:90, flexShrink:0}}>{sig.label}</div>
+              <div style={{flex:1, height:4, background:"#0e1a28", borderRadius:2, overflow:"hidden"}}>
+                <div style={{
+                  height:"100%", borderRadius:2,
+                  width:`${sig.score}%`,
+                  background: sig.score>=70?"#00ff88":sig.score>=50?"#ffd700":"#ff6b6b",
+                  transition:"width 0.5s ease"
+                }}/>
+              </div>
+              <div style={{fontSize:9, color:"#8899aa", width:30, textAlign:"right"}}>{Math.round(sig.score)}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* All lines toggle */}
+      {prop.allLines && Object.keys(prop.allLines).length > 1 && (
+        <div>
+          <button onClick={() => setExpanded(e => !e)} style={{
+            background:"transparent", border:"none", color:"#3a5570", cursor:"pointer",
+            fontSize:9, padding:"0 0 6px", letterSpacing:"0.04em"
+          }}>
+            {expanded ? "▲ Hide lines" : `▼ All lines (${Object.keys(prop.allLines).length} books)`}
+          </button>
+          {expanded && (
+            <div style={{display:"flex", gap:6, flexWrap:"wrap", marginBottom:6}}>
+              {Object.entries(prop.allLines).map(([bk, val]) => (
+                <div key={bk} style={{fontSize:9,
+                  color: bk===prop.bestBook?"#fff":"#3a5570",
+                  background: bk===prop.bestBook?"#172030":"transparent",
+                  border:"1px solid #172030", borderRadius:4, padding:"2px 7px"}}>
+                  <span style={{color:SPORTSBOOK_COLORS[bk]||"#3a5570", marginRight:3}}>
+                    {BOOK_DISPLAY[bk]||bk}
+                  </span>
+                  <span style={{fontWeight:700}}>{formatOdds(val.odds)}</span>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
       {/* Footer */}
-      <div style={{display:"flex", justifyContent:"space-between", fontSize:9, color:"#3a5570"}}>
+      <div style={{display:"flex", justifyContent:"space-between", fontSize:9, color:"#3a5570", borderTop:"1px solid #0e1a28", paddingTop:8, marginTop:4}}>
         <span>True prob: <span style={{color:"#8899aa"}}>{prop.trueProb?.toFixed(1)}%</span></span>
         <span>Kelly: <span style={{color:"#b44fff"}}>{prop.kellyPct?.toFixed(1)}%</span></span>
         <span>EV: <span style={{color:"#00ff88"}}>+{prop.ev?.toFixed(1)}%</span></span>
@@ -716,9 +775,13 @@ export default function App() {
       {(tab==="All"||tab==="Moneyline"||tab==="Spread"||tab==="Game Total") && (
         <div style={s.section}>
           <div style={s.sectionTitle}>
-            📊 {tab==="All"?"Today's EV Bets":tab}
-            <span style={{fontSize:9, color:"#3a5570", fontWeight:400}}>
-              {filteredBets.length} bets · updated {timeAgo(data?.lastRun)}
+            ⚡ {tab==="All"?"All +EV Bets":`${tab} +EV Bets`}
+            <span style={{fontSize:9, padding:"2px 8px", borderRadius:10,
+              border:"1px solid #00ff8833", color:"#00ff88", fontWeight:400}}>
+              +EV · Odds API · {filteredBets.length} bets
+            </span>
+            <span style={{fontSize:9, color:"#3a5570", fontWeight:400, marginLeft:4}}>
+              updated {timeAgo(data?.lastRun)}
             </span>
           </div>
           {filteredBets.length === 0 ? (

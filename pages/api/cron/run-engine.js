@@ -1,5 +1,5 @@
 import { fetchLiveOdds, extractEVBets, buildConvictionPlays, placeBets, fetchAndCacheTeamStats, fetchScores, resolveHistory } from "../../../lib/engine";
-import { fetchPlayerProps, extractPropEV, placePropBets, resolveProps } from "../../../lib/props";
+import { fetchPlayerProps, extractPropEV, placePropBets, resolveProps, fetchPlayerStats, fetchTeamDefenseStats } from "../../../lib/props";
 import { getHistory, getBankroll, getMLModel, getCachedStandings, saveCurrentBets, saveConvictionPlays, saveLastRun, appendHistory, saveStandings, saveHistory, saveBankroll, updateMLAfterResolution, getPropBets, savePropBets } from "../../../lib/store";
 
 export default async function handler(req, res) {
@@ -36,10 +36,13 @@ export default async function handler(req, res) {
     // 3. Extract EV bets
     const evBets = games ? extractEVBets(games) : [];
 
-    // Fetch + extract player props (pregame only, quota-aware)
+    // Fetch + extract player props with full conviction engine
     const propGames = games ? await fetchPlayerProps(ODDS_KEY, games) : [];
-    const evProps = extractPropEV(propGames);
-    console.log(`[Props] ${evProps.length} EV props found across ${propGames.length} games`);
+    const [playerStats, defenseStats] = propGames.length > 0
+      ? await Promise.all([fetchPlayerStats(), fetchTeamDefenseStats()])
+      : [{}, {}];
+    const evProps = extractPropEV(propGames, playerStats, defenseStats);
+    console.log(`[Props] ${evProps.length} EV props, ${Object.keys(playerStats).length} players loaded`);
     console.log(`[Engine] ${evBets.length} EV bets`);
 
     // 4. ESPN game list for conviction engine
