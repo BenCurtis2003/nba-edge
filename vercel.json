@@ -1,1 +1,9 @@
-{ "framework": "nextjs" }
+{
+  "framework": "nextjs",
+  "crons": [
+    {
+      "path": "/api/cron/run-engine",
+      "schedule": "0,10,20,30,40,50 * * * *"
+    }
+  ]
+}

@@ -701,7 +701,7 @@ export default function App() {
               Updated {timeAgo(data?.lastRun)}
             </span>
           </div>
-          <span style={s.pill}>Auto-runs every 8 min</span>
+          <span style={s.pill}>Auto-runs every 10 min</span>
           <span style={s.pillGreen}>Live Track Record</span>
         </div>
       </div>
@@ -789,7 +789,7 @@ export default function App() {
               {currentBets.length===0
                 ? (data?.hasUpcomingGames === false
                     ? "All of tonight\'s games are underway. New lines open ~9 AM ET — check back tomorrow for fresh EV bets."
-                    : "Engine runs every 8 minutes. Check back soon for today\'s EV bets.")
+                    : "Engine runs every 10 minutes. Check back soon for today\'s EV bets.")
                 : "No bets match this filter."}
             </div>
           ) : (
@@ -827,7 +827,7 @@ export default function App() {
               </div>
               {convictionProps.length === 0 ? (
                 <div style={{color:"#3a5570", fontSize:12, padding:"20px 0"}}>
-                  No props with conviction ≥70 right now — engine runs every 8 minutes.
+                  No props with conviction ≥70 right now — engine runs every 10 minutes.
                   <div style={{marginTop:6, fontSize:10}}>Last run: {data?.lastRun ? new Date(data.lastRun).toLocaleTimeString() : "never"}</div>
                 </div>
               ) : (
@@ -849,7 +849,7 @@ export default function App() {
                   {propBets.length === 0
                     ? (data?.hasUpcomingGames === false
                         ? "All of tonight\'s games are underway. Prop lines open ~9 AM ET tomorrow."
-                        : "No prop edges found right now — engine runs every 8 minutes for pregame lines.")
+                        : "No prop edges found right now — engine runs every 10 minutes for pregame lines.")
                     : "All props with edge met conviction threshold above."}
                 </div>
               ) : (
@@ -914,7 +914,7 @@ export default function App() {
           <div style={s.histCard}>
             {history.length === 0 ? (
               <div style={{padding:"40px", textAlign:"center", color:"#3a5570", fontSize:12}}>
-                No bets recorded yet. The engine runs every 8 minutes automatically.
+                No bets recorded yet. The engine runs every 10 minutes automatically.
               </div>
             ) : (
               [...history].reverse().map(h => <HistoryRow key={h.id} h={h}/>)

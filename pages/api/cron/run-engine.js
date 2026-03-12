@@ -2,6 +2,9 @@ import { fetchLiveOdds, extractEVBets, buildConvictionPlays, placeBets, fetchAnd
 import { fetchPlayerProps, extractPropEV, placePropBets, resolveProps, fetchPlayerStats, fetchTeamDefenseStats } from "../../../lib/props";
 import { getHistory, getBankroll, getMLModel, getCachedStandings, saveCurrentBets, saveConvictionPlays, saveLastRun, appendHistory, saveStandings, saveHistory, saveBankroll, updateMLAfterResolution, getPropBets, savePropBets } from "../../../lib/store";
 
+export const config = { maxDuration: 60 };
+
+
 export default async function handler(req, res) {
   if(process.env.NODE_ENV === "production" && req.headers.authorization !== `Bearer ${process.env.CRON_SECRET}`)
     return res.status(401).json({ error: "Unauthorized" });
