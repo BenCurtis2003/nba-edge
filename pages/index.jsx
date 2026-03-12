@@ -8,7 +8,8 @@ import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceL
 
 const SPORTSBOOK_COLORS = {
   draftkings:"#53d337", fanduel:"#1493ff", betmgm:"#d4af37",
-  caesars:"#00a4e4", pointsbet:"#e8192c", betrivers:"#003087"
+  caesars:"#00a4e4", pointsbet:"#e8192c", betrivers:"#003087",
+  kalshi:"#00e5ff",
 };
 
 function fmt$(n) { return n == null ? "—" : `$${Math.abs(n).toFixed(2)}`; }
@@ -129,6 +130,7 @@ const BOOK_DISPLAY = {
   caesars:"Caesars", pointsbet:"PointsBet", betrivers:"BetRivers",
   lowvig:"LowVig", betonlineag:"BetOnline", bovada:"Bovada",
   mybookieag:"MyBookie", betus:"BetUS", pinnacle:"Pinnacle",
+  kalshi:"Kalshi 🔮",
 };
 
 function BookOddsTable({ allLines, bestBook, type }) {
@@ -139,8 +141,14 @@ function BookOddsTable({ allLines, bestBook, type }) {
   });
   return (
     <div style={{marginBottom:14}}>
-      <div style={{fontSize:9, color:"#3a5570", letterSpacing:"0.08em", marginBottom:8}}>
-        ALL SPORTSBOOK LINES
+      <div style={{display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:8}}>
+        <div style={{fontSize:9, color:"#3a5570", letterSpacing:"0.08em"}}>ALL SPORTSBOOK LINES</div>
+        {sorted.some(([bk]) => bk === "kalshi") && (
+          <span style={{fontSize:8, color:"#00e5ff", padding:"1px 6px", borderRadius:3,
+            background:"rgba(0,229,255,0.08)", border:"1px solid rgba(0,229,255,0.2)"}}>
+            🔮 Kalshi prediction market included
+          </span>
+        )}
       </div>
       <div style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap:4}}>
         {sorted.map(([bk, val]) => {
@@ -151,8 +159,8 @@ function BookOddsTable({ allLines, bestBook, type }) {
             <div key={bk} style={{
               display:"flex", justifyContent:"space-between", alignItems:"center",
               padding:"5px 8px", borderRadius:6,
-              background: isBest ? "rgba(0,255,136,0.06)" : "#060d16",
-              border: `1px solid ${isBest ? "#00ff8833" : "#0e1a28"}`,
+              background: isBest ? "rgba(0,255,136,0.06)" : bk==="kalshi" ? "rgba(0,229,255,0.04)" : "#060d16",
+              border: `1px solid ${isBest ? "#00ff8833" : bk==="kalshi" ? "rgba(0,229,255,0.15)" : "#0e1a28"}`,
             }}>
               <div style={{display:"flex", alignItems:"center", gap:5}}>
                 {isBest && <span style={{fontSize:7, color:"#00ff88", fontWeight:700}}>★</span>}

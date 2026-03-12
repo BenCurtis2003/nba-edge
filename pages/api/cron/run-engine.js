@@ -1,6 +1,5 @@
-import { fetchLiveOdds, extractEVBets, buildConvictionPlays, placeBets, fetchAndCacheTeamStats } from "../../../lib/engine";
+import { fetchLiveOdds, extractEVBets, buildConvictionPlays, placeBets, fetchAndCacheTeamStats, fetchKalshiOdds, mergeKalshiIntoGames } from "../../../lib/engine";
 import { getHistory, getBankroll, getMLModel, getCachedStandings, saveCurrentBets, saveConvictionPlays, saveLastRun, appendHistory, saveStandings } from "../../../lib/store";
-import { kv } from "@vercel/kv";
 
 export default async function handler(req, res) {
   if(process.env.NODE_ENV === "production" && req.headers.authorization !== `Bearer ${process.env.CRON_SECRET}`)
@@ -10,11 +9,16 @@ export default async function handler(req, res) {
   const start = Date.now();
 
   try {
-    // 1. Fetch odds + cached standings in parallel
-    const [games, cachedStats] = await Promise.all([
+    // 1. Fetch odds + cached standings + Kalshi in parallel
+    const [rawGames, cachedStats, kalshiMarkets] = await Promise.all([
       ODDS_KEY ? fetchLiveOdds(ODDS_KEY) : Promise.resolve(null),
       getCachedStandings(),
+      fetchKalshiOdds(),
     ]);
+
+    // Merge Kalshi odds into games as a synthetic sportsbook
+    const games = rawGames ? mergeKalshiIntoGames(rawGames, kalshiMarkets) : null;
+    console.log(`[Engine] Kalshi: ${kalshiMarkets.length} markets merged into ${games?.length || 0} games`);
 
     // 2. Get team stats — use KV cache only if it has real data (wins > 0 for most teams)
     let teamStats = null;
@@ -63,20 +67,12 @@ export default async function handler(req, res) {
     const [history, bankroll] = await Promise.all([getHistory(), getBankroll()]);
     const { newEntries } = placeBets(evBets, convictionPlays, bankroll, history);
 
-    // 8. Save everything (including debug metadata)
-    const debugMeta = {
-      gamesFromAPI: (games||[]).length,
-      espnGames: espnGames.length,
-      evBetsFound: evBets.length,
-      convictionFound: convictionPlays.length,
-      teamStatsLoaded: teamStats ? Object.keys(teamStats).length : 0,
-    };
+    // 8. Save everything
     await Promise.all([
       saveCurrentBets(evBets),
       saveConvictionPlays(convictionPlays),
       newEntries.length > 0 ? appendHistory(newEntries) : Promise.resolve(),
       saveLastRun(new Date().toISOString()),
-      kv.set("nba_edge:last_debug", debugMeta, { ex: 86400 }),
     ]);
 
     return res.status(200).json({
@@ -84,9 +80,8 @@ export default async function handler(req, res) {
       evBets: evBets.length, convictionPlays: convictionPlays.length,
       newBetsPlaced: newEntries.length, bankroll,
       usingMLWeights: !!mlWeights,
-      ...debugMeta,
+      teamStatsLoaded: teamStats ? Object.keys(teamStats).length : 0,
       sampleRecord: convictionPlays[0] ? `${convictionPlays[0].selection}: ${convictionPlays[0].teamRecord}` : "none",
-      sampleEV: evBets[0] ? `${evBets[0].selection} ${evBets[0].edge}% edge` : "none",
     });
   } catch(e) {
     console.error("[Engine] error:", e);
