@@ -298,10 +298,15 @@ function HistoryRow({ h }) {
           <div style={{fontSize:9, color:"#3a5570", marginBottom:4}}>{h.game}</div>
           <div style={{display:"flex", gap:5, flexWrap:"wrap", alignItems:"center"}}>
             {!h.isConviction&&<span style={{...s.badge("#00ff88")}}>⚡ +EV</span>}
-            <span style={{...s.badge(h.isConviction?"#b44fff":h.type==="Moneyline"?"#00bfff":h.type==="Spread"?"#ffd700":"#ff69b4")}}>
-              {h.isConviction?"🎯 Conviction":h.type}
-            </span>
-            {h.isConviction&&(h.betType||h.type)&&<span style={{...s.badge("transparent"),border:"1px solid #1e3040",color:"#8899aa",fontSize:8}}>{(h.betType||h.type)==="Moneyline"?"💰 Moneyline":(h.betType||h.type)==="Spread"?"📊 Spread":(h.betType||h.type)==="Game Total"?"🏀 Game Total":(h.betType||h.type)}</span>}
+            {(() => {
+              const btype = h.betType || h.type || "";
+              const typeLabel = btype==="Moneyline"?"💰 Moneyline":btype==="Spread"?"📊 Spread":btype==="Game Total"?"🏀 Game Total":btype;
+              const typeColor = btype==="Moneyline"?"#00bfff":btype==="Spread"?"#ffd700":"#ff69b4";
+              return (<>
+                {h.isConviction&&<span style={{...s.badge("#b44fff")}}>🎯 Conviction</span>}
+                {typeLabel&&<span style={{...s.badge("transparent"),border:`1px solid ${typeColor}`,color:typeColor,fontWeight:600}}>{typeLabel}</span>}
+              </>);
+            })()}
             {h.bestOdds&&<span style={{...s.badge("transparent"),border:`1px solid ${h.bestOdds<0?"#00bfff":"#ffd700"}`,color:h.bestOdds<0?"#00bfff":"#ffd700",fontWeight:700}}>{formatOdds(h.bestOdds)}</span>}
             {h.bestBook&&<span style={{...s.badge("transparent"),border:"1px solid #1e3040",color:SPORTSBOOK_COLORS[h.bestBook]||"#8899aa"}}>{BOOK_DISPLAY[h.bestBook]||h.bestBook}</span>}
             {h.edge>0&&!h.isConviction&&<span style={{...s.badge("#00ff88")}}>+{h.edge?.toFixed(1)}% edge</span>}
