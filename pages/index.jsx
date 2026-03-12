@@ -462,7 +462,7 @@ export default function App() {
       </div>
 
       {/* Conviction Plays */}
-      {(tab==="All"||tab==="Conviction") && conviction.length > 0 && (
+      {(tab==="All"||tab==="Conviction") && (
         <div style={s.section}>
           <div style={s.sectionTitle}>
             🎯 Conviction Plays
@@ -475,7 +475,14 @@ export default function App() {
             Picks based on team form, rest, point differential & matchup data.
             Plays ≥70/100 are automatically placed in the portfolio.
           </div>
-          {Array.from({length: Math.ceil(conviction.slice(0,9).length / 3)}, (_, rowIdx) => (
+          {conviction.length === 0 ? (
+            <div style={{color:"#3a5570", fontSize:12, padding:"20px 0"}}>
+              No conviction plays yet — engine hasn't run or no games today.
+              <div style={{marginTop:6, fontSize:10}}>
+                Last run: {data?.lastRun ? new Date(data.lastRun).toLocaleTimeString() : "never"}
+              </div>
+            </div>
+          ) : Array.from({length: Math.ceil(conviction.slice(0,9).length / 3)}, (_, rowIdx) => (
             <div key={rowIdx} style={{...s.convGrid, marginBottom:12}}>
               {conviction.slice(0,9).slice(rowIdx*3, rowIdx*3+3).map(p => (
                 <ConvictionCard key={p.id} play={p}
@@ -500,11 +507,11 @@ export default function App() {
           {filteredBets.length === 0 ? (
             <div style={{color:"#3a5570", fontSize:12, padding:"20px 0"}}>
               {currentBets.length===0
-                ? "Engine runs every 8 minutes. Check back soon for today's EV bets."
+                ? `Engine runs every 8 min · Last run: ${data?.lastRun ? new Date(data.lastRun).toLocaleTimeString() : 'never'}`
                 : "No bets match this filter."}
             </div>
           ) : (
-            {Array.from({length: Math.ceil(filteredBets.length / 3)}, (_, rowIdx) => (
+            Array.from({length: Math.ceil(filteredBets.length / 3)}, (_, rowIdx) => (
               <div key={rowIdx} style={{display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:12, marginBottom:12}}>
                 {filteredBets.slice(rowIdx*3, rowIdx*3+3).map(bet => (
                   <EVBetCard key={bet.id} bet={bet}
@@ -513,7 +520,7 @@ export default function App() {
                   />
                 ))}
               </div>
-            ))}
+            ))
           )}
         </div>
       )}
