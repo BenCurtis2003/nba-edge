@@ -134,32 +134,17 @@ const BOOK_DISPLAY = {
 };
 
 // The 5 major books always shown on every card (in priority order)
-const TOP_5_BOOKS = ["draftkings","fanduel","betmgm","betrivers","pinnacle"];
+const TOP_5_BOOKS = ["draftkings","fanduel","betmgm","caesars","pinnacle"];
 
 function BookOddsTable({ allLines, bestBook, type }) {
   if(!allLines) return null;
   const hasKalshi = "kalshi" in allLines;
 
-  // Always render all 5 major books — show "—" if a book didn't post this game
-  const slots = TOP_5_BOOKS.map(bk => ({
-    bk,
-    val: allLines[bk] || null,  // null = book didn't post
-    isBest: bk === bestBook,
-  }));
-
-  // Sort: best book first among those that have lines, then books without lines at end
-  const withLines = slots.filter(s => s.val).sort((a,b) => {
-    if(a.isBest) return -1;
-    if(b.isBest) return 1;
-    return (b.val?.odds || -9999) - (a.val?.odds || -9999);
-  });
-  const noLines = slots.filter(s => !s.val);
-  const sorted = [...withLines, ...noLines];
-
-  // Kalshi always appended last if present
-  if(hasKalshi) {
-    sorted.push({ bk:"kalshi", val: allLines["kalshi"], isBest: bestBook==="kalshi" });
-  }
+  // Fixed display order: DraftKings, FanDuel, BetMGM, Caesars, Pinnacle, Kalshi
+  const slots = [
+    ...TOP_5_BOOKS.map(bk => ({ bk, val: allLines[bk] || null, isBest: bk === bestBook })),
+    ...(hasKalshi ? [{ bk:"kalshi", val: allLines["kalshi"], isBest: bestBook==="kalshi" }] : []),
+  ];
 
   return (
     <div style={{marginBottom:14}}>
@@ -173,7 +158,7 @@ function BookOddsTable({ allLines, bestBook, type }) {
         )}
       </div>
       <div style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap:4}}>
-        {sorted.map(({bk, val, isBest}) => (
+        {slots.map(({bk, val, isBest}) => (
           <div key={bk} style={{
             display:"flex", justifyContent:"space-between", alignItems:"center",
             padding:"5px 8px", borderRadius:6, opacity: val ? 1 : 0.35,
@@ -198,6 +183,7 @@ function BookOddsTable({ allLines, bestBook, type }) {
     </div>
   );
 }
+
 
 function EVBetCard({ bet, groupExpanded, onExpand }) {
   const expanded = groupExpanded;
