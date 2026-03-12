@@ -338,6 +338,131 @@ function HistoryRow({ h }) {
   );
 }
 
+
+function InfoSection({ title, children }) {
+  return (
+    <div style={{background:"#0a1220", border:"1px solid #172030", borderRadius:12, padding:"24px 28px", marginBottom:20}}>
+      <div style={{fontSize:13, fontWeight:700, color:"#fff", marginBottom:16, letterSpacing:"0.05em"}}>{title}</div>
+      {children}
+    </div>
+  );
+}
+
+function InfoRow({ label, value, color="#dde3ee" }) {
+  return (
+    <div style={{display:"flex", justifyContent:"space-between", alignItems:"flex-start",
+      padding:"10px 0", borderBottom:"1px solid #0e1a28"}}>
+      <span style={{fontSize:11, color:"#7a90a8", flexShrink:0, width:160}}>{label}</span>
+      <span style={{fontSize:11, color, textAlign:"right", lineHeight:1.5}}>{value}</span>
+    </div>
+  );
+}
+
+function Step({ n, title, desc }) {
+  return (
+    <div style={{display:"flex", gap:16, padding:"14px 0", borderBottom:"1px solid #0e1a28"}}>
+      <div style={{width:28, height:28, borderRadius:"50%", background:"rgba(0,255,136,0.1)",
+        border:"1px solid #00ff8833", display:"flex", alignItems:"center", justifyContent:"center",
+        flexShrink:0, fontSize:11, fontWeight:700, color:"#00ff88"}}>{n}</div>
+      <div>
+        <div style={{fontSize:12, fontWeight:700, color:"#fff", marginBottom:4}}>{title}</div>
+        <div style={{fontSize:11, color:"#7a90a8", lineHeight:1.6}}>{desc}</div>
+      </div>
+    </div>
+  );
+}
+
+function InfoTab() {
+  return (
+    <div style={{padding:"0 32px"}}>
+
+      <InfoSection title="🏀 What is NBA Edge?">
+        <p style={{fontSize:12, color:"#7a90a8", lineHeight:1.8, marginBottom:12}}>
+          NBA Edge is a fully automated betting analysis tool. Every 8 minutes, it scans odds from
+          10+ sportsbooks, runs math to find bets where the true probability of winning is higher
+          than what the sportsbook is offering — these are called <span style={{color:"#00ff88", fontWeight:700}}>+EV bets</span> (positive expected value).
+        </p>
+        <p style={{fontSize:12, color:"#7a90a8", lineHeight:1.8}}>
+          It also scores every team matchup on a 0–100 scale using stats like win rate, recent form,
+          and home/away record — these are called <span style={{color:"#ffd700", fontWeight:700}}>Conviction Plays</span>.
+          All bets are tracked on a $100 paper bankroll so you can see the real performance over time.
+        </p>
+      </InfoSection>
+
+      <InfoSection title="📊 How to Read EV Bets">
+        <p style={{fontSize:11, color:"#3a5570", marginBottom:14, lineHeight:1.6}}>
+          EV bets appear on the All, Moneyline, Spread, and Game Total tabs. Each card shows you where the math says there is an edge.
+        </p>
+        <InfoRow label="Edge %" value="How much better your true odds are vs. what the book offers. +5% means you have a 5% mathematical advantage. Higher = better." color="#00ff88"/>
+        <InfoRow label="EV %" value="Expected Value — the average profit per $100 bet over thousands of bets. +10% EV means you'd profit $10 per $100 bet long-term." color="#00ff88"/>
+        <InfoRow label="Kelly %" value="How much of your bankroll to bet, calculated by the Kelly Criterion formula. A 3% Kelly on a $1,000 bankroll = bet $30." color="#b44fff"/>
+        <InfoRow label="True Prob" value="Our calculated probability of this team winning, after removing the sportsbook's built-in profit margin (the 'vig')." color="#00bfff"/>
+        <InfoRow label="Book Implied" value="The probability the sportsbook is pricing in. If True Prob > Book Implied, there's an edge." color="#ff6b6b"/>
+        <InfoRow label="STRONG / SOLID / LEAN" value="Edge strength labels. STRONG = 20%+ edge. SOLID = 10–20%. LEAN = under 10%. Focus on STRONG and SOLID." color="#ffd700"/>
+        <div style={{marginTop:16, padding:"12px 16px", background:"rgba(0,255,136,0.04)",
+          border:"1px solid #00ff8822", borderRadius:8}}>
+          <div style={{fontSize:10, color:"#00ff88", fontWeight:700, marginBottom:6}}>QUICK EXAMPLE</div>
+          <div style={{fontSize:11, color:"#7a90a8", lineHeight:1.7}}>
+            Lakers ML +140 on FanDuel. Our model says Lakers have a 45% true chance of winning.
+            At +140, you need only 41.7% to break even. 45% {">"} 41.7% = <span style={{color:"#00ff88"}}>+3.3% edge</span>.
+            That's an EV bet — bet it consistently and you profit long-term.
+          </div>
+        </div>
+      </InfoSection>
+
+      <InfoSection title="🎯 How to Read Conviction Plays">
+        <p style={{fontSize:11, color:"#3a5570", marginBottom:14, lineHeight:1.6}}>
+          Conviction Plays score every team in every game from 0–100 using 7 statistical signals.
+          They appear on the Conviction tab and at the top of All.
+        </p>
+        <InfoRow label="Score 75–100 (HIGH)" value="Strong statistical edge. These are auto-bet at 2% of bankroll." color="#00ff88"/>
+        <InfoRow label="Score 58–74 (MEDIUM)" value="Moderate edge. Worth watching — consider betting smaller." color="#ffd700"/>
+        <InfoRow label="Score 0–57 (WATCHLIST)" value="Weak edge or a close matchup. Informational only." color="#ff9944"/>
+        <div style={{marginTop:16, marginBottom:4, fontSize:10, color:"#3a5570", letterSpacing:"0.08em"}}>THE 7 SIGNALS</div>
+        <InfoRow label="Season Win Rate" value="How often the team wins this season. A 60% win rate team scores higher than a 40% team."/>
+        <InfoRow label="Record vs Opponent" value="How much better this team's record is compared to tonight's opponent."/>
+        <InfoRow label="Recent Form (L10)" value="Win rate over the last 10 games. Hot teams score higher."/>
+        <InfoRow label="ATS Tendency" value="How the team performs relative to the spread — useful for judging if the market is mispricing them."/>
+        <InfoRow label="Home/Away Record" value="Teams play differently at home vs. on the road. This uses the correct split."/>
+        <InfoRow label="Opponent Form (L10)" value="How bad the opponent has been recently. A weak opponent = higher score for your team."/>
+        <InfoRow label="Market Implied Prob" value="What the sportsbooks collectively think. If books agree with our model, conviction is higher."/>
+      </InfoSection>
+
+      <InfoSection title="📋 How to Actually Place a Bet">
+        <Step n="1" title="Find a bet on the All or EV Bets tab"
+          desc="Look for STRONG or SOLID edge bets. Click the card to expand and see all sportsbook lines."/>
+        <Step n="2" title="Check the best sportsbook (★ star)"
+          desc="The card shows which book has the best odds. Open that sportsbook app — DraftKings, FanDuel, BetMGM, etc."/>
+        <Step n="3" title="Look up the same game and bet type"
+          desc="Find the same team, same bet type (Moneyline, Spread, or Total), and confirm the odds match."/>
+        <Step n="4" title="Decide how much to bet using Kelly %"
+          desc="Kelly % tells you what fraction of your bankroll to risk. Start conservative — use half the Kelly recommendation until you're comfortable."/>
+        <Step n="5" title="Place the bet and track it"
+          desc="NBA Edge tracks results automatically. Over time, +EV bets produce profit even if individual bets lose. The edge only works at volume."/>
+      </InfoSection>
+
+      <InfoSection title="📖 Glossary">
+        <InfoRow label="Moneyline (ML)" value="Bet on which team wins outright. No spread involved. -150 means bet $150 to win $100. +130 means bet $100 to win $130."/>
+        <InfoRow label="Spread" value="Betting on the margin of victory. -5.5 means a team must win by 6+. +5.5 means they can lose by up to 5 and still cover."/>
+        <InfoRow label="Game Total (O/U)" value="Betting on the combined score of both teams. Over 220.5 means you need both teams to score 221+ combined."/>
+        <InfoRow label="Vig / Juice" value="The sportsbook's built-in profit margin. Standard is -110 on both sides of a bet (pay $110 to win $100). It's how books make money."/>
+        <InfoRow label="Devigging" value="Removing the vig to find the 'true' probability. If both sides are -110, the true probability of each is 50%."/>
+        <InfoRow label="Kelly Criterion" value="A formula that tells you the mathematically optimal bet size based on your edge. Avoids over-betting (ruin) and under-betting (missed profit)."/>
+        <InfoRow label="Expected Value (EV)" value="The average outcome of a bet over infinite repetitions. +EV bets profit long-term even if any single bet loses."/>
+        <InfoRow label="Pinnacle" value="A sharp, low-vig sportsbook used as the 'market reference' for true probabilities. Their lines are the most accurate in the world."/>
+        <InfoRow label="Paper Bankroll" value="A simulated $100 bankroll used to track performance without real money. Shows whether the system works before you risk anything."/>
+        <InfoRow label="ROI" value="Return on Investment — total profit divided by total amount wagered. A +8% ROI means you profit $8 for every $100 bet."/>
+      </InfoSection>
+
+      <div style={{padding:"0 4px 8px", fontSize:10, color:"#1e3040", lineHeight:1.8, textAlign:"center"}}>
+        NBA Edge is a research and analytics tool. Past performance does not guarantee future results.
+        Bet responsibly and within your means.
+      </div>
+
+    </div>
+  );
+}
+
 export default function App() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -366,7 +491,7 @@ export default function App() {
     return () => clearInterval(interval);
   }, [fetchPortfolio]);
 
-  const tabs = ["All","Moneyline","Spread","Game Total","Conviction","History"];
+  const tabs = ["All","Moneyline","Spread","Game Total","Conviction","History","Info"];
 
   // Chart data
   const chartData = (() => {
@@ -478,9 +603,7 @@ export default function App() {
           {conviction.length === 0 ? (
             <div style={{color:"#3a5570", fontSize:12, padding:"20px 0"}}>
               No conviction plays yet — engine hasn't run or no games today.
-              <div style={{marginTop:6, fontSize:10}}>
-                Last run: {data?.lastRun ? new Date(data.lastRun).toLocaleTimeString() : "never"}
-              </div>
+              <div style={{marginTop:6, fontSize:10}}>Last run: {data?.lastRun ? new Date(data.lastRun).toLocaleTimeString() : "never"}</div>
             </div>
           ) : Array.from({length: Math.ceil(conviction.slice(0,9).length / 3)}, (_, rowIdx) => (
             <div key={rowIdx} style={{...s.convGrid, marginBottom:12}}>
@@ -507,7 +630,7 @@ export default function App() {
           {filteredBets.length === 0 ? (
             <div style={{color:"#3a5570", fontSize:12, padding:"20px 0"}}>
               {currentBets.length===0
-                ? `Engine runs every 8 min · Last run: ${data?.lastRun ? new Date(data.lastRun).toLocaleTimeString() : 'never'}`
+                ? "Engine runs every 8 minutes. Check back soon for today's EV bets."
                 : "No bets match this filter."}
             </div>
           ) : (
@@ -526,6 +649,8 @@ export default function App() {
       )}
 
       {/* History */}
+      {tab==="Info" && <InfoTab />}
+
       {tab==="History" && (
         <div style={s.section}>
           {/* Portfolio Chart */}
