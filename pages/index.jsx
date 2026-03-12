@@ -133,12 +133,23 @@ const BOOK_DISPLAY = {
   kalshi:"Kalshi 🔮",
 };
 
+// Priority order for the 5 major books we always show
+const PRIORITY_BOOKS = ["draftkings","fanduel","betmgm","caesars","betrivers","bovada","pinnacle","betonlineag","betus","mybookieag","pointsbet","lowvig"];
+
 function BookOddsTable({ allLines, bestBook, type }) {
   if(!allLines || !Object.keys(allLines).length) return null;
-  const sorted = Object.entries(allLines).sort((a,b) => {
-    const ao = a[1].odds, bo = b[1].odds;
-    return bo - ao; // best odds first
-  });
+
+  // Always include Kalshi if present; fill remaining 5 slots from priority list
+  const hasKalshi = "kalshi" in allLines;
+  const majorBooks = PRIORITY_BOOKS.filter(bk => bk in allLines).slice(0, 5);
+  const displayBooks = [...majorBooks, ...(hasKalshi ? ["kalshi"] : [])];
+  // If bestBook isn't in the display set, swap out the last major book for it
+  if(bestBook && bestBook !== "kalshi" && !majorBooks.includes(bestBook) && bestBook in allLines) {
+    displayBooks.splice(majorBooks.length - 1, 1, bestBook);
+  }
+
+  const filtered = Object.fromEntries(displayBooks.map(bk => [bk, allLines[bk]]));
+  const sorted = Object.entries(filtered).sort((a,b) => b[1].odds - a[1].odds);
   return (
     <div style={{marginBottom:14}}>
       <div style={{display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:8}}>
