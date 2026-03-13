@@ -4,6 +4,7 @@
 // Visitors see the same live track record. No login required.
 
 import { useState, useEffect, useCallback } from "react";
+import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceLine } from "recharts";
 
 function useIsMobile() {
   const [isMobile, setIsMobile] = useState(false);
@@ -15,7 +16,6 @@ function useIsMobile() {
   }, []);
   return isMobile;
 }
-import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceLine } from "recharts";
 
 const SPORTSBOOK_COLORS = {
   draftkings:"#53d337", fanduel:"#1493ff", betmgm:"#d4af37",
@@ -33,43 +33,34 @@ function timeAgo(iso) {
   return `${Math.floor(mins/60)}h ${mins%60}m ago`;
 }
 
-function useStyles(isMobile) {
-  const p = isMobile ? "0 12px" : "0 32px";
-  const hp = isMobile ? "12px 16px" : "16px 32px";
-  return {
-    page: { minHeight:"100vh", background:"#060d16", color:"#dde3ee",
-      fontFamily:"'JetBrains Mono','Fira Code',monospace", padding:"0 0 80px" },
-    header: { borderBottom:"1px solid #0e1a28", padding:hp,
-      display:"flex", alignItems:"center", justifyContent:"space-between",
-      position:"sticky", top:0, background:"#060d16", zIndex:10, flexWrap:"wrap", gap:8 },
-    logo: { fontSize: isMobile ? 14 : 18, fontWeight:800, letterSpacing:"0.15em", color:"#fff" },
-    sub: { fontSize: isMobile ? 8 : 10, color:"#3a5570", letterSpacing:"0.1em", marginTop:2 },
-    pill: { fontSize:9, padding:"2px 10px", borderRadius:20,
-      border:"1px solid #172030", color:"#3a5570" },
-    pillGreen: { fontSize:9, padding:"2px 10px", borderRadius:20,
-      border:"1px solid #00ff8833", color:"#00ff88", background:"rgba(0,255,136,0.06)" },
-    statGrid: { display:"grid",
-      gridTemplateColumns: isMobile ? "repeat(2,1fr)" : "repeat(5,1fr)",
-      gap: isMobile ? 8 : 12, padding: isMobile ? "16px 12px" : "24px 32px" },
-    statCard: { background:"#0a1220", border:"1px solid #172030", borderRadius:12,
-      padding: isMobile ? "12px 14px" : "16px 18px" },
-    statLabel: { fontSize:9, color:"#3a5570", letterSpacing:"0.1em", marginBottom:8 },
-    section: { padding:p, marginBottom:32 },
-    sectionTitle: { fontSize: isMobile ? 12 : 13, fontWeight:700, color:"#fff", marginBottom:14,
-      display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" },
-    convGrid: { display:"grid",
-      gridTemplateColumns: isMobile ? "1fr" : "repeat(3,1fr)", gap:12 },
-    convCard: { background:"#0a1220", border:"1px solid #172030", borderRadius:12,
-      padding:"18px", position:"relative", overflow:"hidden" },
-    histCard: { background:"#0a1220", border:"1px solid #172030", borderRadius:12, overflow:"hidden" },
-    badge: (c) => ({ fontSize:8, padding:"1px 6px", borderRadius:3, fontWeight:700,
-      background:`${c}18`, border:`1px solid ${c}44`, color:c }),
-  };
-}
-const s_static = {
+// Static styles — responsive behaviour handled via CSS classes injected in App()
+const s = {
+  page: { minHeight:"100vh", background:"#060d16", color:"#dde3ee",
+    fontFamily:"'JetBrains Mono','Fira Code',monospace", padding:"0 0 80px" },
+  header: { borderBottom:"1px solid #0e1a28", padding:"16px 32px",
+    display:"flex", alignItems:"center", justifyContent:"space-between",
+    position:"sticky", top:0, background:"#060d16", zIndex:10, flexWrap:"wrap", gap:8 },
+  logo: { fontSize:18, fontWeight:800, letterSpacing:"0.15em", color:"#fff" },
+  sub: { fontSize:10, color:"#3a5570", letterSpacing:"0.1em", marginTop:2 },
+  pill: { fontSize:9, padding:"2px 10px", borderRadius:20,
+    border:"1px solid #172030", color:"#3a5570" },
+  pillGreen: { fontSize:9, padding:"2px 10px", borderRadius:20,
+    border:"1px solid #00ff8833", color:"#00ff88", background:"rgba(0,255,136,0.06)" },
+  statGrid: { display:"grid", gridTemplateColumns:"repeat(5,1fr)", gap:12,
+    padding:"24px 32px" },
+  statCard: { background:"#0a1220", border:"1px solid #172030", borderRadius:12, padding:"16px 18px" },
+  statLabel: { fontSize:9, color:"#3a5570", letterSpacing:"0.1em", marginBottom:8 },
+  section: { padding:"0 32px", marginBottom:32 },
+  sectionTitle: { fontSize:13, fontWeight:700, color:"#fff", marginBottom:14,
+    display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" },
+  convGrid: { display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:12 },
+  convCard: { background:"#0a1220", border:"1px solid #172030", borderRadius:12,
+    padding:"18px", position:"relative", overflow:"hidden" },
+  histCard: { background:"#0a1220", border:"1px solid #172030", borderRadius:12, overflow:"hidden" },
   badge: (c) => ({ fontSize:8, padding:"1px 6px", borderRadius:3, fontWeight:700,
     background:`${c}18`, border:`1px solid ${c}44`, color:c }),
 };
+
 
 function StatCard({ label, value, sub, color="#00ff88" }) {
   return (
@@ -81,6 +72,10 @@ function StatCard({ label, value, sub, color="#00ff88" }) {
   );
 }
 
+// Global badge helper — used by sub-components that don't have access to s
+const badge = (c) => ({ fontSize:8, padding:"1px 6px", borderRadius:3, fontWeight:700,
+  background:`${c}18`, border:`1px solid ${c}44`, color:c });
+
 function ConvictionCard({ play, groupExpanded, onExpand }) {
   const expanded = groupExpanded;
   const tierColor = play.tier==="HIGH"?"#00ff88":play.tier==="MEDIUM"?"#ffd700":"#ff9944";
@@ -90,11 +85,11 @@ function ConvictionCard({ play, groupExpanded, onExpand }) {
       onClick={() => onExpand()}>
       <div style={{display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:8}}>
         <div style={{display:"flex", gap:6, flexWrap:"wrap"}}>
-          <span style={s.badge(tierColor)}>{play.tier}</span>
+          <span style={badge(tierColor)}>{play.tier}</span>
           {isAutoBet
-            ? <span style={s.badge("#00ff88")}>✓ AUTO-BET</span>
-            : <span style={s.badge("#3a5570")}>WATCH ONLY</span>}
-          <span style={s.badge("#00bfff")}>{play.betType==="Moneyline"?"💰 ML":play.betType==="Spread"?"📊 SPR":"🏀 TOT"}</span>
+            ? <span style={badge("#00ff88")}>✓ AUTO-BET</span>
+            : <span style={badge("#3a5570")}>WATCH ONLY</span>}
+          <span style={badge("#00bfff")}>{play.betType==="Moneyline"?"💰 ML":play.betType==="Spread"?"📊 SPR":"🏀 TOT"}</span>
         </div>
         <div style={{textAlign:"right"}}>
           <span style={{fontSize:28, fontWeight:800, color:tierColor}}>{play.convictionScore}</span>
@@ -221,8 +216,8 @@ function EVBetCard({ bet, groupExpanded, onExpand }) {
     }}>
       <div style={{display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:6}}>
         <div style={{display:"flex", gap:5, flexWrap:"wrap"}}>
-          <span style={s.badge(typeColor)}>{bet.type}</span>
-          <span style={s.badge(edgeColor)}>{edgeStrength}</span>
+          <span style={badge(typeColor)}>{bet.type}</span>
+          <span style={badge(edgeColor)}>{edgeStrength}</span>
         </div>
         <span style={{fontSize:10, color:"#3a5570"}}>{expanded?"▲":"▼"}</span>
       </div>
@@ -299,7 +294,7 @@ function HistoryRow({ h }) {
   return (
     <div style={{borderBottom:"1px solid #0e1a28",
       background:isWon?"rgba(0,255,136,0.03)":isLost?"rgba(255,107,107,0.03)":"transparent"}}>
-      <div style={{display:"grid", gridTemplateColumns: isMobile ? "1fr" : "100px 1fr auto", gap:12,
+      <div style={{display:"grid", gridTemplateColumns:"100px 1fr auto", gap:12,
         padding:"12px 20px", alignItems:"center"}}>
         <div>
           <div style={{display:"flex", alignItems:"center", gap:5, marginBottom:3}}>
@@ -319,19 +314,19 @@ function HistoryRow({ h }) {
           <div style={{fontSize:12, fontWeight:600, color:"#fff", marginBottom:2}}>{h.selection.replace(/ ML$/i,"").replace(/ Moneyline$/i,"")}</div>
           <div style={{fontSize:9, color:"#3a5570", marginBottom:4}}>{h.game}</div>
           <div style={{display:"flex", gap:5, flexWrap:"wrap", alignItems:"center"}}>
-            {!h.isConviction&&<span style={{...s.badge("#00ff88")}}>⚡ +EV</span>}
+            {!h.isConviction&&<span style={{...badge("#00ff88")}}>⚡ +EV</span>}
             {(() => {
               const btype = h.betType || h.type || "";
               const typeLabel = btype==="Moneyline"?"💰 Moneyline":btype==="Spread"?"📊 Spread":btype==="Game Total"?"🏀 Game Total":btype;
               const typeColor = btype==="Moneyline"?"#00bfff":btype==="Spread"?"#ffd700":"#ff69b4";
               return (<>
-                {h.isConviction&&<span style={{...s.badge("#b44fff")}}>🎯 Conviction</span>}
-                {typeLabel&&<span style={{...s.badge("transparent"),border:`1px solid ${typeColor}`,color:typeColor,fontWeight:600}}>{typeLabel}</span>}
+                {h.isConviction&&<span style={{...badge("#b44fff")}}>🎯 Conviction</span>}
+                {typeLabel&&<span style={{...badge("transparent"),border:`1px solid ${typeColor}`,color:typeColor,fontWeight:600}}>{typeLabel}</span>}
               </>);
             })()}
-            {h.bestOdds&&<span style={{...s.badge("transparent"),border:`1px solid ${h.bestOdds<0?"#00bfff":"#ffd700"}`,color:h.bestOdds<0?"#00bfff":"#ffd700",fontWeight:700}}>{formatOdds(h.bestOdds)}</span>}
-            {h.bestBook&&<span style={{...s.badge("transparent"),border:"1px solid #1e3040",color:SPORTSBOOK_COLORS[h.bestBook]||"#8899aa"}}>{BOOK_DISPLAY[h.bestBook]||h.bestBook}</span>}
-            {h.edge>0&&!h.isConviction&&<span style={{...s.badge("#00ff88")}}>+{h.edge?.toFixed(1)}% edge</span>}
+            {h.bestOdds&&<span style={{...badge("transparent"),border:`1px solid ${h.bestOdds<0?"#00bfff":"#ffd700"}`,color:h.bestOdds<0?"#00bfff":"#ffd700",fontWeight:700}}>{formatOdds(h.bestOdds)}</span>}
+            {h.bestBook&&<span style={{...badge("transparent"),border:"1px solid #1e3040",color:SPORTSBOOK_COLORS[h.bestBook]||"#8899aa"}}>{BOOK_DISPLAY[h.bestBook]||h.bestBook}</span>}
+            {h.edge>0&&!h.isConviction&&<span style={{...badge("#00ff88")}}>+{h.edge?.toFixed(1)}% edge</span>}
           </div>
         </div>
         <div style={{textAlign:"right", minWidth:120}}>
@@ -644,7 +639,6 @@ function InfoTab() {
 
 export default function App() {
   const isMobile = useIsMobile();
-  const s = useStyles(isMobile);
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState("All");
@@ -708,6 +702,20 @@ export default function App() {
 
   return (
     <div style={s.page}>
+      <style>{`
+        @media (max-width: 768px) {
+          .stat-grid { grid-template-columns: repeat(2,1fr) !important; padding: 16px 12px !important; gap: 8px !important; }
+          .conv-grid { grid-template-columns: 1fr !important; }
+          .ev-grid { grid-template-columns: 1fr !important; }
+          .hist-grid { grid-template-columns: 1fr !important; }
+          .section-pad { padding: 0 12px !important; }
+          .header-pad { padding: 12px 16px !important; }
+          .tab-bar { padding: 0 12px !important; }
+          .logo-text { font-size: 14px !important; }
+          .hide-mobile { display: none !important; }
+          .stat-val { font-size: 18px !important; }
+        }
+      `}</style>
       {/* Header */}
       <div style={s.header}>
         <div>
@@ -731,7 +739,7 @@ export default function App() {
       </div>
 
       {/* Stats */}
-      <div style={s.statGrid}>
+      <div className="stat-grid" style={s.statGrid}>
         <StatCard label="PAPER BANKROLL"
           value={`$${(data?.bankroll||100).toFixed(2)}`}
           sub={`${data?.totalPnl>=0?"+":""}$${(data?.totalPnl||0).toFixed(2)} P&L`}
@@ -755,13 +763,13 @@ export default function App() {
       </div>
 
       {/* Tabs */}
-      <div style={{padding: isMobile ? "0 12px" : "0 32px", marginBottom:20}}>
+      <div style={{padding:"0 16px", marginBottom:20}}>
         <div style={{display:"flex", gap:6, overflowX:"auto", WebkitOverflowScrolling:"touch",
           scrollbarWidth:"none", msOverflowStyle:"none", paddingBottom:4}}>
           {tabs.map(t => (
             <button key={t} onClick={() => setTab(t)} style={{
-              padding: isMobile ? "5px 12px" : "6px 16px",
-              borderRadius:20, fontSize: isMobile ? 10 : 11,
+              padding:"6px 14px",
+              borderRadius:20, fontSize:11,
               cursor:"pointer", whiteSpace:"nowrap", flexShrink:0,
               border:`1px solid ${tab===t?"#00ff88":"#172030"}`,
               background: tab===t?"rgba(0,255,136,0.1)":"transparent",
@@ -773,7 +781,7 @@ export default function App() {
 
       {/* Conviction Plays */}
       {(tab==="All"||tab==="Moneyline"||tab==="Spread"||tab==="Game Total") && (
-        <div style={s.section}>
+        <div className="section-pad" style={s.section}>
           <div style={s.sectionTitle}>
             🎯 {tab==="All" ? "Conviction Plays" : `${tab} Conviction Plays`}
             <span style={{fontSize:9, padding:"2px 8px", borderRadius:10,
@@ -800,7 +808,7 @@ export default function App() {
 
       {/* Current EV Bets */}
       {(tab==="All"||tab==="Moneyline"||tab==="Spread"||tab==="Game Total") && (
-        <div style={s.section}>
+        <div className="section-pad" style={s.section}>
           <div style={s.sectionTitle}>
             ⚡ {tab==="All"?"All +EV Bets":`${tab} +EV Bets`}
             <span style={{fontSize:9, padding:"2px 8px", borderRadius:10,
@@ -821,7 +829,7 @@ export default function App() {
             </div>
           ) : (
             Array.from({length: Math.ceil(filteredBets.length / 3)}, (_, rowIdx) => (
-              <div key={rowIdx} style={{display:"grid", gridTemplateColumns: isMobile ? "1fr" : "repeat(3,1fr)", gap:12, marginBottom:12}}>
+              <div key={rowIdx} style={{display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:12, marginBottom:12}}>
                 {filteredBets.slice(rowIdx*3, rowIdx*3+3).map(bet => (
                   <EVBetCard key={bet.id} bet={bet}
                     groupExpanded={!!expandedEvRows[rowIdx]}
@@ -839,7 +847,7 @@ export default function App() {
 
       {/* Props Tab */}
       {tab==="Props" && (
-        <div style={s.section}>
+        <div className="section-pad" style={s.section}>
           {/* Props Conviction Section */}
           {(() => {
             const convictionProps = propBets.filter(p => p.convictionScore >= 70);
@@ -858,7 +866,7 @@ export default function App() {
                   <div style={{marginTop:6, fontSize:10}}>Last run: {data?.lastRun ? new Date(data.lastRun).toLocaleTimeString() : "never"}</div>
                 </div>
               ) : (
-                <div style={{display:"grid", gridTemplateColumns: isMobile ? "1fr" : "repeat(auto-fill,minmax(320px,1fr))", gap:12, marginBottom:24}}>
+                <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(300px,1fr))", gap:12, marginBottom:24}}>
                   {convictionProps.map(prop => <PropCard key={prop.id} prop={prop}/>)}
                 </div>
               )}
@@ -880,7 +888,7 @@ export default function App() {
                     : "All props with edge met conviction threshold above."}
                 </div>
               ) : (
-                <div style={{display:"grid", gridTemplateColumns: isMobile ? "1fr" : "repeat(auto-fill,minmax(320px,1fr))", gap:12}}>
+                <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(300px,1fr))", gap:12}}>
                   {evProps.map(prop => <PropCard key={prop.id} prop={prop}/>)}
                 </div>
               )}
@@ -890,7 +898,7 @@ export default function App() {
       )}
 
       {tab==="History" && (
-        <div style={s.section}>
+        <div className="section-pad" style={s.section}>
           {/* Portfolio Chart */}
           <div style={{background:"#0a1220",border:"1px solid #172030",borderRadius:12,padding:"20px 24px",marginBottom:20}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:4}}>
