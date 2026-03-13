@@ -402,7 +402,7 @@ function Step({ n, title, desc }) {
 }
 
 function PropCard({ prop }) {
-  const [expanded, setExpanded] = React.useState(false);
+  const [expanded, setExpanded] = useState(false);
   const BOOK_DISPLAY = { draftkings:"DraftKings", fanduel:"FanDuel", betmgm:"BetMGM",
     betrivers:"BetRivers", pinnacle:"Pinnacle", caesars:"Caesars", kalshi:"Kalshi 🔮" };
   const SPORTSBOOK_COLORS = { draftkings:"#00d548", fanduel:"#1493ff", betmgm:"#c9a84c",
@@ -685,10 +685,21 @@ export default function App() {
   const currentBets = data?.currentBets || [];
   const propBets = data?.propBets || [];
 
-  const filteredConviction = tab==="All" ? conviction : conviction.filter(p => (p.betType||"Moneyline")===tab);
+  const filteredConviction = tab==="All" ? conviction : conviction.filter(p => {
+    const t = p.betType || "Moneyline";
+    if (tab==="Spread") return t==="Spread" || t==="spreads" || t==="ATS";
+    if (tab==="Game Total") return t==="Game Total" || t==="totals" || t==="Total";
+    return t===tab;
+  });
   const filteredHistory = tab==="History" ? history : [];
   const filteredBets = tab==="All"||tab==="Moneyline"||tab==="Spread"||tab==="Game Total"
-    ? currentBets.filter(b => tab==="All" || b.type===tab)
+    ? currentBets.filter(b => {
+        if (tab==="All") return true;
+        const t = b.type || b.betType || "Moneyline";
+        if (tab==="Spread") return t==="Spread" || t==="spreads" || t==="ATS";
+        if (tab==="Game Total") return t==="Game Total" || t==="totals" || t==="Total";
+        return t===tab;
+      })
     : [];
 
   if(loading) return (
