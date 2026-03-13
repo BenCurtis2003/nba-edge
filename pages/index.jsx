@@ -46,14 +46,14 @@ const s = {
     border:"1px solid #172030", color:"#3a5570" },
   pillGreen: { fontSize:9, padding:"2px 10px", borderRadius:20,
     border:"1px solid #00ff8833", color:"#00ff88", background:"rgba(0,255,136,0.06)" },
-  statGrid: { display:"grid", gridTemplateColumns:"repeat(5,1fr)", gap:12,
-    padding:"24px 32px" },
+  statGrid: { display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(140px,1fr))", gap:12,
+    padding:"24px 16px" },
   statCard: { background:"#0a1220", border:"1px solid #172030", borderRadius:12, padding:"16px 18px" },
   statLabel: { fontSize:9, color:"#3a5570", letterSpacing:"0.1em", marginBottom:8 },
   section: { padding:"0 32px", marginBottom:32 },
   sectionTitle: { fontSize:13, fontWeight:700, color:"#fff", marginBottom:14,
     display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" },
-  convGrid: { display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:12 },
+  convGrid: { display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(320px,1fr))", gap:12 },
   convCard: { background:"#0a1220", border:"1px solid #172030", borderRadius:12,
     padding:"18px", position:"relative", overflow:"hidden" },
   histCard: { background:"#0a1220", border:"1px solid #172030", borderRadius:12, overflow:"hidden" },
@@ -703,17 +703,14 @@ export default function App() {
   return (
     <div style={s.page}>
       <style>{`
-        @media (max-width: 768px) {
+        @media (max-width: 900px) {
           .stat-grid { grid-template-columns: repeat(2,1fr) !important; padding: 16px 12px !important; gap: 8px !important; }
-          .conv-grid { grid-template-columns: 1fr !important; }
-          .ev-grid { grid-template-columns: 1fr !important; }
-          .hist-grid { grid-template-columns: 1fr !important; }
+          .conv-grid { grid-template-columns: repeat(auto-fill,minmax(280px,1fr)) !important; }
           .section-pad { padding: 0 12px !important; }
-          .header-pad { padding: 12px 16px !important; }
-          .tab-bar { padding: 0 12px !important; }
-          .logo-text { font-size: 14px !important; }
-          .hide-mobile { display: none !important; }
-          .stat-val { font-size: 18px !important; }
+        }
+        @media (max-width: 600px) {
+          .conv-grid { grid-template-columns: 1fr !important; }
+          .stat-grid { grid-template-columns: repeat(2,1fr) !important; padding: 12px 10px !important; gap: 6px !important; }
         }
       `}</style>
       {/* Header */}
@@ -793,16 +790,16 @@ export default function App() {
             <div style={{color:"#3a5570", fontSize:12, padding:"20px 0"}}>
               No {tab==="All"?"conviction plays":tab.toLowerCase()+" conviction plays"} yet — engine hasn't run or no games today.
             </div>
-          ) : Array.from({length: Math.ceil(filteredConviction.slice(0,9).length / 3)}, (_, rowIdx) => (
-            <div key={rowIdx} style={{...s.convGrid, marginBottom:12}}>
-              {filteredConviction.slice(0,9).slice(rowIdx*3, rowIdx*3+3).map(p => (
+          ) : (
+            <div className="conv-grid" style={s.convGrid}>
+              {filteredConviction.slice(0,9).map((p, idx) => (
                 <ConvictionCard key={p.id} play={p}
-                  groupExpanded={!!expandedConvRows[rowIdx]}
-                  onExpand={() => setExpandedConvRows(r => ({...r, [rowIdx]: !r[rowIdx]}))}
+                  groupExpanded={!!expandedConvRows[idx]}
+                  onExpand={() => setExpandedConvRows(r => ({...r, [idx]: !r[idx]}))}
                 />
               ))}
             </div>
-          ))}
+          )}
         </div>
       )}
 
@@ -828,16 +825,14 @@ export default function App() {
                 : "No bets match this filter."}
             </div>
           ) : (
-            Array.from({length: Math.ceil(filteredBets.length / 3)}, (_, rowIdx) => (
-              <div key={rowIdx} style={{display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:12, marginBottom:12}}>
-                {filteredBets.slice(rowIdx*3, rowIdx*3+3).map(bet => (
-                  <EVBetCard key={bet.id} bet={bet}
-                    groupExpanded={!!expandedEvRows[rowIdx]}
-                    onExpand={() => setExpandedEvRows(r => ({...r, [rowIdx]: !r[rowIdx]}))}
-                  />
-                ))}
-              </div>
-            ))
+            <div className="conv-grid" style={s.convGrid}>
+              {filteredBets.map((bet, bidx) => (
+                <EVBetCard key={bet.id} bet={bet}
+                  groupExpanded={!!expandedEvRows[bidx]}
+                  onExpand={() => setExpandedEvRows(r => ({...r, [bidx]: !r[bidx]}))}
+                />
+              ))}
+            </div>
           )}
         </div>
       )}
