@@ -4,6 +4,17 @@
 // Visitors see the same live track record. No login required.
 
 import { useState, useEffect, useCallback } from "react";
+
+function useIsMobile() {
+  const [isMobile, setIsMobile] = useState(false);
+  useEffect(() => {
+    const check = () => setIsMobile(window.innerWidth < 768);
+    check();
+    window.addEventListener("resize", check);
+    return () => window.removeEventListener("resize", check);
+  }, []);
+  return isMobile;
+}
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceLine } from "recharts";
 
 const SPORTSBOOK_COLORS = {
@@ -22,29 +33,40 @@ function timeAgo(iso) {
   return `${Math.floor(mins/60)}h ${mins%60}m ago`;
 }
 
-const s = {
-  page: { minHeight:"100vh", background:"#060d16", color:"#dde3ee",
-    fontFamily:"'JetBrains Mono','Fira Code',monospace", padding:"0 0 60px" },
-  header: { borderBottom:"1px solid #0e1a28", padding:"16px 32px",
-    display:"flex", alignItems:"center", justifyContent:"space-between",
-    position:"sticky", top:0, background:"#060d16", zIndex:10 },
-  logo: { fontSize:18, fontWeight:800, letterSpacing:"0.15em", color:"#fff" },
-  sub: { fontSize:10, color:"#3a5570", letterSpacing:"0.1em", marginTop:2 },
-  pill: { fontSize:9, padding:"2px 10px", borderRadius:20,
-    border:"1px solid #172030", color:"#3a5570" },
-  pillGreen: { fontSize:9, padding:"2px 10px", borderRadius:20,
-    border:"1px solid #00ff8833", color:"#00ff88", background:"rgba(0,255,136,0.06)" },
-  statGrid: { display:"grid", gridTemplateColumns:"repeat(5,1fr)", gap:12,
-    padding:"24px 32px" },
-  statCard: { background:"#0a1220", border:"1px solid #172030", borderRadius:12, padding:"16px 18px" },
-  statLabel: { fontSize:9, color:"#3a5570", letterSpacing:"0.1em", marginBottom:8 },
-  section: { padding:"0 32px", marginBottom:32 },
-  sectionTitle: { fontSize:13, fontWeight:700, color:"#fff", marginBottom:14,
-    display:"flex", alignItems:"center", gap:8 },
-  convGrid: { display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:12 },
-  convCard: { background:"#0a1220", border:"1px solid #172030", borderRadius:12,
-    padding:"18px", position:"relative", overflow:"hidden" },
-  histCard: { background:"#0a1220", border:"1px solid #172030", borderRadius:12, overflow:"hidden" },
+function useStyles(isMobile) {
+  const p = isMobile ? "0 12px" : "0 32px";
+  const hp = isMobile ? "12px 16px" : "16px 32px";
+  return {
+    page: { minHeight:"100vh", background:"#060d16", color:"#dde3ee",
+      fontFamily:"'JetBrains Mono','Fira Code',monospace", padding:"0 0 80px" },
+    header: { borderBottom:"1px solid #0e1a28", padding:hp,
+      display:"flex", alignItems:"center", justifyContent:"space-between",
+      position:"sticky", top:0, background:"#060d16", zIndex:10, flexWrap:"wrap", gap:8 },
+    logo: { fontSize: isMobile ? 14 : 18, fontWeight:800, letterSpacing:"0.15em", color:"#fff" },
+    sub: { fontSize: isMobile ? 8 : 10, color:"#3a5570", letterSpacing:"0.1em", marginTop:2 },
+    pill: { fontSize:9, padding:"2px 10px", borderRadius:20,
+      border:"1px solid #172030", color:"#3a5570" },
+    pillGreen: { fontSize:9, padding:"2px 10px", borderRadius:20,
+      border:"1px solid #00ff8833", color:"#00ff88", background:"rgba(0,255,136,0.06)" },
+    statGrid: { display:"grid",
+      gridTemplateColumns: isMobile ? "repeat(2,1fr)" : "repeat(5,1fr)",
+      gap: isMobile ? 8 : 12, padding: isMobile ? "16px 12px" : "24px 32px" },
+    statCard: { background:"#0a1220", border:"1px solid #172030", borderRadius:12,
+      padding: isMobile ? "12px 14px" : "16px 18px" },
+    statLabel: { fontSize:9, color:"#3a5570", letterSpacing:"0.1em", marginBottom:8 },
+    section: { padding:p, marginBottom:32 },
+    sectionTitle: { fontSize: isMobile ? 12 : 13, fontWeight:700, color:"#fff", marginBottom:14,
+      display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" },
+    convGrid: { display:"grid",
+      gridTemplateColumns: isMobile ? "1fr" : "repeat(3,1fr)", gap:12 },
+    convCard: { background:"#0a1220", border:"1px solid #172030", borderRadius:12,
+      padding:"18px", position:"relative", overflow:"hidden" },
+    histCard: { background:"#0a1220", border:"1px solid #172030", borderRadius:12, overflow:"hidden" },
+    badge: (c) => ({ fontSize:8, padding:"1px 6px", borderRadius:3, fontWeight:700,
+      background:`${c}18`, border:`1px solid ${c}44`, color:c }),
+  };
+}
+const s_static = {
   badge: (c) => ({ fontSize:8, padding:"1px 6px", borderRadius:3, fontWeight:700,
     background:`${c}18`, border:`1px solid ${c}44`, color:c }),
 };
@@ -277,7 +299,7 @@ function HistoryRow({ h }) {
   return (
     <div style={{borderBottom:"1px solid #0e1a28",
       background:isWon?"rgba(0,255,136,0.03)":isLost?"rgba(255,107,107,0.03)":"transparent"}}>
-      <div style={{display:"grid", gridTemplateColumns:"100px 1fr auto", gap:12,
+      <div style={{display:"grid", gridTemplateColumns: isMobile ? "1fr" : "100px 1fr auto", gap:12,
         padding:"12px 20px", alignItems:"center"}}>
         <div>
           <div style={{display:"flex", alignItems:"center", gap:5, marginBottom:3}}>
@@ -621,6 +643,8 @@ function InfoTab() {
 }
 
 export default function App() {
+  const isMobile = useIsMobile();
+  const s = useStyles(isMobile);
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState("All");
@@ -701,7 +725,7 @@ export default function App() {
               Updated {timeAgo(data?.lastRun)}
             </span>
           </div>
-          <span style={s.pill}>Auto-runs every 10 min</span>
+          <span style={s.pill}>Runs 4x daily</span>
           <span style={s.pillGreen}>Live Track Record</span>
         </div>
       </div>
@@ -731,11 +755,14 @@ export default function App() {
       </div>
 
       {/* Tabs */}
-      <div style={{padding:"0 32px", marginBottom:20}}>
-        <div style={{display:"flex", gap:8, flexWrap:"wrap"}}>
+      <div style={{padding: isMobile ? "0 12px" : "0 32px", marginBottom:20}}>
+        <div style={{display:"flex", gap:6, overflowX:"auto", WebkitOverflowScrolling:"touch",
+          scrollbarWidth:"none", msOverflowStyle:"none", paddingBottom:4}}>
           {tabs.map(t => (
             <button key={t} onClick={() => setTab(t)} style={{
-              padding:"6px 16px", borderRadius:20, fontSize:11, cursor:"pointer",
+              padding: isMobile ? "5px 12px" : "6px 16px",
+              borderRadius:20, fontSize: isMobile ? 10 : 11,
+              cursor:"pointer", whiteSpace:"nowrap", flexShrink:0,
               border:`1px solid ${tab===t?"#00ff88":"#172030"}`,
               background: tab===t?"rgba(0,255,136,0.1)":"transparent",
               color: tab===t?"#00ff88":"#3a5570", fontFamily:"inherit",
@@ -794,7 +821,7 @@ export default function App() {
             </div>
           ) : (
             Array.from({length: Math.ceil(filteredBets.length / 3)}, (_, rowIdx) => (
-              <div key={rowIdx} style={{display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:12, marginBottom:12}}>
+              <div key={rowIdx} style={{display:"grid", gridTemplateColumns: isMobile ? "1fr" : "repeat(3,1fr)", gap:12, marginBottom:12}}>
                 {filteredBets.slice(rowIdx*3, rowIdx*3+3).map(bet => (
                   <EVBetCard key={bet.id} bet={bet}
                     groupExpanded={!!expandedEvRows[rowIdx]}
@@ -831,7 +858,7 @@ export default function App() {
                   <div style={{marginTop:6, fontSize:10}}>Last run: {data?.lastRun ? new Date(data.lastRun).toLocaleTimeString() : "never"}</div>
                 </div>
               ) : (
-                <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(320px,1fr))", gap:12, marginBottom:24}}>
+                <div style={{display:"grid", gridTemplateColumns: isMobile ? "1fr" : "repeat(auto-fill,minmax(320px,1fr))", gap:12, marginBottom:24}}>
                   {convictionProps.map(prop => <PropCard key={prop.id} prop={prop}/>)}
                 </div>
               )}
@@ -853,7 +880,7 @@ export default function App() {
                     : "All props with edge met conviction threshold above."}
                 </div>
               ) : (
-                <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(320px,1fr))", gap:12}}>
+                <div style={{display:"grid", gridTemplateColumns: isMobile ? "1fr" : "repeat(auto-fill,minmax(320px,1fr))", gap:12}}>
                   {evProps.map(prop => <PropCard key={prop.id} prop={prop}/>)}
                 </div>
               )}

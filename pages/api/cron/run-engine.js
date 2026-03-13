@@ -1,5 +1,6 @@
 import { fetchLiveOdds, extractEVBets, buildConvictionPlays, placeBets, fetchAndCacheTeamStats, fetchScores, resolveHistory } from "../../../lib/engine";
 import { fetchPlayerProps, extractPropEV, placePropBets, resolveProps, fetchPlayerStats, fetchTeamDefenseStats } from "../../../lib/props";
+import { notifyBetsPlaced, notifyBetsResolved } from "../../../lib/discord";
 import { getHistory, getBankroll, getMLModel, getCachedStandings, saveCurrentBets, saveConvictionPlays, saveLastRun, appendHistory, saveStandings, saveHistory, saveBankroll, updateMLAfterResolution, getPropBets, savePropBets } from "../../../lib/store";
 
 export const config = { maxDuration: 60 };
@@ -130,7 +131,8 @@ export default async function handler(req, res) {
     const { newEntries } = placeBets(evBets, convictionPlays, currentBankroll, freshHistory);
     const { newEntries: newPropEntries } = placePropBets(evProps, currentBankroll, freshHistory);
 
-    // 9. Save everything
+    // 9. Save everything + fire Discord notifications
+    const allNewEntries = [...newEntries, ...newPropEntries];
     await Promise.all([
       saveCurrentBets(evBets),
       saveConvictionPlays(convictionPlays),
@@ -138,7 +140,16 @@ export default async function handler(req, res) {
       newEntries.length > 0 ? appendHistory(newEntries) : Promise.resolve(),
       newPropEntries.length > 0 ? appendHistory(newPropEntries) : Promise.resolve(),
       saveLastRun(new Date().toISOString()),
+      allNewEntries.length > 0 ? notifyBetsPlaced(allNewEntries) : Promise.resolve(),
     ]);
+
+    // Notify resolved bets
+    if (resolvedCount > 0) {
+      const resolvedEntries = freshHistory.filter(h =>
+        h.status === "won" || h.status === "lost"
+      ).slice(-resolvedCount);
+      notifyBetsResolved(resolvedEntries).catch(() => {});
+    }
 
     return res.status(200).json({
       ok: true, elapsed: Date.now()-start,
