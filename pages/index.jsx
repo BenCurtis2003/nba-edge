@@ -26,6 +26,8 @@ const BOOK_META = {
   betonlineag:{ label:"BetOnline",  color:"#ff9933", short:"BOL" },
   bovada:     { label:"Bovada",     color:"#cc0000", short:"BOV" },
   kalshi:     { label:"Kalshi",     color:"#b44fff", short:"KAL" },
+  espnbet:    { label:"ESPN Bet",   color:"#e31837", short:"ESPN" },
+  fanatics:   { label:"Fanatics",   color:"#022B5B", short:"FAN" },
 };
 
 const ALL_BOOKS = [
@@ -37,6 +39,8 @@ const ALL_BOOKS = [
   { id:"pinnacle",   label:"Pinnacle",   color:"#e8e8e8" },
   { id:"lowvig",     label:"LowVig",     color:"#aaffaa" },
   { id:"kalshi",     label:"Kalshi",     color:"#b44fff" },
+  { id:"espnbet",    label:"ESPN Bet",   color:"#e31837" },
+  { id:"fanatics",   label:"Fanatics",   color:"#022B5B" },
 ];
 
 const TOP_5_BOOKS = ["draftkings","fanduel","betmgm","betrivers","pinnacle"];
@@ -68,6 +72,68 @@ const T = {
   purple:   "#a78bfa",
   discord:  "#5865f2",
 };
+
+// ── Live Scores Strip ─────────────────────────────────────────────────────────
+function LiveScoresStrip() {
+  const [games, setGames] = useState([]);
+  useEffect(() => {
+    fetch("https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard")
+      .then(r => r.json())
+      .then(d => {
+        const parsed = (d.events || []).map(ev => {
+          const comp = ev.competitions?.[0];
+          const status = comp?.status?.type;
+          const home = comp?.competitors?.find(c => c.homeAway === "home");
+          const away = comp?.competitors?.find(c => c.homeAway === "away");
+          const homeAbr = home?.team?.abbreviation || "";
+          const awayAbr = away?.team?.abbreviation || "";
+          const homeScore = home?.score;
+          const awayScore = away?.score;
+          const completed = status?.completed;
+          const inProgress = status?.state === "in";
+          const timeDetail = inProgress
+            ? (comp?.status?.displayClock ? `${comp.status.period}Q ${comp.status.displayClock}` : "LIVE")
+            : completed
+              ? "Final"
+              : (ev.date ? new Date(ev.date).toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit",timeZoneName:"short"}) : "");
+          if (completed || inProgress) {
+            return `${awayAbr} ${awayScore} · ${homeAbr} ${homeScore} ${timeDetail}`;
+          }
+          return `${awayAbr} vs ${homeAbr}  ${timeDetail}`;
+        });
+        setGames(parsed);
+      })
+      .catch(() => {});
+  }, []);
+
+  if (!games.length) return null;
+  const ticker = [...games, ...games].join("     ·     ");
+
+  return (
+    <div style={{
+      background:"#0d1623", borderBottom:"1px solid #162030",
+      overflow:"hidden", height:28, display:"flex", alignItems:"center",
+    }}>
+      <style>{`
+        @keyframes scoreTicker {
+          from { transform: translateX(0); }
+          to   { transform: translateX(-50%); }
+        }
+        .scores-inner {
+          display: inline-block;
+          white-space: nowrap;
+          animation: scoreTicker ${Math.max(20, games.length * 6)}s linear infinite;
+        }
+        .scores-inner:hover { animation-play-state: paused; }
+      `}</style>
+      <div className="scores-inner" style={{
+        fontSize: 10, color: "#4a6480", letterSpacing: "0.04em", paddingLeft: 20,
+      }}>
+        {ticker}
+      </div>
+    </div>
+  );
+}
 
 // ── Badge ─────────────────────────────────────────────────────────────────────
 const badge = (c, text) => (
@@ -209,6 +275,32 @@ function GetAtOrBetter({ value, color = T.gold }) {
   );
 }
 
+// ── Value Quality Signal ──────────────────────────────────────────────────────
+function ValueQualityTag({ bestOdds, getAtOrBetter }) {
+  if (bestOdds == null || getAtOrBetter == null) return null;
+  // For negative odds (favorites): bestOdds closer to 0 is better (e.g. -105 > -120)
+  // For positive odds (underdogs): higher is better
+  const isGoodValue = bestOdds >= 0
+    ? bestOdds >= getAtOrBetter
+    : bestOdds >= getAtOrBetter;
+  if (isGoodValue) {
+    return (
+      <span style={{
+        fontSize: 9, fontWeight: 700, padding: "2px 7px", borderRadius: 4,
+        color: "#00e87a", background: "#00e87a12", border: "1px solid #00e87a33",
+        marginLeft: 6,
+      }}>✓ Good value</span>
+    );
+  }
+  return (
+    <span style={{
+      fontSize: 9, fontWeight: 700, padding: "2px 7px", borderRadius: 4,
+      color: "#f59e0b", background: "#f59e0b12", border: "1px solid #f59e0b33",
+      marginLeft: 6,
+    }}>⚠ Line moved</span>
+  );
+}
+
 // ── Conviction Card ───────────────────────────────────────────────────────────
 function ConvictionCard({ play, expanded, onExpand }) {
   const isAutoBet = play.convictionScore >= 70;
@@ -266,7 +358,7 @@ function ConvictionCard({ play, expanded, onExpand }) {
 
         {/* Best odds */}
         {play.bestOdds && (
-          <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:10 }}>
+          <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:10, flexWrap:"wrap" }}>
             <span style={{ fontSize:18, fontWeight:800, color: play.bestOdds < 0 ? T.blue : T.gold }}>
               {fmtOdds(play.bestOdds)}
             </span>
@@ -276,6 +368,7 @@ function ConvictionCard({ play, expanded, onExpand }) {
                 {BOOK_META[play.bestBook]?.label || play.bestBook}
               </span>
             )}
+            <ValueQualityTag bestOdds={play.bestOdds} getAtOrBetter={play.getAtOrBetter} />
           </div>
         )}
 
@@ -327,7 +420,7 @@ function EVBetCard({ bet, expanded, onExpand }) {
         <div style={{ fontSize:11, color:T.textMid, marginBottom:12 }}>{bet.game}</div>
 
         {/* Best odds + book */}
-        <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:12 }}>
+        <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:12, flexWrap:"wrap" }}>
           <span style={{ fontSize:22, fontWeight:800, color: bet.bestOdds < 0 ? T.blue : T.gold }}>
             {fmtOdds(bet.bestOdds)}
           </span>
@@ -337,6 +430,7 @@ function EVBetCard({ bet, expanded, onExpand }) {
             </div>
             <div style={{ fontSize:9, color:T.textDim }}>Best available</div>
           </div>
+          <ValueQualityTag bestOdds={bet.bestOdds} getAtOrBetter={bet.getAtOrBetter} />
         </div>
 
         {/* Stats row */}
@@ -442,7 +536,7 @@ function HistoryRow({ h }) {
       background: isWon ? `${T.green}04` : isLost ? `${T.red}04` : "transparent",
       transition:"background 0.15s",
     }}>
-      <div style={{
+      <div className="hist-row" style={{
         display:"grid", gridTemplateColumns:"90px 1fr auto",
         gap:12, padding:"14px 20px", alignItems:"start",
       }}>
@@ -883,6 +977,9 @@ export default function App() {
   const [tab, setTab] = useState("All");
   const [expandedConvRows, setExpandedConvRows] = useState({});
   const [expandedEvRows, setExpandedEvRows]   = useState({});
+  const [convSort, setConvSort]   = useState("score");
+  const [evSort,   setEvSort]     = useState("edge");
+  const [propCat,  setPropCat]    = useState("All");
 
   // Sportsbook filter
   const [selectedBooks, setSelectedBooks] = useState(() => {
@@ -978,16 +1075,36 @@ export default function App() {
 
   const filteredConviction = conviction
     .filter(p => matchType(p.betType || "Moneyline", tab === "Props" || tab === "History" || tab === "Info" ? "skip" : tab))
-    .filter(bookVisible);
+    .filter(bookVisible)
+    .slice().sort((a, b) => {
+      if (convSort === "score") return (b.convictionScore || 0) - (a.convictionScore || 0);
+      if (convSort === "edge")  return (b.edge || 0) - (a.edge || 0);
+      if (convSort === "odds")  return (a.bestOdds || 0) - (b.bestOdds || 0);
+      return 0;
+    });
 
-  const filteredBets = (tab === "All" || tab === "Moneyline" || tab === "Spread" || tab === "Game Total")
+  const filteredBets = ((tab === "All" || tab === "Moneyline" || tab === "Spread" || tab === "Game Total")
     ? currentBets.filter(b => matchType(b.type || b.betType || "Moneyline", tab)).filter(bookVisible)
-    : [];
+    : []).slice().sort((a, b) => {
+      if (evSort === "edge")   return (b.edge || 0) - (a.edge || 0);
+      if (evSort === "ev")     return (b.ev || 0) - (a.ev || 0);
+      if (evSort === "kelly")  return (b.kellyPct || 0) - (a.kellyPct || 0);
+      return 0;
+    });
 
   const filteredHistory = tab === "History" ? history.filter(bookVisible) : [];
 
-  const convictionProps = propBets.filter(p => p.convictionScore >= 70);
-  const evProps         = propBets.filter(p => p.convictionScore < 70);
+  const PROP_CAT_MAP = {
+    "Points":    "player_points",
+    "Rebounds":  "player_rebounds",
+    "Assists":   "player_assists",
+    "3PM":       "player_threes",
+    "PRA":       "player_points_rebounds_assists",
+  };
+  const filterPropCat = arr => propCat === "All" ? arr : arr.filter(p => p.market === PROP_CAT_MAP[propCat]);
+
+  const convictionProps = filterPropCat(propBets.filter(p => p.convictionScore >= 70));
+  const evProps         = filterPropCat(propBets.filter(p => p.convictionScore < 70));
 
   const filteredPnl = (() => {
     const resolved = (tab === "History" ? filteredHistory : history.filter(bookVisible))
@@ -1033,7 +1150,7 @@ export default function App() {
         @media (max-width:600px) {
           .conv-grid  { grid-template-columns: 1fr !important; }
           .stat-grid  { grid-template-columns: repeat(2,1fr) !important; padding:10px !important; gap:8px !important; }
-          .hist-row   { grid-template-columns: 70px 1fr auto !important; }
+          .hist-row   { grid-template-columns: 1fr !important; }
         }
         ::-webkit-scrollbar { width:4px; height:4px; }
         ::-webkit-scrollbar-track { background:transparent; }
@@ -1084,6 +1201,8 @@ export default function App() {
           </a>
         </div>
       </header>
+
+      <LiveScoresStrip />
 
       {/* ── Stats ───────────────────────────────────────────────────────────── */}
       <div className="stat-grid" style={{
@@ -1187,19 +1306,31 @@ export default function App() {
 
         {/* Conviction Plays */}
         {(tab==="All"||tab==="Moneyline"||tab==="Spread"||tab==="Game Total") && (
-          <div style={{ marginBottom:36 }}>
+          <div style={{ marginBottom:28 }}>
             <SectionHeader
               icon="🎯"
               title={tab === "All" ? "Conviction Plays" : `${tab} Conviction Plays`}
               count={filteredConviction.length}
               badge={<Pill color={T.gold} glow>Stat-driven · Auto-bet ≥70</Pill>}
             />
+            <div style={{ display:"flex", gap:12, marginBottom:12, marginTop:-4 }}>
+              {[["score","Score ↓"],["edge","Edge %"],["odds","Odds"]].map(([key,label]) => (
+                <button key={key} onClick={() => setConvSort(key)} style={{
+                  background:"transparent", border:"none", cursor:"pointer",
+                  fontSize:10, fontWeight:700, fontFamily:"inherit",
+                  color: convSort === key ? T.green : T.textDim,
+                  padding:"2px 0",
+                  borderBottom: `2px solid ${convSort === key ? T.green : "transparent"}`,
+                  transition:"color 0.15s, border-color 0.15s",
+                }}>{label}</button>
+              ))}
+            </div>
             {filteredConviction.length === 0 ? (
               <EmptyState icon="📊" message="No conviction plays yet"
                 sub="Engine hasn't run or no qualifying plays for today's games." />
             ) : (
               <div className="conv-grid" style={{
-                display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(320px,1fr))", gap:14,
+                display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(320px,1fr))", gap:12,
               }}>
                 {filteredConviction.slice(0,9).map((p, idx) => (
                   <ConvictionCard key={p.id} play={p}
@@ -1214,13 +1345,25 @@ export default function App() {
 
         {/* +EV Bets */}
         {(tab==="All"||tab==="Moneyline"||tab==="Spread"||tab==="Game Total") && (
-          <div style={{ marginBottom:36 }}>
+          <div style={{ marginBottom:28 }}>
             <SectionHeader
               icon="⚡"
               title={tab === "All" ? "+EV Bets" : `${tab} +EV Bets`}
               count={filteredBets.length}
               badge={<Pill color={T.green}>+EV · Odds API · 3.5% min edge</Pill>}
             />
+            <div style={{ display:"flex", gap:12, marginBottom:12, marginTop:-4 }}>
+              {[["edge","Edge %"],["ev","EV %"],["kelly","Kelly %"]].map(([key,label]) => (
+                <button key={key} onClick={() => setEvSort(key)} style={{
+                  background:"transparent", border:"none", cursor:"pointer",
+                  fontSize:10, fontWeight:700, fontFamily:"inherit",
+                  color: evSort === key ? T.green : T.textDim,
+                  padding:"2px 0",
+                  borderBottom: `2px solid ${evSort === key ? T.green : "transparent"}`,
+                  transition:"color 0.15s, border-color 0.15s",
+                }}>{label}</button>
+              ))}
+            </div>
             {filteredBets.length === 0 ? (
               <EmptyState icon="🔍" message="No +EV bets right now"
                 sub={data?.hasUpcomingGames === false
@@ -1229,7 +1372,7 @@ export default function App() {
               />
             ) : (
               <div className="conv-grid" style={{
-                display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(320px,1fr))", gap:14,
+                display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(320px,1fr))", gap:12,
               }}>
                 {filteredBets.map((bet, idx) => (
                   <EVBetCard key={bet.id} bet={bet}
@@ -1246,8 +1389,26 @@ export default function App() {
         {tab === "Props" && (() => {
           return (
             <div>
+              {/* Props category filter */}
+              <div style={{
+                display:"flex", gap:6, overflowX:"auto", WebkitOverflowScrolling:"touch",
+                scrollbarWidth:"none", msOverflowStyle:"none",
+                marginBottom:18, paddingBottom:2,
+              }}>
+                {["All","Points","Rebounds","Assists","3PM","PRA"].map(cat => (
+                  <button key={cat} onClick={() => setPropCat(cat)} style={{
+                    flexShrink:0, padding:"5px 14px", borderRadius:20,
+                    fontSize:10, cursor:"pointer", fontFamily:"inherit", fontWeight:700,
+                    border:`1px solid ${propCat === cat ? T.purple + "88" : T.borderHi}`,
+                    background: propCat === cat ? `${T.purple}18` : "transparent",
+                    color: propCat === cat ? T.purple : T.textDim,
+                    boxShadow: propCat === cat ? `0 0 10px ${T.purple}18` : "none",
+                    transition:"all 0.15s",
+                  }}>{cat}</button>
+                ))}
+              </div>
               {/* Conviction props */}
-              <div style={{ marginBottom:36 }}>
+              <div style={{ marginBottom:28 }}>
                 <SectionHeader icon="🎯" title="Props Conviction Plays" count={convictionProps.length}
                   badge={<Pill color={T.purple} glow>Auto-bet ≥70</Pill>} />
                 {convictionProps.length === 0 ? (
@@ -1255,7 +1416,7 @@ export default function App() {
                     sub="Engine runs 4x daily for pregame lines." />
                 ) : (
                   <div className="conv-grid" style={{
-                    display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(300px,1fr))", gap:14,
+                    display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(300px,1fr))", gap:12,
                   }}>
                     {convictionProps.map(prop => <PropCard key={prop.id} prop={prop}/>)}
                   </div>
@@ -1270,7 +1431,7 @@ export default function App() {
                     sub={propBets.length === 0 ? "No prop lines loaded yet." : "All props met conviction threshold above."} />
                 ) : (
                   <div className="conv-grid" style={{
-                    display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(300px,1fr))", gap:14,
+                    display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(300px,1fr))", gap:12,
                   }}>
                     {evProps.map(prop => <PropCard key={prop.id} prop={prop}/>)}
                   </div>
