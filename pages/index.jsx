@@ -1,11 +1,8 @@
-// pages/index.jsx
-// NBA Edge — public portfolio dashboard.
-// All data comes from the shared server-side portfolio via /api/portfolio.
-// Visitors see the same live track record. No login required.
-
+// pages/index.jsx — NBA Edge v2 Professional UI
 import { useState, useEffect, useCallback } from "react";
-import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceLine } from "recharts";
+import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceLine, Area, AreaChart } from "recharts";
 
+// ── Hooks ─────────────────────────────────────────────────────────────────────
 function useIsMobile() {
   const [isMobile, setIsMobile] = useState(false);
   useEffect(() => {
@@ -17,744 +14,877 @@ function useIsMobile() {
   return isMobile;
 }
 
-const SPORTSBOOK_COLORS = {
-  draftkings:"#53d337", fanduel:"#1493ff", betmgm:"#d4af37",
-  caesars:"#00a4e4", pointsbet:"#e8192c", betrivers:"#003087",
-  kalshi:"#00e5ff",
+// ── Constants ─────────────────────────────────────────────────────────────────
+const BOOK_META = {
+  draftkings: { label:"DraftKings", color:"#53d337", short:"DK"  },
+  fanduel:    { label:"FanDuel",    color:"#1493ff", short:"FD"  },
+  betmgm:     { label:"BetMGM",     color:"#d4af37", short:"MGM" },
+  betrivers:  { label:"BetRivers",  color:"#d4213d", short:"BR"  },
+  caesars:    { label:"Caesars",    color:"#00a4e4", short:"CZR" },
+  pinnacle:   { label:"Pinnacle",   color:"#e8e8e8", short:"PIN" },
+  lowvig:     { label:"LowVig",     color:"#aaffaa", short:"LV"  },
+  betonlineag:{ label:"BetOnline",  color:"#ff9933", short:"BOL" },
+  bovada:     { label:"Bovada",     color:"#cc0000", short:"BOV" },
+  kalshi:     { label:"Kalshi",     color:"#b44fff", short:"KAL" },
 };
 
-function fmt$(n) { return n == null ? "—" : `$${Math.abs(n).toFixed(2)}`; }
-function formatOdds(o) { if(!o) return "—"; return o > 0 ? `+${o}` : `${o}`; }
-function timeAgo(iso) {
-  if(!iso) return "never";
-  const mins = Math.round((Date.now() - new Date(iso)) / 60000);
-  if(mins < 1) return "just now";
-  if(mins < 60) return `${mins}m ago`;
-  return `${Math.floor(mins/60)}h ${mins%60}m ago`;
-}
+const ALL_BOOKS = [
+  { id:"draftkings", label:"DraftKings", color:"#53d337" },
+  { id:"fanduel",    label:"FanDuel",    color:"#1493ff" },
+  { id:"betmgm",     label:"BetMGM",     color:"#d4af37" },
+  { id:"betrivers",  label:"BetRivers",  color:"#d4213d" },
+  { id:"caesars",    label:"Caesars",    color:"#00a4e4" },
+  { id:"pinnacle",   label:"Pinnacle",   color:"#e8e8e8" },
+  { id:"lowvig",     label:"LowVig",     color:"#aaffaa" },
+  { id:"kalshi",     label:"Kalshi",     color:"#b44fff" },
+];
 
-// Static styles — responsive behaviour handled via CSS classes injected in App()
-const s = {
-  page: { minHeight:"100vh", background:"#060d16", color:"#dde3ee",
-    fontFamily:"'JetBrains Mono','Fira Code',monospace", padding:"0 0 80px" },
-  header: { borderBottom:"1px solid #0e1a28", padding:"16px 32px",
-    display:"flex", alignItems:"center", justifyContent:"space-between",
-    position:"sticky", top:0, background:"#060d16", zIndex:10, flexWrap:"wrap", gap:8 },
-  logo: { fontSize:18, fontWeight:800, letterSpacing:"0.15em", color:"#fff" },
-  sub: { fontSize:10, color:"#3a5570", letterSpacing:"0.1em", marginTop:2 },
-  pill: { fontSize:9, padding:"2px 10px", borderRadius:20,
-    border:"1px solid #172030", color:"#3a5570" },
-  pillGreen: { fontSize:9, padding:"2px 10px", borderRadius:20,
-    border:"1px solid #00ff8833", color:"#00ff88", background:"rgba(0,255,136,0.06)" },
-  statGrid: { display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(140px,1fr))", gap:12,
-    padding:"24px 16px" },
-  statCard: { background:"#0a1220", border:"1px solid #172030", borderRadius:12, padding:"16px 18px" },
-  statLabel: { fontSize:9, color:"#3a5570", letterSpacing:"0.1em", marginBottom:8 },
-  section: { padding:"0 32px", marginBottom:32 },
-  sectionTitle: { fontSize:13, fontWeight:700, color:"#fff", marginBottom:14,
-    display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" },
-  convGrid: { display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(320px,1fr))", gap:12 },
-  convCard: { background:"#0a1220", border:"1px solid #172030", borderRadius:12,
-    padding:"18px", position:"relative", overflow:"hidden" },
-  histCard: { background:"#0a1220", border:"1px solid #172030", borderRadius:12, overflow:"hidden" },
-  badge: (c) => ({ fontSize:8, padding:"1px 6px", borderRadius:3, fontWeight:700,
-    background:`${c}18`, border:`1px solid ${c}44`, color:c }),
-};
-
-
-function StatCard({ label, value, sub, color="#00ff88" }) {
-  return (
-    <div style={s.statCard}>
-      <div style={s.statLabel}>{label}</div>
-      <div style={{fontSize:22, fontWeight:800, color, marginBottom:4}}>{value}</div>
-      {sub && <div style={{fontSize:10, color:"#3a5570"}}>{sub}</div>}
-    </div>
-  );
-}
-
-// Global badge helper — used by sub-components that don't have access to s
-const badge = (c) => ({ fontSize:8, padding:"1px 6px", borderRadius:3, fontWeight:700,
-  background:`${c}18`, border:`1px solid ${c}44`, color:c });
-
-function ConvictionCard({ play, groupExpanded, onExpand }) {
-  const expanded = groupExpanded;
-  const tierColor = play.tier==="HIGH"?"#00ff88":play.tier==="MEDIUM"?"#ffd700":"#ff9944";
-  const isAutoBet = play.convictionScore >= 70;
-  return (
-    <div style={{...s.convCard, cursor:"pointer", borderColor: isAutoBet?"#00ff8822":"#172030"}}
-      onClick={() => onExpand()}>
-      <div style={{display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:8}}>
-        <div style={{display:"flex", gap:6, flexWrap:"wrap"}}>
-          <span style={badge(tierColor)}>{play.tier}</span>
-          {isAutoBet
-            ? <span style={badge("#00ff88")}>✓ AUTO-BET</span>
-            : <span style={badge("#3a5570")}>WATCH ONLY</span>}
-          <span style={badge("#00bfff")}>{play.betType==="Moneyline"?"💰 ML":play.betType==="Spread"?"📊 SPR":"🏀 TOT"}</span>
-        </div>
-        <div style={{textAlign:"right"}}>
-          <span style={{fontSize:28, fontWeight:800, color:tierColor}}>{play.convictionScore}</span>
-          <span style={{fontSize:11, color:"#3a5570"}}>/100</span>
-        </div>
-      </div>
-      <div style={{fontSize:14, fontWeight:700, color:"#fff", marginBottom:4}}>{play.selection}</div>
-      <div style={{fontSize:10, color:"#3a5570", marginBottom:10}}>{play.game}</div>
-      <div style={{display:"flex", gap:8, marginBottom:10}}>
-        <span style={{fontSize:11, fontWeight:600, color:"#fff", padding:"2px 8px",
-          background:"#0e1a28", borderRadius:4}}>{play.teamRecord}</span>
-        <span style={{fontSize:10, color:"#3a5570", padding:"2px 8px", borderRadius:4}}>
-          vs {play.oppRecord}
-        </span>
-      </div>
-      {play.bestOdds && (
-        <div style={{fontSize:11, color:play.bestOdds<0?"#00bfff":"#ffd700", fontWeight:700, marginBottom:8}}>
-          {formatOdds(play.bestOdds)}
-          {play.bestBook && <span style={{color:SPORTSBOOK_COLORS[play.bestBook]||"#3a5570",
-            marginLeft:6, fontWeight:400}}>{play.bestBook}</span>}
-        </div>
-      )}
-      {/* Get at X or Better */}
-      {play.getAtOrBetter && (
-        <div style={{marginTop:10, padding:"8px 12px", borderRadius:8,
-          background:"rgba(255,215,0,0.06)", border:"1px solid rgba(255,215,0,0.25)",
-          display:"flex", alignItems:"center", justifyContent:"space-between"}}>
-          <div>
-            <div style={{fontSize:8, color:"#7a90a8", letterSpacing:"0.1em", marginBottom:1}}>GET AT OR BETTER</div>
-            <div style={{fontSize:9, color:"#3a5570"}}>walk away if line moves past this</div>
-          </div>
-          <span style={{fontSize:18, fontWeight:800, color:"#ffd700", letterSpacing:"0.05em"}}>
-            {formatOdds(play.getAtOrBetter)}
-          </span>
-        </div>
-      )}
-
-      {expanded && play.signals && (
-        <div style={{marginTop:12, borderTop:"1px solid #0e1a28", paddingTop:12}}>
-          {/* All book moneyline odds */}
-          <BookOddsTable allLines={play.allLines} bestBook={play.bestBook} />
-
-          <div style={{fontSize:9, color:"#3a5570", marginBottom:8, letterSpacing:"0.08em"}}>
-            SIGNAL BREAKDOWN
-          </div>
-          {play.signals.map(sig => (
-            <div key={sig.key} style={{marginBottom:6}}>
-              <div style={{display:"flex", justifyContent:"space-between", marginBottom:2}}>
-                <span style={{fontSize:9, color:"#7a90a8"}}>{sig.label}</span>
-                <span style={{fontSize:9, fontWeight:700,
-                  color:sig.score>=70?"#00ff88":sig.score>=55?"#ffd700":"#ff6b6b"}}>
-                  {sig.score}/100
-                </span>
-              </div>
-              <div style={{height:2, background:"#0e1a28", borderRadius:1}}>
-                <div style={{height:"100%", width:`${sig.score}%`, borderRadius:1,
-                  background:sig.score>=70?"#00ff88":sig.score>=55?"#ffd700":"#ff6b6b",
-                  opacity:0.7}}/>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-const BOOK_DISPLAY = {
-  draftkings:"DraftKings", fanduel:"FanDuel", betmgm:"BetMGM",
-  caesars:"Caesars", pointsbet:"PointsBet", betrivers:"BetRivers",
-  lowvig:"LowVig", betonlineag:"BetOnline", bovada:"Bovada",
-  mybookieag:"MyBookie", betus:"BetUS", pinnacle:"Pinnacle",
-  kalshi:"Kalshi 🔮",
-};
-
-// The 5 major books always shown on every card (in priority order)
 const TOP_5_BOOKS = ["draftkings","fanduel","betmgm","betrivers","pinnacle"];
 
-function BookOddsTable({ allLines, bestBook, type }) {
-  if(!allLines) return null;
-  const hasKalshi = "kalshi" in allLines;
+// ── Formatters ────────────────────────────────────────────────────────────────
+const fmt$    = n  => n == null ? "—" : `$${Math.abs(n).toFixed(2)}`;
+const fmtOdds = o  => !o ? "—" : o > 0 ? `+${o}` : `${o}`;
+const timeAgo = iso => {
+  if (!iso) return "never";
+  const mins = Math.round((Date.now() - new Date(iso)) / 60000);
+  if (mins < 1)  return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  return `${Math.floor(mins/60)}h ${mins%60}m ago`;
+};
 
-  // Fixed display order: DraftKings, FanDuel, BetMGM, Caesars, Pinnacle, Kalshi
+// ── Design tokens ─────────────────────────────────────────────────────────────
+const T = {
+  bg:       "#080f1a",
+  surface:  "#0d1623",
+  border:   "#162030",
+  borderHi: "#1e3040",
+  text:     "#c8d8e8",
+  textDim:  "#4a6480",
+  textMid:  "#7a90a8",
+  green:    "#00e87a",
+  blue:     "#38bdf8",
+  gold:     "#f59e0b",
+  red:      "#f87171",
+  purple:   "#a78bfa",
+  discord:  "#5865f2",
+};
+
+// ── Badge ─────────────────────────────────────────────────────────────────────
+const badge = (c, text) => (
+  <span style={{
+    display:"inline-flex", alignItems:"center",
+    fontSize:9, fontWeight:700, letterSpacing:"0.06em",
+    padding:"2px 7px", borderRadius:4,
+    background:`${c}18`, border:`1px solid ${c}33`, color:c,
+  }}>{text}</span>
+);
+
+// ── Pill ──────────────────────────────────────────────────────────────────────
+const Pill = ({ color, children, glow }) => (
+  <span style={{
+    display:"inline-flex", alignItems:"center", gap:4,
+    fontSize:9, padding:"3px 10px", borderRadius:20,
+    border:`1px solid ${color}44`,
+    background: glow ? `${color}12` : "transparent",
+    color, fontWeight: glow ? 700 : 400,
+    boxShadow: glow ? `0 0 10px ${color}20` : "none",
+  }}>{children}</span>
+);
+
+// ── Score Ring ────────────────────────────────────────────────────────────────
+function ScoreRing({ score, size = 52 }) {
+  const r = (size - 6) / 2;
+  const circ = 2 * Math.PI * r;
+  const fill = (score / 100) * circ;
+  const color = score >= 75 ? T.green : score >= 60 ? T.gold : T.red;
+  return (
+    <div style={{ position:"relative", width:size, height:size, flexShrink:0 }}>
+      <svg width={size} height={size} style={{ transform:"rotate(-90deg)" }}>
+        <circle cx={size/2} cy={size/2} r={r} fill="none" stroke={T.border} strokeWidth={3}/>
+        <circle cx={size/2} cy={size/2} r={r} fill="none" stroke={color} strokeWidth={3}
+          strokeDasharray={`${fill} ${circ}`} strokeLinecap="round"
+          style={{ transition:"stroke-dasharray 0.6s ease" }}/>
+      </svg>
+      <div style={{
+        position:"absolute", inset:0, display:"flex", flexDirection:"column",
+        alignItems:"center", justifyContent:"center",
+      }}>
+        <span style={{ fontSize:size > 48 ? 14 : 11, fontWeight:800, color, lineHeight:1 }}>{score}</span>
+      </div>
+    </div>
+  );
+}
+
+// ── Signal Bar ────────────────────────────────────────────────────────────────
+function SignalBar({ label, score }) {
+  const color = score >= 70 ? T.green : score >= 50 ? T.gold : T.red;
+  return (
+    <div style={{ marginBottom:6 }}>
+      <div style={{ display:"flex", justifyContent:"space-between", marginBottom:3 }}>
+        <span style={{ fontSize:10, color:T.textMid }}>{label}</span>
+        <span style={{ fontSize:10, fontWeight:700, color }}>{score}</span>
+      </div>
+      <div style={{ height:3, background:T.border, borderRadius:2, overflow:"hidden" }}>
+        <div style={{
+          height:"100%", width:`${score}%`, borderRadius:2,
+          background:`linear-gradient(90deg, ${color}99, ${color})`,
+          transition:"width 0.5s ease",
+        }}/>
+      </div>
+    </div>
+  );
+}
+
+// ── Book Odds Row ─────────────────────────────────────────────────────────────
+function BookLine({ bk, val, isBest }) {
+  const meta = BOOK_META[bk] || { label:bk, color:T.textDim, short:bk.slice(0,3).toUpperCase() };
+  return (
+    <div style={{
+      display:"flex", justifyContent:"space-between", alignItems:"center",
+      padding:"6px 10px", borderRadius:7, marginBottom:3,
+      background: isBest ? `${T.green}0a` : "transparent",
+      border:`1px solid ${isBest ? T.green + "33" : T.border}`,
+      opacity: val ? 1 : 0.3,
+    }}>
+      <div style={{ display:"flex", alignItems:"center", gap:7 }}>
+        {isBest && <span style={{ fontSize:8, color:T.green }}>★</span>}
+        <span style={{ fontSize:11, color: isBest ? T.text : T.textMid, fontWeight: isBest ? 600 : 400 }}>
+          {meta.label}
+        </span>
+      </div>
+      <div style={{ display:"flex", gap:8, alignItems:"center" }}>
+        {val?.point != null && (
+          <span style={{ fontSize:10, color:T.textDim }}>
+            {val.point > 0 ? `+${val.point}` : val.point}
+          </span>
+        )}
+        <span style={{
+          fontSize:13, fontWeight:700,
+          color: !val ? T.textDim : val.odds > 0 ? T.gold : T.blue,
+        }}>
+          {!val ? "—" : fmtOdds(val.odds)}
+        </span>
+        {isBest && <span style={{ fontSize:8, color:T.green, padding:"1px 5px", borderRadius:3, background:`${T.green}15`, border:`1px solid ${T.green}33` }}>BEST</span>}
+      </div>
+    </div>
+  );
+}
+
+function BookOddsTable({ allLines, bestBook }) {
+  if (!allLines) return null;
+  const hasKalshi = "kalshi" in allLines;
   const slots = [
     ...TOP_5_BOOKS.map(bk => ({ bk, val: allLines[bk] || null, isBest: bk === bestBook })),
     ...(hasKalshi ? [{ bk:"kalshi", val: allLines["kalshi"], isBest: bestBook==="kalshi" }] : []),
   ];
-
   return (
-    <div style={{marginBottom:14}}>
-      <div style={{display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:8}}>
-        <div style={{fontSize:9, color:"#3a5570", letterSpacing:"0.08em"}}>TOP SPORTSBOOK LINES</div>
-        {hasKalshi && (
-          <span style={{fontSize:8, color:"#00e5ff", padding:"1px 6px", borderRadius:3,
-            background:"rgba(0,229,255,0.08)", border:"1px solid rgba(0,229,255,0.2)"}}>
-            🔮 Kalshi included
-          </span>
-        )}
+    <div style={{ marginBottom:16 }}>
+      <div style={{ fontSize:9, color:T.textDim, letterSpacing:"0.1em", marginBottom:8, textTransform:"uppercase" }}>
+        Sportsbook Lines
       </div>
-      <div style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap:4}}>
-        {slots.map(({bk, val, isBest}) => (
-          <div key={bk} style={{
-            display:"flex", justifyContent:"space-between", alignItems:"center",
-            padding:"5px 8px", borderRadius:6, opacity: val ? 1 : 0.35,
-            background: isBest ? "rgba(0,255,136,0.06)" : bk==="kalshi" ? "rgba(0,229,255,0.04)" : "#060d16",
-            border: `1px solid ${isBest ? "#00ff8833" : bk==="kalshi" ? "rgba(0,229,255,0.15)" : "#0e1a28"}`,
-          }}>
-            <div style={{display:"flex", alignItems:"center", gap:5}}>
-              {isBest && <span style={{fontSize:7, color:"#00ff88", fontWeight:700}}>★</span>}
-              <span style={{fontSize:9, color: isBest ? "#dde3ee" : "#7a90a8"}}>
-                {BOOK_DISPLAY[bk] || bk}
-              </span>
-            </div>
-            <div style={{display:"flex", gap:6, alignItems:"center"}}>
-              {val?.point != null && <span style={{fontSize:8, color:"#3a5570"}}>{val.point > 0 ? `+${val.point}` : val.point}</span>}
-              <span style={{fontSize:10, fontWeight:700, color: !val ? "#3a5570" : val.odds > 0 ? "#ffd700" : "#00bfff"}}>
-                {!val ? "—" : val.odds > 0 ? `+${val.odds}` : val.odds}
-              </span>
-            </div>
-          </div>
-        ))}
+      {slots.map(({ bk, val, isBest }) => (
+        <BookLine key={bk} bk={bk} val={val} isBest={isBest} />
+      ))}
+    </div>
+  );
+}
+
+// ── Get At Or Better chip ─────────────────────────────────────────────────────
+function GetAtOrBetter({ value, color = T.gold }) {
+  if (!value) return null;
+  return (
+    <div style={{
+      display:"flex", alignItems:"center", justifyContent:"space-between",
+      padding:"10px 14px", borderRadius:9, marginTop:10,
+      background:`${color}08`, border:`1px solid ${color}30`,
+    }}>
+      <div>
+        <div style={{ fontSize:8, color:T.textDim, letterSpacing:"0.12em", marginBottom:2 }}>GET AT OR BETTER</div>
+        <div style={{ fontSize:9, color:T.textMid }}>Walk away if line moves past this</div>
+      </div>
+      <div style={{ textAlign:"right" }}>
+        <div style={{ fontSize:22, fontWeight:800, color, letterSpacing:"0.02em" }}>{fmtOdds(value)}</div>
       </div>
     </div>
   );
 }
 
+// ── Conviction Card ───────────────────────────────────────────────────────────
+function ConvictionCard({ play, expanded, onExpand }) {
+  const isAutoBet = play.convictionScore >= 70;
+  const accentColor = play.tier === "HIGH" ? T.green : play.tier === "MEDIUM" ? T.gold : T.red;
+  const betTypeLabel = play.betType === "Moneyline" ? "ML" : play.betType === "Spread" ? "SPR" : "TOT";
+  const betTypeColor = play.betType === "Moneyline" ? T.blue : play.betType === "Spread" ? T.gold : "#f472b6";
 
-function EVBetCard({ bet, groupExpanded, onExpand }) {
-  const expanded = groupExpanded;
-  const typeColor = bet.type==="Moneyline"?"#00bfff":bet.type==="Spread"?"#ffd700":"#ff69b4";
-  const edgeStrength = bet.edge >= 20 ? "STRONG" : bet.edge >= 10 ? "SOLID" : "LEAN";
-  const edgeColor = bet.edge >= 20 ? "#00ff88" : bet.edge >= 10 ? "#ffd700" : "#ff9944";
+  return (
+    <div onClick={onExpand} style={{
+      background: T.surface,
+      border:`1px solid ${expanded ? accentColor + "44" : T.border}`,
+      borderRadius:14, cursor:"pointer", overflow:"hidden",
+      transition:"border-color 0.2s, box-shadow 0.2s",
+      boxShadow: expanded ? `0 0 20px ${accentColor}10` : "none",
+    }}>
+      {/* Top accent bar */}
+      <div style={{ height:3, background:`linear-gradient(90deg, ${accentColor}88, ${accentColor}22)` }}/>
+
+      <div style={{ padding:"16px 18px" }}>
+        {/* Header row */}
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:12 }}>
+          <div style={{ display:"flex", gap:5, flexWrap:"wrap", flex:1, marginRight:12 }}>
+            {isAutoBet
+              ? <Pill color={T.green} glow>✓ AUTO-BET</Pill>
+              : <Pill color={T.textDim}>WATCH</Pill>}
+            <Pill color={betTypeColor}>{betTypeLabel}</Pill>
+            {play.tier && <Pill color={accentColor}>{play.tier}</Pill>}
+          </div>
+          <ScoreRing score={play.convictionScore} size={52} />
+        </div>
+
+        {/* Selection */}
+        <div style={{ fontSize:15, fontWeight:700, color:T.text, marginBottom:3, lineHeight:1.3 }}>
+          {play.selection}
+        </div>
+        <div style={{ fontSize:11, color:T.textMid, marginBottom:10 }}>{play.game}</div>
+
+        {/* Records row */}
+        {(play.teamRecord || play.oppRecord) && (
+          <div style={{ display:"flex", gap:6, marginBottom:10, flexWrap:"wrap" }}>
+            {play.teamRecord && (
+              <span style={{ fontSize:10, fontWeight:700, color:T.text,
+                padding:"3px 10px", background:T.bg, borderRadius:6, border:`1px solid ${T.border}` }}>
+                {play.teamRecord}
+              </span>
+            )}
+            {play.oppRecord && (
+              <span style={{ fontSize:10, color:T.textMid,
+                padding:"3px 10px", background:T.bg, borderRadius:6, border:`1px solid ${T.border}` }}>
+                vs {play.oppRecord}
+              </span>
+            )}
+          </div>
+        )}
+
+        {/* Best odds */}
+        {play.bestOdds && (
+          <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:10 }}>
+            <span style={{ fontSize:18, fontWeight:800, color: play.bestOdds < 0 ? T.blue : T.gold }}>
+              {fmtOdds(play.bestOdds)}
+            </span>
+            {play.bestBook && (
+              <span style={{ fontSize:10, fontWeight:600,
+                color: BOOK_META[play.bestBook]?.color || T.textMid }}>
+                {BOOK_META[play.bestBook]?.label || play.bestBook}
+              </span>
+            )}
+          </div>
+        )}
+
+        <GetAtOrBetter value={play.getAtOrBetter} color={T.gold} />
+
+        {/* Expanded */}
+        {expanded && play.signals && (
+          <div style={{ marginTop:16, paddingTop:16, borderTop:`1px solid ${T.border}` }}>
+            <BookOddsTable allLines={play.allLines} bestBook={play.bestBook} />
+            <div style={{ fontSize:9, color:T.textDim, letterSpacing:"0.1em", marginBottom:10, textTransform:"uppercase" }}>
+              Signal Breakdown
+            </div>
+            {play.signals.map(sig => <SignalBar key={sig.key} label={sig.label} score={sig.score} />)}
+          </div>
+        )}
+
+        {/* Expand toggle */}
+        <div style={{ textAlign:"center", marginTop:12, fontSize:9, color:T.textDim, letterSpacing:"0.06em" }}>
+          {expanded ? "▲ COLLAPSE" : "▼ EXPAND"}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── EV Bet Card ───────────────────────────────────────────────────────────────
+function EVBetCard({ bet, expanded, onExpand }) {
+  const typeColor = bet.type === "Moneyline" ? T.blue : bet.type === "Spread" ? T.gold : "#f472b6";
+  const edgeColor = bet.edge >= 20 ? T.green : bet.edge >= 10 ? T.gold : "#fb923c";
+  const edgeLabel = bet.edge >= 20 ? "STRONG" : bet.edge >= 10 ? "SOLID" : "LEAN";
   const kellyWidth = Math.min(100, (bet.kellyPct / 8) * 100);
 
   return (
-    <div onClick={() => onExpand()} style={{
-      background:"#0a1220", border:`1px solid ${expanded?"#00ff8833":"#172030"}`,
-      borderRadius:12, padding:"16px", cursor:"pointer", transition:"border-color 0.2s",
+    <div onClick={onExpand} style={{
+      background:T.surface, border:`1px solid ${expanded ? T.green + "44" : T.border}`,
+      borderRadius:14, cursor:"pointer", overflow:"hidden",
+      transition:"border-color 0.2s, box-shadow 0.2s",
+      boxShadow: expanded ? `0 0 20px ${T.green}08` : "none",
     }}>
-      <div style={{display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:6}}>
-        <div style={{display:"flex", gap:5, flexWrap:"wrap"}}>
-          <span style={badge(typeColor)}>{bet.type}</span>
-          <span style={badge(edgeColor)}>{edgeStrength}</span>
+      <div style={{ padding:"16px 18px" }}>
+        {/* Tags */}
+        <div style={{ display:"flex", gap:5, marginBottom:10, flexWrap:"wrap" }}>
+          {badge(typeColor, bet.type || "Moneyline")}
+          {badge(edgeColor, edgeLabel)}
         </div>
-        <span style={{fontSize:10, color:"#3a5570"}}>{expanded?"▲":"▼"}</span>
-      </div>
-      <div style={{fontSize:14, fontWeight:700, color:"#fff", marginBottom:2}}>{bet.selection}</div>
-      <div style={{fontSize:10, color:"#3a5570", marginBottom:10}}>{bet.game}</div>
-      <div style={{display:"flex", gap:8, alignItems:"center", marginBottom:10}}>
-        <span style={{fontSize:13, fontWeight:700, color:bet.bestOdds<0?"#00bfff":"#ffd700"}}>
-          {formatOdds(bet.bestOdds)}
-        </span>
-        <span style={{fontSize:9, color:SPORTSBOOK_COLORS[bet.bestBook]||"#3a5570", fontWeight:600}}>
-          {BOOK_DISPLAY[bet.bestBook]||bet.bestBook}
-        </span>
-        <span style={{fontSize:8, color:"#1e3040", marginLeft:"auto"}}>★ best line</span>
-      </div>
-      <div style={{display:"flex", gap:14, fontSize:10}}>
-        <div>Edge <span style={{color:"#00ff88", fontWeight:700}}>+{bet.edge?.toFixed(1)}%</span></div>
-        <div>EV <span style={{color:"#00ff88", fontWeight:700}}>+{bet.ev?.toFixed(1)}%</span></div>
-        <div>Kelly <span style={{color:"#b44fff", fontWeight:700}}>{bet.kellyPct?.toFixed(1)}%</span></div>
-      </div>
 
-      {expanded && (
-        <div style={{marginTop:14, borderTop:"1px solid #0e1a28", paddingTop:14}}>
-          {/* All book lines */}
-          <BookOddsTable allLines={bet.allLines} bestBook={bet.bestBook} type={bet.type} />
+        {/* Selection */}
+        <div style={{ fontSize:15, fontWeight:700, color:T.text, marginBottom:3 }}>{bet.selection}</div>
+        <div style={{ fontSize:11, color:T.textMid, marginBottom:12 }}>{bet.game}</div>
 
-          {/* Probability breakdown */}
-          <div style={{marginBottom:14}}>
-            <div style={{fontSize:9, color:"#3a5570", letterSpacing:"0.08em", marginBottom:8}}>PROBABILITY ANALYSIS</div>
-            <div style={{display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:8}}>
-              {[
-                { label:"True Prob",    value:`${bet.ourProbability?.toFixed(1)}%`, color:"#00ff88" },
-                { label:"Book Implied", value:`${bet.bookImplied?.toFixed(1)}%`,    color:"#ff6b6b" },
-                { label:"Our Edge",     value:`+${bet.edge?.toFixed(1)}%`,           color:"#00bfff" },
-              ].map(({ label, value, color }) => (
-                <div key={label} style={{background:"#060d16", borderRadius:6, padding:"8px 10px",
-                  border:"1px solid #0e1a28", textAlign:"center"}}>
-                  <div style={{fontSize:8, color:"#3a5570", marginBottom:3}}>{label}</div>
-                  <div style={{fontSize:13, fontWeight:700, color}}>{value}</div>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Kelly sizing bar */}
-          <div style={{marginBottom:14}}>
-            <div style={{display:"flex", justifyContent:"space-between", marginBottom:4}}>
-              <span style={{fontSize:9, color:"#3a5570", letterSpacing:"0.08em"}}>KELLY SIZING</span>
-              <span style={{fontSize:9, color:"#b44fff", fontWeight:700}}>{bet.kellyPct?.toFixed(1)}% of bankroll</span>
-            </div>
-            <div style={{height:4, background:"#0e1a28", borderRadius:2}}>
-              <div style={{height:"100%", width:`${kellyWidth}%`, borderRadius:2,
-                background:"linear-gradient(90deg, #b44fff, #ff69b4)", opacity:0.8}}/>
-            </div>
-            <div style={{fontSize:8, color:"#1e3040", marginTop:3}}>Max bet = 8% · This bet = {bet.kellyPct?.toFixed(1)}%</div>
-          </div>
-
-          <div style={{background:"#060d16", borderRadius:8, padding:"10px 12px",
-            border:"1px solid #0e1a28", fontSize:9, color:"#7a90a8", lineHeight:1.6}}>
-            <span style={{color:"#00ff88", fontWeight:700}}>Why this bet? </span>
-            True win probability ({bet.ourProbability?.toFixed(1)}%) exceeds the book implied odds ({bet.bookImplied?.toFixed(1)}%),
-            a {bet.edge?.toFixed(1)}% edge. At {formatOdds(bet.bestOdds)} on {BOOK_DISPLAY[bet.bestBook]||bet.bestBook},
-            this is a {bet.ev?.toFixed(1)}% EV bet. Kelly Criterion recommends {bet.kellyPct?.toFixed(1)}% of bankroll.
-          </div>
-        </div>
-      )}
-      {/* Get at X or Better */}
-      {bet.getAtOrBetter && (
-        <div style={{marginTop:10, padding:"8px 12px", borderRadius:8,
-          background:"rgba(0,255,136,0.05)", border:"1px solid rgba(0,255,136,0.2)",
-          display:"flex", alignItems:"center", justifyContent:"space-between"}}>
-          <div>
-            <div style={{fontSize:8, color:"#7a90a8", letterSpacing:"0.1em", marginBottom:1}}>GET AT OR BETTER</div>
-            <div style={{fontSize:9, color:"#3a5570"}}>walk away if line moves past this</div>
-          </div>
-          <span style={{fontSize:18, fontWeight:800, color:"#00ff88", letterSpacing:"0.05em"}}>
-            {formatOdds(bet.getAtOrBetter)}
+        {/* Best odds + book */}
+        <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:12 }}>
+          <span style={{ fontSize:22, fontWeight:800, color: bet.bestOdds < 0 ? T.blue : T.gold }}>
+            {fmtOdds(bet.bestOdds)}
           </span>
+          <div>
+            <div style={{ fontSize:10, fontWeight:600, color: BOOK_META[bet.bestBook]?.color || T.textMid }}>
+              {BOOK_META[bet.bestBook]?.label || bet.bestBook}
+            </div>
+            <div style={{ fontSize:9, color:T.textDim }}>Best available</div>
+          </div>
         </div>
-      )}
+
+        {/* Stats row */}
+        <div style={{
+          display:"grid", gridTemplateColumns:"1fr 1fr 1fr",
+          gap:8, marginBottom:12,
+        }}>
+          {[
+            { label:"Edge",  value:`+${bet.edge?.toFixed(1)}%`,       color:T.green  },
+            { label:"EV",    value:`+${bet.ev?.toFixed(1)}%`,          color:T.green  },
+            { label:"Kelly", value:`${bet.kellyPct?.toFixed(1)}%`,    color:T.purple },
+          ].map(({ label, value, color }) => (
+            <div key={label} style={{
+              background:T.bg, borderRadius:8, padding:"8px 10px", textAlign:"center",
+              border:`1px solid ${T.border}`,
+            }}>
+              <div style={{ fontSize:8, color:T.textDim, marginBottom:3, letterSpacing:"0.06em" }}>{label}</div>
+              <div style={{ fontSize:13, fontWeight:800, color }}>{value}</div>
+            </div>
+          ))}
+        </div>
+
+        <GetAtOrBetter value={bet.getAtOrBetter} color={T.green} />
+
+        {/* Expanded */}
+        {expanded && (
+          <div style={{ marginTop:16, paddingTop:16, borderTop:`1px solid ${T.border}` }}>
+            <BookOddsTable allLines={bet.allLines} bestBook={bet.bestBook} />
+
+            {/* Probability analysis */}
+            <div style={{ marginBottom:16 }}>
+              <div style={{ fontSize:9, color:T.textDim, letterSpacing:"0.1em", marginBottom:10, textTransform:"uppercase" }}>
+                Probability Analysis
+              </div>
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:8 }}>
+                {[
+                  { label:"True Prob",    value:`${bet.ourProbability?.toFixed(1)}%`, color:T.green },
+                  { label:"Book Implied", value:`${bet.bookImplied?.toFixed(1)}%`,    color:T.red   },
+                  { label:"Our Edge",     value:`+${bet.edge?.toFixed(1)}%`,           color:T.blue  },
+                ].map(({ label, value, color }) => (
+                  <div key={label} style={{
+                    background:T.bg, borderRadius:8, padding:"10px",
+                    border:`1px solid ${T.border}`, textAlign:"center",
+                  }}>
+                    <div style={{ fontSize:8, color:T.textDim, marginBottom:4 }}>{label}</div>
+                    <div style={{ fontSize:14, fontWeight:700, color }}>{value}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Kelly bar */}
+            <div style={{ marginBottom:14 }}>
+              <div style={{ display:"flex", justifyContent:"space-between", marginBottom:6 }}>
+                <span style={{ fontSize:9, color:T.textDim, letterSpacing:"0.08em" }}>KELLY SIZING</span>
+                <span style={{ fontSize:9, color:T.purple, fontWeight:700 }}>{bet.kellyPct?.toFixed(1)}% of bankroll</span>
+              </div>
+              <div style={{ height:4, background:T.border, borderRadius:2, overflow:"hidden" }}>
+                <div style={{
+                  height:"100%", width:`${kellyWidth}%`, borderRadius:2,
+                  background:`linear-gradient(90deg, ${T.purple}, #ec4899)`,
+                }}/>
+              </div>
+              <div style={{ fontSize:8, color:T.textDim, marginTop:4 }}>
+                Capped at 8% max · This bet = {bet.kellyPct?.toFixed(1)}%
+              </div>
+            </div>
+
+            {/* Rationale */}
+            <div style={{
+              background:T.bg, borderRadius:10, padding:"12px 14px",
+              border:`1px solid ${T.border}`, fontSize:10, color:T.textMid, lineHeight:1.7,
+            }}>
+              <span style={{ color:T.green, fontWeight:700 }}>Why this bet? </span>
+              True probability ({bet.ourProbability?.toFixed(1)}%) exceeds book implied ({bet.bookImplied?.toFixed(1)}%),
+              a {bet.edge?.toFixed(1)}% edge. Kelly recommends {bet.kellyPct?.toFixed(1)}% of bankroll
+              at {fmtOdds(bet.bestOdds)} on {BOOK_META[bet.bestBook]?.label || bet.bestBook}.
+            </div>
+          </div>
+        )}
+
+        <div style={{ textAlign:"center", marginTop:12, fontSize:9, color:T.textDim, letterSpacing:"0.06em" }}>
+          {expanded ? "▲ COLLAPSE" : "▼ EXPAND"}
+        </div>
+      </div>
     </div>
   );
 }
 
+// ── History Row ───────────────────────────────────────────────────────────────
 function HistoryRow({ h }) {
-  const isWon = h.status==="won", isLost = h.status==="lost", isPending = h.status==="pending";
+  const isWon = h.status === "won";
+  const isLost = h.status === "lost";
+  const isPending = h.status === "pending";
   const pnl = isWon ? h.potentialPayout : isLost ? -h.wagerAmt : null;
-  const accentColor = isWon?"#00ff88":isLost?"#ff6b6b":isPending?"#ffd700":"#3a5570";
+  const accent = isWon ? T.green : isLost ? T.red : isPending ? T.gold : T.textDim;
+  const btype = h.betType || h.type || "";
+  const typeColor = btype === "Moneyline" ? T.blue : btype === "Spread" ? T.gold : "#f472b6";
+
   return (
-    <div style={{borderBottom:"1px solid #0e1a28",
-      background:isWon?"rgba(0,255,136,0.03)":isLost?"rgba(255,107,107,0.03)":"transparent"}}>
-      <div style={{display:"grid", gridTemplateColumns:"100px 1fr auto", gap:12,
-        padding:"12px 20px", alignItems:"center"}}>
+    <div style={{
+      borderBottom:`1px solid ${T.border}`,
+      background: isWon ? `${T.green}04` : isLost ? `${T.red}04` : "transparent",
+      transition:"background 0.15s",
+    }}>
+      <div style={{
+        display:"grid", gridTemplateColumns:"90px 1fr auto",
+        gap:12, padding:"14px 20px", alignItems:"start",
+      }}>
+        {/* Status col */}
         <div>
-          <div style={{display:"flex", alignItems:"center", gap:5, marginBottom:3}}>
-            <div style={{width:5, height:5, borderRadius:"50%", background:accentColor}}/>
-            <span style={{fontSize:8, fontWeight:700, color:accentColor, letterSpacing:"0.08em"}}>
-              {isWon?(h.estimatedResult?"WIN ~":"WIN ✓"):isLost?(h.estimatedResult?"LOSS ~":"LOSS ✗"):isPending?"PENDING":"VOID"}
+          <div style={{ display:"flex", alignItems:"center", gap:5, marginBottom:4 }}>
+            <div style={{ width:6, height:6, borderRadius:"50%", background:accent,
+              boxShadow: isPending ? `0 0 6px ${accent}` : "none" }}/>
+            <span style={{ fontSize:9, fontWeight:800, color:accent, letterSpacing:"0.08em" }}>
+              {isWon ? (h.estimatedResult ? "WIN ~" : "WIN") : isLost ? (h.estimatedResult ? "LOSS ~" : "LOSS") : isPending ? "PENDING" : "VOID"}
             </span>
           </div>
-          <div style={{fontSize:9, color:"#3a5570"}}>
-            {new Date(h.date).toLocaleDateString("en-US",{month:"short",day:"numeric"})}
+          <div style={{ fontSize:10, color:T.textMid }}>
+            {new Date(h.date).toLocaleDateString("en-US", { month:"short", day:"numeric" })}
           </div>
-          <div style={{fontSize:8, color:"#1e3040"}}>
-            {new Date(h.date).toLocaleTimeString("en-US",{hour:"2-digit",minute:"2-digit"})}
+          <div style={{ fontSize:9, color:T.textDim }}>
+            {new Date(h.date).toLocaleTimeString("en-US", { hour:"2-digit", minute:"2-digit" })}
           </div>
         </div>
+
+        {/* Bet info col */}
         <div>
-          <div style={{fontSize:12, fontWeight:600, color:"#fff", marginBottom:2}}>{h.selection.replace(/ ML$/i,"").replace(/ Moneyline$/i,"")}</div>
-          <div style={{fontSize:9, color:"#3a5570", marginBottom:4}}>{h.game}</div>
-          <div style={{display:"flex", gap:5, flexWrap:"wrap", alignItems:"center"}}>
-            {!h.isConviction&&<span style={{...badge("#00ff88")}}>⚡ +EV</span>}
-            {(() => {
-              const btype = h.betType || h.type || "";
-              const typeLabel = btype==="Moneyline"?"💰 Moneyline":btype==="Spread"?"📊 Spread":btype==="Game Total"?"🏀 Game Total":btype;
-              const typeColor = btype==="Moneyline"?"#00bfff":btype==="Spread"?"#ffd700":"#ff69b4";
-              return (<>
-                {h.isConviction&&<span style={{...badge("#b44fff")}}>🎯 Conviction</span>}
-                {typeLabel&&<span style={{...badge("transparent"),border:`1px solid ${typeColor}`,color:typeColor,fontWeight:600}}>{typeLabel}</span>}
-              </>);
-            })()}
-            {h.bestOdds&&<span style={{...badge("transparent"),border:`1px solid ${h.bestOdds<0?"#00bfff":"#ffd700"}`,color:h.bestOdds<0?"#00bfff":"#ffd700",fontWeight:700}}>{formatOdds(h.bestOdds)}</span>}
-            {h.bestBook&&<span style={{...badge("transparent"),border:"1px solid #1e3040",color:SPORTSBOOK_COLORS[h.bestBook]||"#8899aa"}}>{BOOK_DISPLAY[h.bestBook]||h.bestBook}</span>}
-            {h.edge>0&&!h.isConviction&&<span style={{...badge("#00ff88")}}>+{h.edge?.toFixed(1)}% edge</span>}
+          <div style={{ fontSize:13, fontWeight:700, color:T.text, marginBottom:3, lineHeight:1.3 }}>
+            {h.selection?.replace(/ ML$/i,"")?.replace(/ Moneyline$/i,"")}
+          </div>
+          <div style={{ fontSize:10, color:T.textMid, marginBottom:6 }}>{h.game}</div>
+          <div style={{ display:"flex", gap:5, flexWrap:"wrap", alignItems:"center" }}>
+            {h.isConviction
+              ? badge(T.purple, "🎯 Conviction")
+              : badge(T.green, "⚡ +EV")}
+            {btype && badge(typeColor, btype === "Moneyline" ? "ML" : btype === "Spread" ? "Spread" : "Total")}
+            {h.bestOdds && (
+              <span style={{
+                fontSize:10, fontWeight:700, padding:"1px 6px", borderRadius:4,
+                color: h.bestOdds < 0 ? T.blue : T.gold,
+                background: T.bg, border:`1px solid ${T.border}`,
+              }}>{fmtOdds(h.bestOdds)}</span>
+            )}
+            {h.bestBook && (
+              <span style={{ fontSize:9, color: BOOK_META[h.bestBook]?.color || T.textMid }}>
+                {BOOK_META[h.bestBook]?.label || h.bestBook}
+              </span>
+            )}
+            {h.edge > 0 && !h.isConviction && badge(T.green, `+${h.edge?.toFixed(1)}% edge`)}
           </div>
         </div>
-        <div style={{textAlign:"right", minWidth:120}}>
+
+        {/* P&L col */}
+        <div style={{ textAlign:"right", minWidth:110 }}>
           {pnl !== null && (
-            <div style={{fontSize:18, fontWeight:800, color:accentColor}}>
-              {pnl>0?"+":""}{fmt$(pnl)}
+            <div style={{ fontSize:20, fontWeight:800, color:accent, marginBottom:2 }}>
+              {pnl > 0 ? "+" : ""}{fmt$(pnl)}
             </div>
           )}
-          <div style={{fontSize:9, color:"#3a5570", marginTop:2}}>
-            Wagered <span style={{color:"#ffd700", fontWeight:600}}>{fmt$(h.wagerAmt)}</span>
+          <div style={{ fontSize:9, color:T.textDim }}>
+            Wagered <span style={{ color:T.text, fontWeight:600 }}>{fmt$(h.wagerAmt)}</span>
           </div>
-          <div style={{fontSize:9, color:"#3a5570", marginTop:1}}>
-            To win <span style={{color:"#00ff88", fontWeight:600}}>
-              {(() => {
-                const odds = h.bestOdds || -110;
-                const wager = h.wagerAmt || 0;
-                const profit = odds > 0 ? wager * (odds/100) : wager * (100/Math.abs(odds));
-                return `+$${profit.toFixed(2)}`;
-              })()}
+          <div style={{ fontSize:9, color:T.textDim, marginTop:1 }}>
+            Kelly <span style={{ color:T.purple, fontWeight:600 }}>
+              {h.kellyPct > 0 ? h.kellyPct.toFixed(1) : h.wagerAmt && h.bankrollBefore ? (h.wagerAmt / h.bankrollBefore * 100).toFixed(1) : "2.0"}%
             </span>
           </div>
-          <div style={{fontSize:9, color:"#3a5570", marginTop:1}}>
-            Kelly <span style={{color:"#b44fff",fontWeight:600}}>
-              {h.kellyPct>0?h.kellyPct.toFixed(1):h.wagerAmt&&h.bankrollBefore?(h.wagerAmt/h.bankrollBefore*100).toFixed(1):"2.0"}%
-            </span>
-            {" · "}<span style={{color:"#dde3ee"}}>{fmt$(h.bankrollAfter)}</span>
+          <div style={{ fontSize:9, color:T.textDim, marginTop:1 }}>
+            Balance <span style={{ color:T.text }}>{fmt$(h.bankrollAfter)}</span>
           </div>
         </div>
       </div>
+      {/* P&L accent bar */}
       {!isPending && (
-        <div style={{height:1.5, background:"#0e1a28"}}>
-          <div style={{height:"100%",
-            width:`${Math.min(100,Math.abs(pnl||0)/(h.wagerAmt||1)*50+50)}%`,
-            background:accentColor, opacity:0.4}}/>
+        <div style={{ height:1, background:`${accent}22` }}>
+          <div style={{
+            height:"100%",
+            width:`${Math.min(100, Math.abs(pnl || 0) / (h.wagerAmt || 1) * 50 + 50)}%`,
+            background: accent, opacity:0.4,
+          }}/>
         </div>
       )}
     </div>
   );
 }
 
+// ── Prop Card ─────────────────────────────────────────────────────────────────
+function PropCard({ prop }) {
+  const [expanded, setExpanded] = useState(false);
+  const edgeColor = prop.edge >= 0.08 ? T.green : prop.edge >= 0.05 ? T.gold : "#fb923c";
+  const convColor = prop.convictionScore >= 75 ? T.green : prop.convictionScore >= 70 ? T.gold : "#fb923c";
+  const autoBet = prop.convictionScore >= 70;
+  const sideColor = prop.side === "Over" ? T.green : T.red;
 
+  const MARKET_LABEL = {
+    player_points:"PTS", player_rebounds:"REB", player_assists:"AST",
+    player_threes:"3PM", player_points_rebounds_assists:"PRA",
+    player_points_rebounds:"PR", player_points_assists:"PA",
+  };
+
+  return (
+    <div style={{
+      background:T.surface, border:`1px solid ${autoBet ? T.purple + "55" : T.border}`,
+      borderRadius:14, overflow:"hidden",
+      boxShadow: autoBet ? `0 0 16px ${T.purple}10` : "none",
+    }}>
+      {autoBet && (
+        <div style={{ height:2, background:`linear-gradient(90deg, ${T.purple}, ${T.blue})` }}/>
+      )}
+      <div style={{ padding:"16px 18px" }}>
+        {/* Header */}
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:10 }}>
+          <div style={{ flex:1, marginRight:10 }}>
+            <div style={{ fontSize:15, fontWeight:700, color:T.text, marginBottom:2 }}>{prop.player}</div>
+            <div style={{ fontSize:10, color:T.textMid }}>{prop.game}</div>
+            {prop.opponentTeam && <div style={{ fontSize:9, color:T.textDim }}>vs {prop.opponentTeam}</div>}
+          </div>
+          <div style={{ textAlign:"right" }}>
+            <ScoreRing score={prop.convictionScore} size={48} />
+            {autoBet && <div style={{ fontSize:8, color:T.purple, fontWeight:700, marginTop:3 }}>AUTO-BET</div>}
+          </div>
+        </div>
+
+        {/* Bet line hero */}
+        <div style={{
+          background:T.bg, borderRadius:10, padding:"12px 14px", marginBottom:10,
+          border:`1px solid ${T.border}`,
+        }}>
+          <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:8 }}>
+            <div style={{ display:"flex", alignItems:"baseline", gap:8 }}>
+              <span style={{ fontSize:20, fontWeight:800, color:sideColor }}>{prop.side}</span>
+              <span style={{ fontSize:22, fontWeight:800, color:T.text }}>{prop.line}</span>
+              <span style={{ fontSize:11, color:T.textMid }}>
+                {MARKET_LABEL[prop.market] || prop.marketLabel}
+              </span>
+            </div>
+            <span style={{ fontSize:12, fontWeight:700, color:edgeColor }}>
+              +{(prop.edge * 100).toFixed(1)}% edge
+            </span>
+          </div>
+
+          {/* Season / L5 */}
+          {(prop.playerSeasonAvg != null || prop.playerL5Avg != null) && (
+            <div style={{ display:"flex", gap:16, marginBottom:8 }}>
+              {prop.playerSeasonAvg != null && (
+                <div style={{ fontSize:9, color:T.textDim }}>
+                  Season <span style={{ color:T.text, fontWeight:600 }}>{prop.playerSeasonAvg.toFixed(1)}</span>
+                </div>
+              )}
+              {prop.playerL5Avg != null && (
+                <div style={{ fontSize:9, color:T.textDim }}>
+                  L5 avg <span style={{
+                    fontWeight:700,
+                    color: prop.side === "Over"
+                      ? (prop.playerL5Avg > prop.line ? T.green : T.red)
+                      : (prop.playerL5Avg < prop.line ? T.green : T.red),
+                  }}>{prop.playerL5Avg.toFixed(1)}</span>
+                </div>
+              )}
+            </div>
+          )}
+
+          <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+            <span style={{ fontSize:15, fontWeight:800, color: prop.bestOdds > 0 ? T.gold : T.blue }}>
+              {fmtOdds(prop.bestOdds)}
+            </span>
+            <span style={{
+              fontSize:9, fontWeight:600, padding:"2px 8px", borderRadius:5,
+              color: BOOK_META[prop.bestBook]?.color || T.textMid,
+              background:T.surface, border:`1px solid ${T.border}`,
+            }}>
+              {BOOK_META[prop.bestBook]?.label || prop.bestBook}
+            </span>
+          </div>
+        </div>
+
+        <GetAtOrBetter value={prop.getAtOrBetter} color={T.purple} />
+
+        {/* Signals */}
+        {prop.signals?.length > 0 && (
+          <div style={{ marginTop:12 }}>
+            <div style={{ fontSize:9, color:T.textDim, letterSpacing:"0.1em", marginBottom:8, textTransform:"uppercase" }}>
+              Signal Breakdown
+            </div>
+            {prop.signals.map(sig => <SignalBar key={sig.key} label={sig.label} score={sig.score} />)}
+          </div>
+        )}
+
+        {/* All lines toggle */}
+        {prop.allLines && Object.keys(prop.allLines).length > 1 && (
+          <div style={{ marginTop:10 }}>
+            <button onClick={() => setExpanded(e => !e)} style={{
+              background:"transparent", border:"none", color:T.textDim, cursor:"pointer",
+              fontSize:9, padding:0, letterSpacing:"0.04em", fontFamily:"inherit",
+            }}>
+              {expanded ? "▲ Hide lines" : `▼ All lines (${Object.keys(prop.allLines).length} books)`}
+            </button>
+            {expanded && (
+              <div style={{ marginTop:8 }}>
+                {Object.entries(prop.allLines).map(([bk, val]) => (
+                  <BookLine key={bk} bk={bk} val={val} isBest={bk === prop.bestBook} />
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Footer stats */}
+        <div style={{
+          display:"flex", justifyContent:"space-between",
+          fontSize:9, color:T.textDim, borderTop:`1px solid ${T.border}`,
+          paddingTop:10, marginTop:10,
+        }}>
+          <span>True prob <span style={{ color:T.textMid }}>{prop.trueProb?.toFixed(1)}%</span></span>
+          <span>Kelly <span style={{ color:T.purple }}>{prop.kellyPct?.toFixed(1)}%</span></span>
+          <span>EV <span style={{ color:T.green }}>+{prop.ev?.toFixed(1)}%</span></span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Stat Card ─────────────────────────────────────────────────────────────────
+function StatCard({ label, value, sub, color = T.green, icon }) {
+  return (
+    <div style={{
+      background:T.surface, border:`1px solid ${T.border}`,
+      borderRadius:14, padding:"18px 20px", position:"relative", overflow:"hidden",
+    }}>
+      <div style={{
+        position:"absolute", top:0, left:0, right:0, height:2,
+        background:`linear-gradient(90deg, ${color}66, transparent)`,
+      }}/>
+      <div style={{ fontSize:9, color:T.textDim, letterSpacing:"0.1em", marginBottom:10, textTransform:"uppercase" }}>
+        {label}
+      </div>
+      <div style={{ fontSize:24, fontWeight:800, color, marginBottom:4, lineHeight:1 }}>{value}</div>
+      {sub && <div style={{ fontSize:10, color:T.textMid, marginTop:4 }}>{sub}</div>}
+    </div>
+  );
+}
+
+// ── Info components ───────────────────────────────────────────────────────────
 function InfoSection({ title, children }) {
   return (
-    <div style={{background:"#0a1220", border:"1px solid #172030", borderRadius:12, padding:"24px 28px", marginBottom:20}}>
-      <div style={{fontSize:13, fontWeight:700, color:"#fff", marginBottom:16, letterSpacing:"0.05em"}}>{title}</div>
+    <div style={{
+      background:T.surface, border:`1px solid ${T.border}`,
+      borderRadius:14, padding:"24px 28px", marginBottom:16,
+    }}>
+      <div style={{ fontSize:13, fontWeight:700, color:T.text, marginBottom:16 }}>{title}</div>
       {children}
     </div>
   );
 }
 
-function InfoRow({ label, value, color="#dde3ee" }) {
+function InfoRow({ label, value }) {
   return (
-    <div style={{display:"flex", justifyContent:"space-between", alignItems:"flex-start",
-      padding:"10px 0", borderBottom:"1px solid #0e1a28"}}>
-      <span style={{fontSize:11, color:"#7a90a8", flexShrink:0, width:160}}>{label}</span>
-      <span style={{fontSize:11, color, textAlign:"right", lineHeight:1.5}}>{value}</span>
+    <div style={{
+      display:"flex", justifyContent:"space-between", alignItems:"flex-start",
+      padding:"10px 0", borderBottom:`1px solid ${T.border}`,
+    }}>
+      <span style={{ fontSize:11, color:T.textMid, flexShrink:0, width:170 }}>{label}</span>
+      <span style={{ fontSize:11, color:T.text, textAlign:"right", lineHeight:1.5 }}>{value}</span>
     </div>
   );
 }
 
 function Step({ n, title, desc }) {
   return (
-    <div style={{display:"flex", gap:16, padding:"14px 0", borderBottom:"1px solid #0e1a28"}}>
-      <div style={{width:28, height:28, borderRadius:"50%", background:"rgba(0,255,136,0.1)",
-        border:"1px solid #00ff8833", display:"flex", alignItems:"center", justifyContent:"center",
-        flexShrink:0, fontSize:11, fontWeight:700, color:"#00ff88"}}>{n}</div>
+    <div style={{ display:"flex", gap:16, padding:"14px 0", borderBottom:`1px solid ${T.border}` }}>
+      <div style={{
+        width:30, height:30, borderRadius:"50%",
+        background:`${T.green}12`, border:`1px solid ${T.green}33`,
+        display:"flex", alignItems:"center", justifyContent:"center",
+        flexShrink:0, fontSize:12, fontWeight:800, color:T.green,
+      }}>{n}</div>
       <div>
-        <div style={{fontSize:12, fontWeight:700, color:"#fff", marginBottom:4}}>{title}</div>
-        <div style={{fontSize:11, color:"#7a90a8", lineHeight:1.6}}>{desc}</div>
+        <div style={{ fontSize:12, fontWeight:700, color:T.text, marginBottom:4 }}>{title}</div>
+        <div style={{ fontSize:11, color:T.textMid, lineHeight:1.7 }}>{desc}</div>
       </div>
     </div>
   );
 }
 
-function PropCard({ prop }) {
-  const [expanded, setExpanded] = useState(false);
-  const BOOK_DISPLAY = { draftkings:"DraftKings", fanduel:"FanDuel", betmgm:"BetMGM",
-    betrivers:"BetRivers", pinnacle:"Pinnacle", caesars:"Caesars", kalshi:"Kalshi 🔮" };
-  const SPORTSBOOK_COLORS = { draftkings:"#00d548", fanduel:"#1493ff", betmgm:"#c9a84c",
-    betrivers:"#d4213d", pinnacle:"#00e5ff", caesars:"#b8963e", kalshi:"#b44fff" };
-  const formatOdds = o => o > 0 ? `+${o}` : `${o}`;
-  const edgeColor = prop.edge >= 0.08 ? "#00ff88" : prop.edge >= 0.05 ? "#ffd700" : "#ff9944";
-  const convColor = prop.convictionScore >= 75 ? "#00ff88" : prop.convictionScore >= 70 ? "#ffd700" : "#ff9944";
-  const autoBet = prop.convictionScore >= 70;
-
-  const marketEmoji = {
-    player_points:"🎯", player_rebounds:"🏀", player_assists:"🎪",
-    player_threes:"3️⃣", player_points_rebounds_assists:"⚡",
-    player_points_rebounds:"💪", player_points_assists:"🎯",
-  }[prop.market] || "📊";
-
-  return (
-    <div style={{background:"#0a1220", border:`1px solid ${autoBet?"#b44fff55":"#172030"}`,
-      borderRadius:12, padding:"14px 16px", position:"relative", overflow:"hidden"}}>
-      {autoBet && <div style={{position:"absolute",top:0,left:0,right:0,height:2,
-        background:"linear-gradient(90deg,#b44fff,#00bfff)"}}/>}
-
-      {/* Header */}
-      <div style={{display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:8}}>
-        <div>
-          <div style={{fontSize:13, fontWeight:700, color:"#fff", marginBottom:1}}>
-            {marketEmoji} {prop.player}
-          </div>
-          <div style={{fontSize:9, color:"#3a5570"}}>{prop.game}</div>
-          {prop.opponentTeam && <div style={{fontSize:9, color:"#1e3040"}}>vs {prop.opponentTeam}</div>}
-        </div>
-        <div style={{textAlign:"right"}}>
-          <div style={{fontSize:22, fontWeight:800, color:convColor}}>
-            {prop.convictionScore}<span style={{fontSize:10,color:"#3a5570"}}>/100</span>
-          </div>
-          {autoBet && <div style={{fontSize:8, color:"#b44fff", fontWeight:700}}>✓ AUTO-BET</div>}
-        </div>
-      </div>
-
-      {/* Bet line */}
-      <div style={{background:"#0e1a28", borderRadius:8, padding:"10px 12px", marginBottom:10}}>
-        <div style={{display:"flex", alignItems:"center", gap:8, marginBottom:6}}>
-          <span style={{fontSize:15, fontWeight:800, color: prop.side==="Over"?"#00ff88":"#ff6b6b"}}>
-            {prop.side} {prop.line}
-          </span>
-          <span style={{fontSize:10, color:"#3a5570"}}>{prop.marketLabel}</span>
-          <span style={{fontSize:10, fontWeight:700, color:edgeColor, marginLeft:"auto"}}>
-            +{(prop.edge*100).toFixed(1)}% edge
-          </span>
-        </div>
-
-        {/* Season / L5 context */}
-        {(prop.playerSeasonAvg !== null || prop.playerL5Avg !== null) && (
-          <div style={{display:"flex", gap:12, marginBottom:6}}>
-            {prop.playerSeasonAvg !== null && (
-              <div style={{fontSize:9, color:"#3a5570"}}>
-                Season avg: <span style={{color:"#8899aa",fontWeight:600}}>{prop.playerSeasonAvg.toFixed(1)}</span>
-              </div>
-            )}
-            {prop.playerL5Avg !== null && (
-              <div style={{fontSize:9, color:"#3a5570"}}>
-                L5 avg: <span style={{
-                  color: prop.side==="Over"
-                    ? (prop.playerL5Avg > prop.line ? "#00ff88" : "#ff6b6b")
-                    : (prop.playerL5Avg < prop.line ? "#00ff88" : "#ff6b6b"),
-                  fontWeight:600
-                }}>{prop.playerL5Avg.toFixed(1)}</span>
-              </div>
-            )}
-          </div>
-        )}
-
-        <div style={{display:"flex", gap:6, flexWrap:"wrap", alignItems:"center"}}>
-          <span style={{fontSize:12, fontWeight:700, color: prop.bestOdds>0?"#ffd700":"#00bfff"}}>
-            {formatOdds(prop.bestOdds)}
-          </span>
-          <span style={{fontSize:9, color:SPORTSBOOK_COLORS[prop.bestBook]||"#8899aa",
-            background:"#172030", padding:"2px 6px", borderRadius:4}}>
-            {BOOK_DISPLAY[prop.bestBook]||prop.bestBook}
-          </span>
-        </div>
-      </div>
-
-      {/* Get at X or Better */}
-      {prop.getAtOrBetter && (
-        <div style={{marginBottom:10, padding:"8px 12px", borderRadius:8,
-          background:"rgba(180,79,255,0.06)", border:"1px solid rgba(180,79,255,0.25)",
-          display:"flex", alignItems:"center", justifyContent:"space-between"}}>
-          <div>
-            <div style={{fontSize:8, color:"#7a90a8", letterSpacing:"0.1em", marginBottom:1}}>GET AT OR BETTER</div>
-            <div style={{fontSize:9, color:"#3a5570"}}>walk away if line moves past this</div>
-          </div>
-          <span style={{fontSize:18, fontWeight:800, color:"#b44fff", letterSpacing:"0.05em"}}>
-            {formatOdds(prop.getAtOrBetter)}
-          </span>
-        </div>
-      )}
-
-      {/* Signal bars */}
-      {prop.signals?.length > 0 && (
-        <div style={{marginBottom:10}}>
-          <div style={{fontSize:8,color:"#3a5570",letterSpacing:"0.06em",textTransform:"uppercase",marginBottom:6}}>
-            SIGNAL BREAKDOWN
-          </div>
-          {prop.signals.map(sig => (
-            <div key={sig.key} style={{display:"flex", alignItems:"center", gap:8, marginBottom:4}}>
-              <div style={{fontSize:9, color:"#3a5570", width:90, flexShrink:0}}>{sig.label}</div>
-              <div style={{flex:1, height:4, background:"#0e1a28", borderRadius:2, overflow:"hidden"}}>
-                <div style={{
-                  height:"100%", borderRadius:2,
-                  width:`${sig.score}%`,
-                  background: sig.score>=70?"#00ff88":sig.score>=50?"#ffd700":"#ff6b6b",
-                  transition:"width 0.5s ease"
-                }}/>
-              </div>
-              <div style={{fontSize:9, color:"#8899aa", width:30, textAlign:"right"}}>{Math.round(sig.score)}</div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* All lines toggle */}
-      {prop.allLines && Object.keys(prop.allLines).length > 1 && (
-        <div>
-          <button onClick={() => setExpanded(e => !e)} style={{
-            background:"transparent", border:"none", color:"#3a5570", cursor:"pointer",
-            fontSize:9, padding:"0 0 6px", letterSpacing:"0.04em"
-          }}>
-            {expanded ? "▲ Hide lines" : `▼ All lines (${Object.keys(prop.allLines).length} books)`}
-          </button>
-          {expanded && (
-            <div style={{display:"flex", gap:6, flexWrap:"wrap", marginBottom:6}}>
-              {Object.entries(prop.allLines).map(([bk, val]) => (
-                <div key={bk} style={{fontSize:9,
-                  color: bk===prop.bestBook?"#fff":"#3a5570",
-                  background: bk===prop.bestBook?"#172030":"transparent",
-                  border:"1px solid #172030", borderRadius:4, padding:"2px 7px"}}>
-                  <span style={{color:SPORTSBOOK_COLORS[bk]||"#3a5570", marginRight:3}}>
-                    {BOOK_DISPLAY[bk]||bk}
-                  </span>
-                  <span style={{fontWeight:700}}>{formatOdds(val.odds)}</span>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Footer */}
-      <div style={{display:"flex", justifyContent:"space-between", fontSize:9, color:"#3a5570", borderTop:"1px solid #0e1a28", paddingTop:8, marginTop:4}}>
-        <span>True prob: <span style={{color:"#8899aa"}}>{prop.trueProb?.toFixed(1)}%</span></span>
-        <span>Kelly: <span style={{color:"#b44fff"}}>{prop.kellyPct?.toFixed(1)}%</span></span>
-        <span>EV: <span style={{color:"#00ff88"}}>+{prop.ev?.toFixed(1)}%</span></span>
-      </div>
-    </div>
-  );
-}
-
-
+// ── Info Tab ──────────────────────────────────────────────────────────────────
 function InfoTab() {
   return (
-    <div style={{padding:"0 32px"}}>
-
-      {/* Discord Setup Card */}
-      <div style={{background:"rgba(88,101,242,0.08)", border:"1px solid rgba(88,101,242,0.25)",
-        borderRadius:14, padding:"20px 24px", marginBottom:24,
-        display:"flex", alignItems:"center", justifyContent:"space-between", flexWrap:"wrap", gap:12}}>
+    <div style={{ padding:"0 20px" }}>
+      {/* Discord card */}
+      <div style={{
+        background:`${T.discord}0c`, border:`1px solid ${T.discord}33`,
+        borderRadius:14, padding:"20px 24px", marginBottom:16,
+        display:"flex", alignItems:"center", justifyContent:"space-between",
+        flexWrap:"wrap", gap:12,
+      }}>
         <div>
-          <div style={{display:"flex", alignItems:"center", gap:8, marginBottom:6}}>
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="#5865f2">
+          <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:6 }}>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill={T.discord}>
               <path d="M20.317 4.37a19.791 19.791 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 0 0 .031.057 19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028c.462-.63.874-1.295 1.226-1.994a.076.076 0 0 0-.041-.106 13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128 10.2 10.2 0 0 0 .372-.292.074.074 0 0 1 .077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 0 1 .078.01c.12.098.246.198.373.292a.077.077 0 0 1-.006.127 12.299 12.299 0 0 1-1.873.892.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.03z"/>
             </svg>
-            <span style={{fontSize:14, fontWeight:700, color:"#fff"}}>Get Bet Alerts on Discord</span>
+            <span style={{ fontSize:15, fontWeight:700, color:T.text }}>Get Bet Alerts on Discord</span>
           </div>
-          <div style={{fontSize:11, color:"#7a90a8", lineHeight:1.7, maxWidth:480}}>
-            Every time the algorithm places a bet, you'll get an instant Discord notification
-            with the pick, odds, book, and Kelly sizing — so you can follow along in real time.
+          <div style={{ fontSize:11, color:T.textMid, lineHeight:1.7, maxWidth:500 }}>
+            Every time the algorithm places a bet, you'll receive an instant notification
+            with the pick, odds, book, and Kelly sizing — follow along in real time.
           </div>
         </div>
         <a href="https://discord.gg/TRZQRu58au" target="_blank" rel="noopener noreferrer"
           style={{
             display:"inline-flex", alignItems:"center", gap:8,
-            padding:"10px 22px", borderRadius:10, cursor:"pointer",
-            background:"#5865f2", color:"#fff", fontWeight:700,
+            padding:"10px 22px", borderRadius:10,
+            background:T.discord, color:"#fff", fontWeight:700,
             fontSize:12, textDecoration:"none", fontFamily:"inherit",
             letterSpacing:"0.05em", whiteSpace:"nowrap",
-            boxShadow:"0 0 16px rgba(88,101,242,0.4)",
+            boxShadow:`0 0 20px ${T.discord}44`,
           }}>
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="#fff">
-            <path d="M20.317 4.37a19.791 19.791 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 0 0 .031.057 19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028c.462-.63.874-1.295 1.226-1.994a.076.076 0 0 0-.041-.106 13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128 10.2 10.2 0 0 0 .372-.292.074.074 0 0 1 .077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 0 1 .078.01c.12.098.246.198.373.292a.077.077 0 0 1-.006.127 12.299 12.299 0 0 1-1.873.892.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.030z"/>
-          </svg>
           Join Discord
         </a>
       </div>
 
       <InfoSection title="🏀 What is NBA Edge?">
-        <p style={{fontSize:12, color:"#7a90a8", lineHeight:1.8, marginBottom:12}}>
-          NBA Edge is a fully automated betting analysis tool. Every 8 minutes, it scans odds from
-          10+ sportsbooks, runs math to find bets where the true probability of winning is higher
-          than what the sportsbook is offering — these are called <span style={{color:"#00ff88", fontWeight:700}}>+EV bets</span> (positive expected value).
-        </p>
-        <p style={{fontSize:12, color:"#7a90a8", lineHeight:1.8}}>
-          It also scores every team matchup on a 0–100 scale using stats like win rate, recent form,
-          and home/away record — these are called <span style={{color:"#ffd700", fontWeight:700}}>Conviction Plays</span>.
-          All bets are tracked on a $100 paper bankroll so you can see the real performance over time.
+        <p style={{ fontSize:12, color:T.textMid, lineHeight:1.8, marginBottom:0 }}>
+          NBA Edge is a fully automated betting analysis tool. Four times daily, it scans odds
+          from 10+ sportsbooks, runs mathematics to find bets where the true probability of
+          winning exceeds the bookmaker's implied probability. These are called +EV (positive
+          expected value) bets — they're profitable long-term even if individual bets lose.
         </p>
       </InfoSection>
 
       <InfoSection title="📊 How to Read EV Bets">
-        <p style={{fontSize:11, color:"#3a5570", marginBottom:14, lineHeight:1.6}}>
-          EV bets appear on the All, Moneyline, Spread, and Game Total tabs. Each card shows you where the math says there is an edge.
-        </p>
-        <InfoRow label="Edge %" value="How much better your true odds are vs. what the book offers. +5% means you have a 5% mathematical advantage. Higher = better." color="#00ff88"/>
-        <InfoRow label="EV %" value="Expected Value — the average profit per $100 bet over thousands of bets. +10% EV means you'd profit $10 per $100 bet long-term." color="#00ff88"/>
-        <InfoRow label="Kelly %" value="How much of your bankroll to bet, calculated by the Kelly Criterion formula. A 3% Kelly on a $1,000 bankroll = bet $30." color="#b44fff"/>
-        <InfoRow label="True Prob" value="Our calculated probability of this team winning, after removing the sportsbook's built-in profit margin (the 'vig')." color="#00bfff"/>
-        <InfoRow label="Book Implied" value="The probability the sportsbook is pricing in. If True Prob > Book Implied, there's an edge." color="#ff6b6b"/>
-        <InfoRow label="STRONG / SOLID / LEAN" value="Edge strength labels. STRONG = 20%+ edge. SOLID = 10–20%. LEAN = under 10%. Focus on STRONG and SOLID." color="#ffd700"/>
-        <div style={{marginTop:16, padding:"12px 16px", background:"rgba(0,255,136,0.04)",
-          border:"1px solid #00ff8822", borderRadius:8}}>
-          <div style={{fontSize:10, color:"#00ff88", fontWeight:700, marginBottom:6}}>QUICK EXAMPLE</div>
-          <div style={{fontSize:11, color:"#7a90a8", lineHeight:1.7}}>
-            Lakers ML +140 on FanDuel. Our model says Lakers have a 45% true chance of winning.
-            At +140, you need only 41.7% to break even. 45% {">"} 41.7% = <span style={{color:"#00ff88"}}>+3.3% edge</span>.
-            That's an EV bet — bet it consistently and you profit long-term.
-          </div>
-        </div>
+        <InfoRow label="Edge %" value="How much better our probability estimate is vs the book's. +5% means we think the bet wins 5% more often than the book implies." />
+        <InfoRow label="EV %" value="Expected profit per dollar wagered, long-term. +5% EV = profit $5 for every $100 bet." />
+        <InfoRow label="Kelly %" value="Optimal bankroll percentage to wager. Based on edge size and odds." />
+        <InfoRow label="True Probability" value="Our devigged estimate of the actual win probability." />
+        <InfoRow label="Book Implied" value="What the sportsbook's odds imply the win probability is (after removing vig)." />
       </InfoSection>
 
       <InfoSection title="🎯 How to Read Conviction Plays">
-        <p style={{fontSize:11, color:"#3a5570", marginBottom:14, lineHeight:1.6}}>
-          Conviction Plays score every team in every game from 0–100 using 7 statistical signals.
-          They appear alongside EV bets in the Moneyline, Spread, and Game Total tabs.
-        </p>
-        <InfoRow label="Score 75–100 (HIGH)" value="Strong statistical edge. These are auto-bet at 2% of bankroll." color="#00ff88"/>
-        <InfoRow label="Score 58–74 (MEDIUM)" value="Moderate edge. Worth watching — consider betting smaller." color="#ffd700"/>
-        <InfoRow label="Score 0–57 (WATCHLIST)" value="Weak edge or a close matchup. Informational only." color="#ff9944"/>
-        <div style={{marginTop:16, marginBottom:4, fontSize:10, color:"#3a5570", letterSpacing:"0.08em"}}>THE 7 SIGNALS</div>
-        <InfoRow label="Season Win Rate" value="How often the team wins this season. A 60% win rate team scores higher than a 40% team."/>
-        <InfoRow label="Record vs Opponent" value="How much better this team's record is compared to tonight's opponent."/>
-        <InfoRow label="Recent Form (L10)" value="Win rate over the last 10 games. Hot teams score higher."/>
-        <InfoRow label="ATS Tendency" value="How the team performs relative to the spread — useful for judging if the market is mispricing them."/>
-        <InfoRow label="Home/Away Record" value="Teams play differently at home vs. on the road. This uses the correct split."/>
-        <InfoRow label="Opponent Form (L10)" value="How bad the opponent has been recently. A weak opponent = higher score for your team."/>
-        <InfoRow label="Market Implied Prob" value="What the sportsbooks collectively think. If books agree with our model, conviction is higher."/>
+        <InfoRow label="Conviction Score" value="0–100 composite score from 7 signals: win rate, record, recent form, ATS tendency, home/away, opponent form, market probability." />
+        <InfoRow label="AUTO-BET" value="Score ≥70. The algorithm places this bet automatically using Kelly Criterion sizing." />
+        <InfoRow label="WATCH ONLY" value="Score below 70. Worth monitoring but not auto-bet." />
+        <InfoRow label="Signal Breakdown" value="Expand the card to see how each of the 7 signals contributed to the score." />
       </InfoSection>
 
-      <InfoSection title="📋 How to Actually Place a Bet">
-        <Step n="1" title="Find a bet on the All or EV Bets tab"
-          desc="Look for STRONG or SOLID edge bets. Click the card to expand and see all sportsbook lines."/>
-        <Step n="2" title="Check the best sportsbook (★ star)"
-          desc="The card shows which book has the best odds. Open that sportsbook app — DraftKings, FanDuel, BetMGM, etc."/>
-        <Step n="3" title="Look up the same game and bet type"
-          desc="Find the same team, same bet type (Moneyline, Spread, or Total), and confirm the odds match."/>
-        <Step n="4" title="Decide how much to bet using Kelly %"
-          desc="Kelly % tells you what fraction of your bankroll to risk. Start conservative — use half the Kelly recommendation until you're comfortable."/>
-        <Step n="5" title="Place the bet and track it"
-          desc="NBA Edge tracks results automatically. Over time, +EV bets produce profit even if individual bets lose. The edge only works at volume."/>
+      <InfoSection title="📋 How to Place a Bet">
+        <Step n="1" title="Find a bet on the All or +EV tab"
+          desc="Look for STRONG or SOLID edge bets. Click to expand and see all sportsbook lines." />
+        <Step n="2" title="Check the best sportsbook (★ BEST)"
+          desc="The card shows which book has the best odds. Open that app — DraftKings, FanDuel, etc." />
+        <Step n="3" title="Use the Get At Or Better line"
+          desc="If the line has moved, only take the bet if it's at this price or better. Otherwise skip." />
+        <Step n="4" title="Size using the Kelly %"
+          desc="Kelly % tells you what fraction of your bankroll to bet. Start conservative — use half Kelly until comfortable." />
+        <Step n="5" title="Track automatically"
+          desc="NBA Edge tracks results. Over time, +EV bets produce profit even when individual bets lose." />
       </InfoSection>
 
       <InfoSection title="📖 Glossary">
-        <InfoRow label="Moneyline (ML)" value="Bet on which team wins outright. No spread involved. -150 means bet $150 to win $100. +130 means bet $100 to win $130."/>
-        <InfoRow label="Spread" value="Betting on the margin of victory. -5.5 means a team must win by 6+. +5.5 means they can lose by up to 5 and still cover."/>
-        <InfoRow label="Game Total (O/U)" value="Betting on the combined score of both teams. Over 220.5 means you need both teams to score 221+ combined."/>
-        <InfoRow label="Vig / Juice" value="The sportsbook's built-in profit margin. Standard is -110 on both sides of a bet (pay $110 to win $100). It's how books make money."/>
-        <InfoRow label="Devigging" value="Removing the vig to find the 'true' probability. If both sides are -110, the true probability of each is 50%."/>
-        <InfoRow label="Kelly Criterion" value="A formula that tells you the mathematically optimal bet size based on your edge. Avoids over-betting (ruin) and under-betting (missed profit)."/>
-        <InfoRow label="Expected Value (EV)" value="The average outcome of a bet over infinite repetitions. +EV bets profit long-term even if any single bet loses."/>
-        <InfoRow label="Pinnacle" value="A sharp, low-vig sportsbook used as the 'market reference' for true probabilities. Their lines are the most accurate in the world."/>
-        <InfoRow label="Paper Bankroll" value="A simulated $100 bankroll used to track performance without real money. Shows whether the system works before you risk anything."/>
-        <InfoRow label="ROI" value="Return on Investment — total profit divided by total amount wagered. A +8% ROI means you profit $8 for every $100 bet."/>
+        <InfoRow label="Moneyline (ML)" value="Bet on which team wins outright. -150 = bet $150 to win $100. +130 = bet $100 to win $130." />
+        <InfoRow label="Spread" value="Betting the margin of victory. -5.5 means win by 6+. +5.5 means lose by ≤5 and still cover." />
+        <InfoRow label="Game Total (O/U)" value="Combined score of both teams. Over 220.5 = both teams score 221+ combined." />
+        <InfoRow label="Devigging" value="Removing the sportsbook's built-in profit margin to find true probabilities." />
+        <InfoRow label="Pinnacle" value="Sharp, low-vig book used as market reference for true probabilities. Most accurate lines in the world." />
+        <InfoRow label="Kelly Criterion" value="Formula for mathematically optimal bet sizing based on edge. Avoids over-betting (ruin) and under-betting." />
+        <InfoRow label="EV (Expected Value)" value="Average outcome of a bet over infinite trials. +EV = profitable long-term." />
+        <InfoRow label="Paper Bankroll" value="Simulated $100 bankroll tracking performance without real money." />
+        <InfoRow label="ROI" value="Return on Investment. +8% ROI = $8 profit per $100 wagered." />
       </InfoSection>
 
-      <div style={{padding:"0 4px 8px", fontSize:10, color:"#1e3040", lineHeight:1.8, textAlign:"center"}}>
-        NBA Edge is a research and analytics tool. Past performance does not guarantee future results.
-        Bet responsibly and within your means.
+      <div style={{ padding:"8px 4px 16px", fontSize:10, color:T.textDim, lineHeight:1.8, textAlign:"center" }}>
+        NBA Edge is a research and analytics tool. Past performance does not guarantee future results. Bet responsibly.
       </div>
-
     </div>
   );
 }
 
+// ── Section Header ────────────────────────────────────────────────────────────
+function SectionHeader({ icon, title, badge: badgeEl, count }) {
+  return (
+    <div style={{
+      display:"flex", alignItems:"center", gap:10, marginBottom:16,
+      paddingBottom:12, borderBottom:`1px solid ${T.border}`,
+    }}>
+      <span style={{ fontSize:16 }}>{icon}</span>
+      <span style={{ fontSize:14, fontWeight:700, color:T.text }}>{title}</span>
+      {count != null && (
+        <span style={{
+          fontSize:9, fontWeight:700, padding:"2px 8px", borderRadius:10,
+          background:T.bg, border:`1px solid ${T.border}`, color:T.textMid,
+        }}>{count}</span>
+      )}
+      {badgeEl && <div style={{ marginLeft:"auto" }}>{badgeEl}</div>}
+    </div>
+  );
+}
+
+// ── Empty State ───────────────────────────────────────────────────────────────
+function EmptyState({ icon, message, sub }) {
+  return (
+    <div style={{
+      textAlign:"center", padding:"48px 20px",
+      background:T.surface, borderRadius:14, border:`1px solid ${T.border}`,
+    }}>
+      <div style={{ fontSize:28, marginBottom:10 }}>{icon}</div>
+      <div style={{ fontSize:13, fontWeight:600, color:T.textMid, marginBottom:6 }}>{message}</div>
+      {sub && <div style={{ fontSize:11, color:T.textDim }}>{sub}</div>}
+    </div>
+  );
+}
+
+// ── Custom Tooltip ────────────────────────────────────────────────────────────
+function ChartTooltip({ active, payload }) {
+  if (!active || !payload?.length) return null;
+  const d = payload[0].payload;
+  const color = d.status === "won" ? T.green : d.status === "lost" ? T.red : T.textMid;
+  return (
+    <div style={{
+      background:T.surface, border:`1px solid ${T.border}`,
+      borderRadius:9, padding:"10px 14px", fontSize:11,
+    }}>
+      <div style={{ color:T.textDim, marginBottom:4, fontSize:9 }}>
+        {d.date !== "Start" ? new Date(d.date).toLocaleDateString("en-US", { month:"short", day:"numeric" }) : "Start"}
+      </div>
+      <div style={{ fontWeight:800, color: d.bankroll >= 100 ? T.green : T.red, fontSize:15 }}>
+        ${d.bankroll?.toFixed(2)}
+      </div>
+      {d.status && d.status !== "start" && (
+        <div style={{ color, fontSize:9, marginTop:3, fontWeight:700 }}>
+          {d.status.toUpperCase()}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// ── Main App ──────────────────────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════════
 export default function App() {
   const isMobile = useIsMobile();
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState("All");
-  const [lastFetch, setLastFetch] = useState(null);
-  const [expandedEvRows, setExpandedEvRows] = useState({});    // { rowIndex: bool }
-  const [expandedConvRows, setExpandedConvRows] = useState({}); // { rowIndex: bool }
+  const [expandedConvRows, setExpandedConvRows] = useState({});
+  const [expandedEvRows, setExpandedEvRows]   = useState({});
 
-  const fetchPortfolio = useCallback(async () => {
-    try {
-      const res = await fetch("/api/portfolio");
-      if(!res.ok) throw new Error(`HTTP ${res.status}`);
-      const json = await res.json();
-      setData(json);
-      setLastFetch(new Date());
-    } catch(e) {
-      console.error("Portfolio fetch failed:", e);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    fetchPortfolio();
-    const interval = setInterval(fetchPortfolio, 60000); // refresh every 60s
-    return () => clearInterval(interval);
-  }, [fetchPortfolio]);
-
-  const tabs = ["All","Moneyline","Spread","Game Total","Props","History","Info"];
-
-  // Sportsbook filter — persisted to localStorage
-  const ALL_BOOKS = [
-    { id:"draftkings", label:"DraftKings", color:"#53d337" },
-    { id:"fanduel",    label:"FanDuel",    color:"#1493ff" },
-    { id:"betmgm",     label:"BetMGM",     color:"#d4af37" },
-    { id:"betrivers",  label:"BetRivers",  color:"#d4213d" },
-    { id:"caesars",    label:"Caesars",    color:"#00a4e4" },
-    { id:"pinnacle",   label:"Pinnacle",   color:"#00e5ff" },
-    { id:"lowvig",     label:"LowVig",     color:"#aaffaa" },
-    { id:"kalshi",     label:"Kalshi",     color:"#b44fff" },
-  ];
+  // Sportsbook filter
   const [selectedBooks, setSelectedBooks] = useState(() => {
     if (typeof window === "undefined") return new Set(["all"]);
     try {
@@ -775,7 +905,6 @@ export default function App() {
           next = without.size === 0 ? new Set(["all"]) : without;
         } else {
           without.add(id);
-          // If all books selected, collapse to "all"
           next = without.size === ALL_BOOKS.length ? new Set(["all"]) : without;
         }
       }
@@ -784,198 +913,246 @@ export default function App() {
     });
   }
 
-  // Filter a bet/play by selected books
   function bookVisible(item) {
     if (selectedBooks.has("all")) return true;
     const book = item?.bestBook;
-    if (!book) return true; // no book info — show it
+    if (!book) return true;
     return selectedBooks.has(book);
   }
 
-  // Chart data
-  const chartData = (() => {
-    if(!data?.history?.length) return [];
-    const allResolved = [...data.history]
-      .sort((a,b) => new Date(a.date)-new Date(b.date))
-      .filter(h => h.status==="won"||h.status==="lost");
-    if(!allResolved.length) return [{bankroll:100, date:"Start"}];
+  const fetchPortfolio = useCallback(async () => {
+    try {
+      const res = await fetch("/api/portfolio");
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      setData(await res.json());
+    } catch(e) {
+      console.error("Portfolio fetch failed:", e);
+    } finally { setLoading(false); }
+  }, []);
 
-    // If filtering by book, recalculate bankroll trajectory from scratch
+  useEffect(() => {
+    fetchPortfolio();
+    const id = setInterval(fetchPortfolio, 60000);
+    return () => clearInterval(id);
+  }, [fetchPortfolio]);
+
+  const tabs = ["All","Moneyline","Spread","Game Total","Props","History","Info"];
+
+  // ── Chart data ───────────────────────────────────────────────────────────────
+  const chartData = (() => {
+    if (!data?.history?.length) return [];
+    const allResolved = [...data.history]
+      .sort((a,b) => new Date(a.date) - new Date(b.date))
+      .filter(h => h.status === "won" || h.status === "lost");
+    if (!allResolved.length) return [{ bankroll:100, date:"Start" }];
+
     const isFiltered = !selectedBooks.has("all");
     if (!isFiltered) {
-      const pts = [{bankroll:100, date:"Start", status:"start"}];
-      allResolved.forEach(h => pts.push({bankroll:h.bankrollAfter, date:h.date, status:h.status}));
-      return pts;
+      return [{ bankroll:100, date:"Start", status:"start" },
+        ...allResolved.map(h => ({ bankroll:h.bankrollAfter, date:h.date, status:h.status }))];
     }
-
-    // Filtered: replay only bets from selected books, recalculate running bankroll
     const filtered = allResolved.filter(bookVisible);
-    if (!filtered.length) return [{bankroll:100, date:"Start"}];
-    const pts = [{bankroll:100, date:"Start", status:"start"}];
+    if (!filtered.length) return [{ bankroll:100, date:"Start" }];
     let runningBankroll = 100;
-    filtered.forEach(h => {
-      if (h.status === "won") runningBankroll += (h.potentialPayout || 0);
-      else runningBankroll -= (h.wagerAmt || 0);
-      runningBankroll = Math.max(0, +runningBankroll.toFixed(2));
-      pts.push({bankroll: runningBankroll, date:h.date, status:h.status});
-    });
-    return pts;
+    return [{ bankroll:100, date:"Start", status:"start" },
+      ...filtered.map(h => {
+        if (h.status === "won") runningBankroll += (h.potentialPayout || 0);
+        else runningBankroll -= (h.wagerAmt || 0);
+        runningBankroll = Math.max(0, +runningBankroll.toFixed(2));
+        return { bankroll:runningBankroll, date:h.date, status:h.status };
+      })];
   })();
 
-  const conviction = data?.convictionPlays || [];
-  const history = data?.history || [];
-  const currentBets = data?.currentBets || [];
-  const propBets = (data?.propBets || []).filter(bookVisible);
+  // ── Filtered data ────────────────────────────────────────────────────────────
+  const conviction   = data?.convictionPlays || [];
+  const history      = data?.history || [];
+  const currentBets  = data?.currentBets || [];
+  const propBets     = (data?.propBets || []).filter(bookVisible);
 
-  const filteredConviction = (tab==="All" ? conviction : conviction.filter(p => {
-    const t = p.betType || "Moneyline";
-    if (tab==="Spread") return t==="Spread" || t==="spreads" || t==="ATS";
-    if (tab==="Game Total") return t==="Game Total" || t==="totals" || t==="Total";
-    return t===tab;
-  })).filter(bookVisible);
-  const filteredHistory = tab==="History" ? history.filter(bookVisible) : [];
-  const filteredBets = (tab==="All"||tab==="Moneyline"||tab==="Spread"||tab==="Game Total"
-    ? currentBets.filter(b => {
-        if (tab==="All") return true;
-        const t = b.type || b.betType || "Moneyline";
-        if (tab==="Spread") return t==="Spread" || t==="spreads" || t==="ATS";
-        if (tab==="Game Total") return t==="Game Total" || t==="totals" || t==="Total";
-        return t===tab;
-      })
-    : []).filter(bookVisible);
+  const matchType = (t, tab) => {
+    if (tab === "All") return true;
+    if (tab === "Spread")     return t === "Spread"     || t === "spreads" || t === "ATS";
+    if (tab === "Game Total") return t === "Game Total" || t === "totals"  || t === "Total";
+    return t === tab;
+  };
 
-  if(loading) return (
-    <div style={{...s.page, display:"flex", alignItems:"center", justifyContent:"center", minHeight:"100vh"}}>
-      <div style={{textAlign:"center"}}>
-        <div style={{fontSize:32, marginBottom:12}}>🏀</div>
-        <div style={{fontSize:12, color:"#3a5570", letterSpacing:"0.1em"}}>LOADING NBA EDGE...</div>
+  const filteredConviction = conviction
+    .filter(p => matchType(p.betType || "Moneyline", tab === "Props" || tab === "History" || tab === "Info" ? "skip" : tab))
+    .filter(bookVisible);
+
+  const filteredBets = (tab === "All" || tab === "Moneyline" || tab === "Spread" || tab === "Game Total")
+    ? currentBets.filter(b => matchType(b.type || b.betType || "Moneyline", tab)).filter(bookVisible)
+    : [];
+
+  const filteredHistory = tab === "History" ? history.filter(bookVisible) : [];
+
+  const convictionProps = propBets.filter(p => p.convictionScore >= 70);
+  const evProps         = propBets.filter(p => p.convictionScore < 70);
+
+  const filteredPnl = (() => {
+    const resolved = (tab === "History" ? filteredHistory : history.filter(bookVisible))
+      .filter(h => h.status === "won" || h.status === "lost");
+    return resolved.reduce((sum, h) =>
+      sum + (h.status === "won" ? (h.potentialPayout || 0) : -(h.wagerAmt || 0)), 0);
+  })();
+
+  // ── Loading ──────────────────────────────────────────────────────────────────
+  if (loading) return (
+    <div style={{
+      minHeight:"100vh", background:T.bg, display:"flex",
+      alignItems:"center", justifyContent:"center",
+      fontFamily:"'Inter','SF Pro Display',system-ui,sans-serif",
+    }}>
+      <div style={{ textAlign:"center" }}>
+        <div style={{ fontSize:36, marginBottom:16 }}>🏀</div>
+        <div style={{ fontSize:12, color:T.textDim, letterSpacing:"0.2em" }}>LOADING NBA EDGE</div>
       </div>
     </div>
   );
 
+  const isBookFiltered = !selectedBooks.has("all");
+  const activeBookLabels = isBookFiltered
+    ? [...selectedBooks].map(id => ALL_BOOKS.find(b => b.id === id)?.label || id)
+    : [];
+
   return (
-    <div style={s.page}>
+    <div style={{
+      minHeight:"100vh", background:T.bg, color:T.text,
+      fontFamily:"'Inter','SF Pro Display',system-ui,sans-serif",
+      padding:"0 0 80px",
+    }}>
       <style>{`
-        @media (max-width: 900px) {
-          .stat-grid { grid-template-columns: repeat(2,1fr) !important; padding: 16px 12px !important; gap: 8px !important; }
-          .conv-grid { grid-template-columns: repeat(auto-fill,minmax(280px,1fr)) !important; }
-          .section-pad { padding: 0 12px !important; }
+        * { box-sizing: border-box; }
+        @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+        @keyframes fadeIn { from{opacity:0;transform:translateY(6px)} to{opacity:1;transform:none} }
+        .card-enter { animation: fadeIn 0.2s ease; }
+        @media (max-width:900px) {
+          .stat-grid  { grid-template-columns: repeat(2,1fr) !important; padding: 14px !important; gap:10px !important; }
+          .conv-grid  { grid-template-columns: repeat(auto-fill,minmax(280px,1fr)) !important; }
         }
-        @media (max-width: 600px) {
-          .conv-grid { grid-template-columns: 1fr !important; }
-          .stat-grid { grid-template-columns: repeat(2,1fr) !important; padding: 12px 10px !important; gap: 6px !important; }
+        @media (max-width:600px) {
+          .conv-grid  { grid-template-columns: 1fr !important; }
+          .stat-grid  { grid-template-columns: repeat(2,1fr) !important; padding:10px !important; gap:8px !important; }
+          .hist-row   { grid-template-columns: 70px 1fr auto !important; }
         }
+        ::-webkit-scrollbar { width:4px; height:4px; }
+        ::-webkit-scrollbar-track { background:transparent; }
+        ::-webkit-scrollbar-thumb { background:${T.border}; border-radius:2px; }
       `}</style>
-      {/* Header */}
-      <div style={s.header}>
-        <div>
-          <div style={{display:"flex", alignItems:"center", gap:10}}>
-            <span style={{fontSize:20}}>🏀</span>
-            <div style={s.logo}>NBA EDGE</div>
+
+      {/* ── Header ─────────────────────────────────────────────────────────── */}
+      <header style={{
+        borderBottom:`1px solid ${T.border}`,
+        padding: isMobile ? "12px 16px" : "14px 28px",
+        display:"flex", alignItems:"center", justifyContent:"space-between",
+        position:"sticky", top:0, background:`${T.bg}f0`,
+        backdropFilter:"blur(12px)", WebkitBackdropFilter:"blur(12px)",
+        zIndex:20, flexWrap:"wrap", gap:8,
+      }}>
+        <div style={{ display:"flex", alignItems:"center", gap:12 }}>
+          <span style={{ fontSize:22 }}>🏀</span>
+          <div>
+            <div style={{ fontSize: isMobile ? 15 : 18, fontWeight:800, color:"#fff", letterSpacing:"0.1em" }}>
+              NBA EDGE
+            </div>
+            {!isMobile && (
+              <div style={{ fontSize:9, color:T.textDim, letterSpacing:"0.12em" }}>
+                EV BETTING ENGINE · ML LEARNING · FULLY AUTOMATED
+              </div>
+            )}
           </div>
-          <div style={s.sub}>EV BETTING ENGINE · ML LEARNING · FULLY AUTOMATED</div>
         </div>
-        <div style={{display:"flex", alignItems:"center", gap:10}}>
-          <div style={{display:"flex", alignItems:"center", gap:6}}>
-            <div style={{width:6, height:6, borderRadius:"50%", background:"#00ff88",
-              boxShadow:"0 0 6px #00ff88", animation:"pulse 2s infinite"}}/>
-            <span style={{fontSize:10, color:"#3a5570"}}>
-              Updated {timeAgo(data?.lastRun)}
-            </span>
+        <div style={{ display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>
+          <div style={{ display:"flex", alignItems:"center", gap:5 }}>
+            <div style={{ width:6, height:6, borderRadius:"50%", background:T.green,
+              animation:"pulse 2s infinite", boxShadow:`0 0 6px ${T.green}` }}/>
+            <span style={{ fontSize:10, color:T.textMid }}>Updated {timeAgo(data?.lastRun)}</span>
           </div>
-          <span style={s.pill}>Runs 4x daily</span>
-          <span style={s.pillGreen}>Live Track Record</span>
+          <Pill color={T.textDim}>Runs 4x daily</Pill>
+          <Pill color={T.green} glow>Live Track Record</Pill>
           <a href="https://discord.gg/TRZQRu58au" target="_blank" rel="noopener noreferrer"
             style={{
               display:"flex", alignItems:"center", gap:5,
-              fontSize:9, padding:"2px 10px", borderRadius:20,
-              border:"1px solid #5865f233", color:"#5865f2",
-              background:"rgba(88,101,242,0.08)",
-              textDecoration:"none", letterSpacing:"0.08em",
-              transition:"all 0.15s",
-            }}
-            onMouseEnter={e => e.currentTarget.style.background="rgba(88,101,242,0.18)"}
-            onMouseLeave={e => e.currentTarget.style.background="rgba(88,101,242,0.08)"}
-          >
-            <svg width="11" height="11" viewBox="0 0 24 24" fill="#5865f2">
+              fontSize:9, padding:"3px 10px", borderRadius:20,
+              border:`1px solid ${T.discord}44`, color:T.discord,
+              background:`${T.discord}10`, textDecoration:"none", fontWeight:600,
+            }}>
+            <svg width="10" height="10" viewBox="0 0 24 24" fill={T.discord}>
               <path d="M20.317 4.37a19.791 19.791 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 0 0 .031.057 19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028c.462-.63.874-1.295 1.226-1.994a.076.076 0 0 0-.041-.106 13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128 10.2 10.2 0 0 0 .372-.292.074.074 0 0 1 .077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 0 1 .078.01c.12.098.246.198.373.292a.077.077 0 0 1-.006.127 12.299 12.299 0 0 1-1.873.892.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.03z"/>
             </svg>
             DISCORD
           </a>
         </div>
-      </div>
+      </header>
 
-      {/* Stats */}
-      {/* Stats row */}
-      <div className="stat-grid" style={s.statGrid}>
-        <StatCard label="PAPER BANKROLL"
+      {/* ── Stats ───────────────────────────────────────────────────────────── */}
+      <div className="stat-grid" style={{
+        display:"grid", gridTemplateColumns:"repeat(5,1fr)",
+        gap:12, padding:"20px 28px",
+      }}>
+        <StatCard label="Paper Bankroll"
           value={`$${(data?.bankroll||100).toFixed(2)}`}
-          sub={`${data?.totalPnl>=0?"+":""}$${(data?.totalPnl||0).toFixed(2)} P&L`}
-          color="#00ff88"/>
-        <StatCard label="WIN RATE"
+          sub={`${(data?.totalPnl||0) >= 0 ? "+" : ""}$${(data?.totalPnl||0).toFixed(2)} P&L`}
+          color={T.green}/>
+        <StatCard label="Win Rate"
           value={`${data?.winRate||0}%`}
           sub={`${data?.record?.wins||0}W / ${data?.record?.losses||0}L`}
-          color="#00bfff"/>
+          color={T.blue}/>
         <StatCard label="ROI"
-          value={`${data?.roi>=0?"+":""}${data?.roi||0}%`}
+          value={`${(data?.roi||0) >= 0 ? "+" : ""}${data?.roi||0}%`}
           sub="on resolved bets"
-          color={data?.roi>=0?"#00ff88":"#ff6b6b"}/>
-        <StatCard label="BETS TODAY"
-          value={(() => { const today = new Date().toDateString(); return (data?.history||[]).filter(h => new Date(h.date).toDateString()===today).length; })()}
-          sub={`${conviction.filter(p=>p.convictionScore>=70).length} auto-bet conviction plays`}
-          color="#ffd700"/>
-        <StatCard label="ML ENGINE"
+          color={(data?.roi||0) >= 0 ? T.green : T.red}/>
+        <StatCard label="Bets Today"
+          value={(() => {
+            const today = new Date().toDateString();
+            return (data?.history||[]).filter(h => new Date(h.date).toDateString()===today).length;
+          })()}
+          sub={`${conviction.filter(p=>p.convictionScore>=70).length} auto-bet conviction`}
+          color={T.gold}/>
+        <StatCard label="ML Engine"
           value={data?.mlStatus||"Learning"}
           sub={`${data?.mlBets||0} bets analyzed`}
-          color="#b44fff"/>
+          color={T.purple}/>
       </div>
 
-      {/* ── Sportsbook Filter Card ───────────────────────────────────── */}
-      <div style={{margin:"0 16px 16px", background:"#0a1220",
-        border:"1px solid #172030", borderRadius:14, padding:"14px 18px"}}>
-        <div style={{display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:10}}>
+      {/* ── Book Filter Card ─────────────────────────────────────────────────── */}
+      <div style={{ margin:"0 28px 20px", background:T.surface, border:`1px solid ${T.border}`, borderRadius:14, padding:"16px 20px" }}>
+        <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:12 }}>
           <div>
-            <div style={{fontSize:9, color:"#3a5570", letterSpacing:"0.12em", marginBottom:3}}>
-              MY SPORTSBOOKS
-            </div>
-            <div style={{fontSize:11, color:"#dde3ee", fontWeight:600}}>
-              {selectedBooks.has("all")
-                ? "Showing all books"
-                : `${[...selectedBooks].length} book${[...selectedBooks].length !== 1 ? "s" : ""} selected`}
+            <div style={{ fontSize:9, color:T.textDim, letterSpacing:"0.1em", marginBottom:3 }}>MY SPORTSBOOKS</div>
+            <div style={{ fontSize:12, color:T.textMid }}>
+              {isBookFiltered ? `Showing ${activeBookLabels.join(", ")}` : "Showing all sportsbooks"}
             </div>
           </div>
-          {!selectedBooks.has("all") && (
+          {isBookFiltered && (
             <button onClick={() => toggleBook("all")} style={{
-              fontSize:9, color:"#3a5570", background:"rgba(255,255,255,0.04)",
-              border:"1px solid #172030", borderRadius:8, cursor:"pointer",
-              padding:"3px 10px", fontFamily:"inherit",
-            }}>Reset to All</button>
+              fontSize:9, color:T.textDim, background:`${T.border}44`,
+              border:`1px solid ${T.border}`, borderRadius:8, cursor:"pointer",
+              padding:"4px 12px", fontFamily:"inherit",
+            }}>Reset</button>
           )}
         </div>
-        <div style={{display:"flex", gap:6, flexWrap:"wrap"}}>
-          {/* ALL pill */}
+        <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
           <button onClick={() => toggleBook("all")} style={{
             padding:"5px 14px", borderRadius:20, fontSize:10, cursor:"pointer",
-            whiteSpace:"nowrap", fontFamily:"inherit", fontWeight:700,
-            border:`1px solid ${selectedBooks.has("all") ? "#ffffff66" : "#1e2d40"}`,
-            background: selectedBooks.has("all") ? "rgba(255,255,255,0.1)" : "transparent",
-            color: selectedBooks.has("all") ? "#fff" : "#3a5570",
-            transition:"all 0.15s",
+            fontFamily:"inherit", fontWeight:700,
+            border:`1px solid ${selectedBooks.has("all") ? "#ffffff55" : T.borderHi}`,
+            background: selectedBooks.has("all") ? "rgba(255,255,255,0.08)" : "transparent",
+            color: selectedBooks.has("all") ? "#fff" : T.textDim,
           }}>ALL</button>
-
           {ALL_BOOKS.map(bk => {
             const active = !selectedBooks.has("all") && selectedBooks.has(bk.id);
             return (
               <button key={bk.id} onClick={() => toggleBook(bk.id)} style={{
                 padding:"5px 14px", borderRadius:20, fontSize:10, cursor:"pointer",
-                whiteSpace:"nowrap", fontFamily:"inherit",
-                border:`1px solid ${active ? bk.color + "99" : "#1e2d40"}`,
-                background: active ? `${bk.color}18` : "transparent",
-                color: active ? bk.color : "#3a5570",
+                fontFamily:"inherit", display:"flex", alignItems:"center", gap:5,
+                border:`1px solid ${active ? bk.color + "88" : T.borderHi}`,
+                background: active ? `${bk.color}12` : "transparent",
+                color: active ? bk.color : T.textDim,
+                boxShadow: active ? `0 0 10px ${bk.color}18` : "none",
                 transition:"all 0.15s",
-                boxShadow: active ? `0 0 8px ${bk.color}22` : "none",
               }}>
-                <span style={{marginRight:5, fontSize:8, opacity: active ? 1 : 0.4}}>●</span>
+                <span style={{ width:6, height:6, borderRadius:"50%", background:active ? bk.color : T.textDim, display:"inline-block", flexShrink:0 }}/>
                 {bk.label}
               </button>
             );
@@ -983,215 +1160,212 @@ export default function App() {
         </div>
       </div>
 
-      {/* Tabs */}
-      <div style={{padding:"0 16px", marginBottom:20}}>
-        <div style={{display:"flex", gap:6, overflowX:"auto", WebkitOverflowScrolling:"touch",
-          scrollbarWidth:"none", msOverflowStyle:"none", paddingBottom:4}}>
+      {/* ── Tabs ─────────────────────────────────────────────────────────────── */}
+      <div style={{ padding: isMobile ? "0 12px" : "0 28px", marginBottom:20 }}>
+        <div style={{
+          display:"flex", gap:4,
+          overflowX:"auto", WebkitOverflowScrolling:"touch",
+          scrollbarWidth:"none", msOverflowStyle:"none",
+          borderBottom:`1px solid ${T.border}`, paddingBottom:0,
+        }}>
           {tabs.map(t => (
             <button key={t} onClick={() => setTab(t)} style={{
-              padding:"6px 14px",
-              borderRadius:20, fontSize:11,
-              cursor:"pointer", whiteSpace:"nowrap", flexShrink:0,
-              border:`1px solid ${tab===t?"#00ff88":"#172030"}`,
-              background: tab===t?"rgba(0,255,136,0.1)":"transparent",
-              color: tab===t?"#00ff88":"#3a5570", fontFamily:"inherit",
+              padding:"8px 16px", fontSize:11, cursor:"pointer",
+              whiteSpace:"nowrap", flexShrink:0, fontFamily:"inherit",
+              background:"transparent", border:"none",
+              borderBottom:`2px solid ${tab === t ? T.green : "transparent"}`,
+              color: tab === t ? T.text : T.textDim,
+              fontWeight: tab === t ? 700 : 400,
+              transition:"color 0.15s, border-color 0.15s",
             }}>{t}</button>
           ))}
         </div>
       </div>
 
-      {/* Conviction Plays */}
-      {(tab==="All"||tab==="Moneyline"||tab==="Spread"||tab==="Game Total") && (
-        <div className="section-pad" style={s.section}>
-          <div style={s.sectionTitle}>
-            🎯 {tab==="All" ? "Conviction Plays" : `${tab} Conviction Plays`}
-            <span style={{fontSize:9, padding:"2px 8px", borderRadius:10,
-              border:"1px solid #172030", color:"#3a5570", fontWeight:400}}>
-              Stat-driven · ML-weighted · auto-bet ≥70
-            </span>
-          </div>
-          {filteredConviction.length === 0 ? (
-            <div style={{color:"#3a5570", fontSize:12, padding:"20px 0"}}>
-              No {tab==="All"?"conviction plays":tab.toLowerCase()+" conviction plays"} yet — engine hasn't run or no games today.
-            </div>
-          ) : (
-            <div className="conv-grid" style={s.convGrid}>
-              {filteredConviction.slice(0,9).map((p, idx) => (
-                <ConvictionCard key={p.id} play={p}
-                  groupExpanded={!!expandedConvRows[idx]}
-                  onExpand={() => setExpandedConvRows(r => ({...r, [idx]: !r[idx]}))}
-                />
-              ))}
-            </div>
-          )}
-        </div>
-      )}
+      {/* ── Content ──────────────────────────────────────────────────────────── */}
+      <div style={{ padding: isMobile ? "0 12px" : "0 28px" }}>
 
-      {/* Current EV Bets */}
-      {(tab==="All"||tab==="Moneyline"||tab==="Spread"||tab==="Game Total") && (
-        <div className="section-pad" style={s.section}>
-          <div style={s.sectionTitle}>
-            ⚡ {tab==="All"?"All +EV Bets":`${tab} +EV Bets`}
-            <span style={{fontSize:9, padding:"2px 8px", borderRadius:10,
-              border:"1px solid #00ff8833", color:"#00ff88", fontWeight:400}}>
-              +EV · Odds API · {filteredBets.length} bets
-            </span>
-            <span style={{fontSize:9, color:"#3a5570", fontWeight:400, marginLeft:4}}>
-              updated {timeAgo(data?.lastRun)}
-            </span>
-          </div>
-          {filteredBets.length === 0 ? (
-            <div style={{color:"#3a5570", fontSize:12, padding:"20px 0"}}>
-              {currentBets.length===0
-                ? (data?.hasUpcomingGames === false
-                    ? "All of tonight\'s games are underway. New lines open ~9 AM ET — check back tomorrow for fresh EV bets."
-                    : "Engine runs every 10 minutes. Check back soon for today\'s EV bets.")
-                : "No bets match this filter."}
-            </div>
-          ) : (
-            <div className="conv-grid" style={s.convGrid}>
-              {filteredBets.map((bet, bidx) => (
-                <EVBetCard key={bet.id} bet={bet}
-                  groupExpanded={!!expandedEvRows[bidx]}
-                  onExpand={() => setExpandedEvRows(r => ({...r, [bidx]: !r[bidx]}))}
-                />
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* History */}
-      {tab==="Info" && <InfoTab />}
-
-      {/* Props Tab */}
-      {tab==="Props" && (
-        <div className="section-pad" style={s.section}>
-          {/* Props Conviction Section */}
-          {(() => {
-            const convictionProps = propBets.filter(p => p.convictionScore >= 70);
-            const evProps = propBets.filter(p => p.convictionScore < 65);
-            return (<>
-              <div style={s.sectionTitle}>
-                🎯 Props Conviction Plays
-                <span style={{fontSize:9, padding:"2px 8px", borderRadius:10,
-                  border:"1px solid #172030", color:"#3a5570", fontWeight:400}}>
-                  Stat-driven · ML-weighted · auto-bet ≥70
-                </span>
-              </div>
-              {convictionProps.length === 0 ? (
-                <div style={{color:"#3a5570", fontSize:12, padding:"20px 0"}}>
-                  No props with conviction ≥70 right now — engine runs every 10 minutes.
-                  <div style={{marginTop:6, fontSize:10}}>Last run: {data?.lastRun ? new Date(data.lastRun).toLocaleTimeString() : "never"}</div>
-                </div>
-              ) : (
-                <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(300px,1fr))", gap:12, marginBottom:24}}>
-                  {convictionProps.map(prop => <PropCard key={prop.id} prop={prop}/>)}
-                </div>
-              )}
-
-              {/* Props +EV Section */}
-              <div style={{...s.sectionTitle, marginTop:8}}>
-                ⚡ Props +EV Bets
-                <span style={{fontSize:9, padding:"2px 8px", borderRadius:10,
-                  border:"1px solid #00ff8833", color:"#00ff88", fontWeight:400}}>
-                  +EV · Odds API · {evProps.length} bets
-                </span>
-              </div>
-              {evProps.length === 0 ? (
-                <div style={{color:"#3a5570", fontSize:12, padding:"20px 0"}}>
-                  {propBets.length === 0
-                    ? (data?.hasUpcomingGames === false
-                        ? "All of tonight\'s games are underway. Prop lines open ~9 AM ET tomorrow."
-                        : "No prop edges found right now — engine runs every 10 minutes for pregame lines.")
-                    : "All props with edge met conviction threshold above."}
-                </div>
-              ) : (
-                <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(300px,1fr))", gap:12}}>
-                  {evProps.map(prop => <PropCard key={prop.id} prop={prop}/>)}
-                </div>
-              )}
-            </>);
-          })()}
-        </div>
-      )}
-
-      {tab==="History" && (
-        <div className="section-pad" style={s.section}>
-          {/* Portfolio Chart */}
-          <div style={{background:"#0a1220",border:"1px solid #172030",borderRadius:12,padding:"20px 24px",marginBottom:20}}>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:4}}>
-              <div style={{fontSize:13,fontWeight:700,color:"#fff"}}>
-              Portfolio Performance
-              {!selectedBooks.has("all") && (
-                <span style={{fontSize:9, color:"#3a5570", fontWeight:400, marginLeft:8}}>
-                  ({[...selectedBooks].map(id => ALL_BOOKS.find(b=>b.id===id)?.label||id).join(", ")})
-                </span>
-              )}
-            </div>
-              <div style={{fontSize:10,color:(data?.totalPnl||0)>=0?"#00ff88":"#ff6b6b",fontWeight:700}}>
-                {(data?.totalPnl||0)>=0?"+":""}${(data?.totalPnl||0).toFixed(2)} P&L
-              </div>
-            </div>
-            <div style={{fontSize:10,color:"#3a5570",marginBottom:16}}>
-              $100 starting bankroll · Kelly Criterion sizing · ML-weighted signals
-            </div>
-            {chartData.length < 2 ? (
-              <div style={{height:140,display:"flex",flexDirection:"column",alignItems:"center",
-                justifyContent:"center",borderTop:"1px solid #0e1a28",paddingTop:20}}>
-                <div style={{fontSize:28,marginBottom:8,opacity:0.3}}>📈</div>
-                <div style={{fontSize:11,color:"#3a5570"}}>Chart populates as bets resolve</div>
-                <div style={{fontSize:10,color:"#1e3040",marginTop:4}}>
-                  {history.filter(h=>h.status==="pending").length} bets pending · check back after tonight's games
-                </div>
-              </div>
+        {/* Conviction Plays */}
+        {(tab==="All"||tab==="Moneyline"||tab==="Spread"||tab==="Game Total") && (
+          <div style={{ marginBottom:36 }}>
+            <SectionHeader
+              icon="🎯"
+              title={tab === "All" ? "Conviction Plays" : `${tab} Conviction Plays`}
+              count={filteredConviction.length}
+              badge={<Pill color={T.gold} glow>Stat-driven · Auto-bet ≥70</Pill>}
+            />
+            {filteredConviction.length === 0 ? (
+              <EmptyState icon="📊" message="No conviction plays yet"
+                sub="Engine hasn't run or no qualifying plays for today's games." />
             ) : (
-              <ResponsiveContainer width="100%" height={220}>
-                <LineChart data={chartData}>
-                  <XAxis dataKey="date"
-                    tickFormatter={d=>d==="Start"?"Start":new Date(d).toLocaleDateString("en-US",{month:"short",day:"numeric"})}
-                    tick={{fill:"#3a5570",fontSize:9}} axisLine={false} tickLine={false}/>
-                  <YAxis domain={["auto","auto"]} tickFormatter={v=>`$${v.toFixed(0)}`}
-                    tick={{fill:"#3a5570",fontSize:9}} axisLine={false} tickLine={false} width={45}/>
-                  <Tooltip contentStyle={{background:"#0e1a28",border:"1px solid #172030",borderRadius:8,fontSize:10}}
-                    formatter={v=>[`$${v.toFixed(2)}`,"Bankroll"]}
-                    labelFormatter={l=>l==="Start"?"Start":new Date(l).toLocaleDateString()}/>
-                  <ReferenceLine y={100} stroke="#172030" strokeDasharray="3 3"/>
-                  <Line type="monotone" dataKey="bankroll" stroke="#00bfff" strokeWidth={2}
-                    dot={p=>p.payload.status!=="start"
-                      ?<circle key={p.key} cx={p.cx} cy={p.cy} r={4} fill={p.payload.status==="won"?"#00ff88":"#ff6b6b"} stroke="none"/>
-                      :<circle key={p.key} cx={p.cx} cy={p.cy} r={3} fill="#3a5570" stroke="none"/>}/>
-                </LineChart>
-              </ResponsiveContainer>
+              <div className="conv-grid" style={{
+                display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(320px,1fr))", gap:14,
+              }}>
+                {filteredConviction.slice(0,9).map((p, idx) => (
+                  <ConvictionCard key={p.id} play={p}
+                    expanded={!!expandedConvRows[idx]}
+                    onExpand={() => setExpandedConvRows(r => ({...r,[idx]:!r[idx]}))}
+                  />
+                ))}
+              </div>
             )}
           </div>
+        )}
 
-          <div style={s.sectionTitle}>
-            📋 Bet History
-            <span style={{fontSize:9, color:"#3a5570", fontWeight:400}}>
-              {history.length} total · {data?.record?.wins||0} won · {data?.record?.losses||0} lost
-            </span>
-          </div>
-          <div style={s.histCard}>
-            {history.length === 0 ? (
-              <div style={{padding:"40px", textAlign:"center", color:"#3a5570", fontSize:12}}>
-                No bets recorded yet. The engine runs every 10 minutes automatically.
-              </div>
+        {/* +EV Bets */}
+        {(tab==="All"||tab==="Moneyline"||tab==="Spread"||tab==="Game Total") && (
+          <div style={{ marginBottom:36 }}>
+            <SectionHeader
+              icon="⚡"
+              title={tab === "All" ? "+EV Bets" : `${tab} +EV Bets`}
+              count={filteredBets.length}
+              badge={<Pill color={T.green}>+EV · Odds API · 3.5% min edge</Pill>}
+            />
+            {filteredBets.length === 0 ? (
+              <EmptyState icon="🔍" message="No +EV bets right now"
+                sub={data?.hasUpcomingGames === false
+                  ? "All games are underway. New lines open ~9 AM ET tomorrow."
+                  : "Lines are sharp today. The engine runs 4x daily to catch new value."}
+              />
             ) : (
-              [...history].reverse().map(h => <HistoryRow key={h.id} h={h}/>)
+              <div className="conv-grid" style={{
+                display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(320px,1fr))", gap:14,
+              }}>
+                {filteredBets.map((bet, idx) => (
+                  <EVBetCard key={bet.id} bet={bet}
+                    expanded={!!expandedEvRows[idx]}
+                    onExpand={() => setExpandedEvRows(r => ({...r,[idx]:!r[idx]}))}
+                  />
+                ))}
+              </div>
             )}
           </div>
-        </div>
-      )}
+        )}
 
-      <style>{`
-        @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
-        * { box-sizing: border-box; margin: 0; padding: 0; }
-        button { font-family: inherit; }
-        ::-webkit-scrollbar { width: 4px; }
-        ::-webkit-scrollbar-track { background: #060d16; }
-        ::-webkit-scrollbar-thumb { background: #172030; border-radius: 2px; }
-      `}</style>
+        {/* Props Tab */}
+        {tab === "Props" && (() => {
+          return (
+            <div>
+              {/* Conviction props */}
+              <div style={{ marginBottom:36 }}>
+                <SectionHeader icon="🎯" title="Props Conviction Plays" count={convictionProps.length}
+                  badge={<Pill color={T.purple} glow>Auto-bet ≥70</Pill>} />
+                {convictionProps.length === 0 ? (
+                  <EmptyState icon="🏀" message="No conviction props yet"
+                    sub="Engine runs 4x daily for pregame lines." />
+                ) : (
+                  <div className="conv-grid" style={{
+                    display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(300px,1fr))", gap:14,
+                  }}>
+                    {convictionProps.map(prop => <PropCard key={prop.id} prop={prop}/>)}
+                  </div>
+                )}
+              </div>
+              {/* EV props */}
+              <div>
+                <SectionHeader icon="⚡" title="Props +EV Bets" count={evProps.length}
+                  badge={<Pill color={T.green}>+EV · {propBets.length} props scanned</Pill>} />
+                {evProps.length === 0 ? (
+                  <EmptyState icon="🔍" message="No prop edges found"
+                    sub={propBets.length === 0 ? "No prop lines loaded yet." : "All props met conviction threshold above."} />
+                ) : (
+                  <div className="conv-grid" style={{
+                    display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(300px,1fr))", gap:14,
+                  }}>
+                    {evProps.map(prop => <PropCard key={prop.id} prop={prop}/>)}
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })()}
+
+        {/* History Tab */}
+        {tab === "History" && (
+          <div>
+            {/* Chart */}
+            <div style={{
+              background:T.surface, border:`1px solid ${T.border}`,
+              borderRadius:14, padding:"20px 24px", marginBottom:20,
+            }}>
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:4 }}>
+                <div>
+                  <div style={{ fontSize:14, fontWeight:700, color:T.text }}>
+                    Portfolio Performance
+                    {isBookFiltered && (
+                      <span style={{ fontSize:9, color:T.textDim, fontWeight:400, marginLeft:8 }}>
+                        ({activeBookLabels.join(", ")})
+                      </span>
+                    )}
+                  </div>
+                  <div style={{ fontSize:10, color:T.textDim, marginTop:3 }}>
+                    $100 starting · Kelly Criterion · ML-weighted signals
+                  </div>
+                </div>
+                <div style={{
+                  fontSize:14, fontWeight:800,
+                  color: filteredPnl >= 0 ? T.green : T.red,
+                }}>
+                  {filteredPnl >= 0 ? "+" : ""}${filteredPnl.toFixed(2)}
+                </div>
+              </div>
+
+              {chartData.length < 2 ? (
+                <div style={{ height:140, display:"flex", alignItems:"center", justifyContent:"center",
+                  borderTop:`1px solid ${T.border}`, marginTop:16 }}>
+                  <span style={{ fontSize:11, color:T.textDim }}>Resolving first bets…</span>
+                </div>
+              ) : (
+                <div style={{ height:160, marginTop:16 }}>
+                  <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart data={chartData} margin={{ top:4, right:4, bottom:0, left:0 }}>
+                      <defs>
+                        <linearGradient id="chartGrad" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%"  stopColor={T.green} stopOpacity={0.15}/>
+                          <stop offset="95%" stopColor={T.green} stopOpacity={0}/>
+                        </linearGradient>
+                      </defs>
+                      <XAxis dataKey="date" hide/>
+                      <YAxis hide domain={["auto","auto"]}/>
+                      <Tooltip content={<ChartTooltip/>}/>
+                      <ReferenceLine y={100} stroke={T.border} strokeDasharray="3 3"/>
+                      <Area type="monotone" dataKey="bankroll"
+                        stroke={T.green} strokeWidth={2}
+                        fill="url(#chartGrad)" dot={false}
+                        activeDot={{ r:4, fill:T.green, stroke:T.bg }}/>
+                    </AreaChart>
+                  </ResponsiveContainer>
+                </div>
+              )}
+            </div>
+
+            {/* History list */}
+            <div style={{ background:T.surface, border:`1px solid ${T.border}`, borderRadius:14, overflow:"hidden" }}>
+              <div style={{
+                display:"flex", justifyContent:"space-between", alignItems:"center",
+                padding:"14px 20px", borderBottom:`1px solid ${T.border}`,
+              }}>
+                <div style={{ fontSize:13, fontWeight:700, color:T.text }}>Bet History</div>
+                <div style={{ fontSize:10, color:T.textDim }}>
+                  {filteredHistory.filter(h=>h.status==="won").length}W /&nbsp;
+                  {filteredHistory.filter(h=>h.status==="lost").length}L /&nbsp;
+                  {filteredHistory.filter(h=>h.status==="pending").length} pending
+                </div>
+              </div>
+              {filteredHistory.length === 0 ? (
+                <div style={{ padding:"40px 20px", textAlign:"center", color:T.textDim, fontSize:11 }}>
+                  No bets yet — history appears here after the engine places its first bet.
+                </div>
+              ) : (
+                [...filteredHistory].reverse().map(h => <HistoryRow key={h.id} h={h}/>)
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Info Tab */}
+        {tab === "Info" && <InfoTab/>}
+      </div>
     </div>
   );
 }
