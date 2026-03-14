@@ -72,12 +72,6 @@ function StatCard({ label, value, sub, color="#00ff88" }) {
   );
 }
 
-function fmtOdds(o) { if(!o) return "—"; return o > 0 ? `+${o}` : `${o}`; }
-function getAtOrBetterLabel(val) {
-  if (!val) return null;
-  return val > 0 ? `+${val} or better` : `${val} or better`;
-}
-
 // Global badge helper — used by sub-components that don't have access to s
 const badge = (c) => ({ fontSize:8, padding:"1px 6px", borderRadius:3, fontWeight:700,
   background:`${c}18`, border:`1px solid ${c}44`, color:c });
@@ -128,7 +122,7 @@ function ConvictionCard({ play, groupExpanded, onExpand }) {
             <div style={{fontSize:9, color:"#3a5570"}}>walk away if line moves past this</div>
           </div>
           <span style={{fontSize:18, fontWeight:800, color:"#ffd700", letterSpacing:"0.05em"}}>
-            {fmtOdds(play.getAtOrBetter)}
+            {formatOdds(play.getAtOrBetter)}
           </span>
         </div>
       )}
@@ -315,7 +309,7 @@ function EVBetCard({ bet, groupExpanded, onExpand }) {
             <div style={{fontSize:9, color:"#3a5570"}}>walk away if line moves past this</div>
           </div>
           <span style={{fontSize:18, fontWeight:800, color:"#00ff88", letterSpacing:"0.05em"}}>
-            {fmtOdds(bet.getAtOrBetter)}
+            {formatOdds(bet.getAtOrBetter)}
           </span>
         </div>
       )}
@@ -531,7 +525,7 @@ function PropCard({ prop }) {
             <div style={{fontSize:9, color:"#3a5570"}}>walk away if line moves past this</div>
           </div>
           <span style={{fontSize:18, fontWeight:800, color:"#b44fff", letterSpacing:"0.05em"}}>
-            {fmtOdds(prop.getAtOrBetter)}
+            {formatOdds(prop.getAtOrBetter)}
           </span>
         </div>
       )}
