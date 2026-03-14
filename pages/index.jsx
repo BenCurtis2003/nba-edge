@@ -56,6 +56,36 @@ const timeAgo = iso => {
   return `${Math.floor(mins/60)}h ${mins%60}m ago`;
 };
 
+// Engine cron schedule: 8:30am, 11:30am, 3:30pm, 6:15pm PST
+const CRON_SCHEDULE_PST = [
+  { h:8,  m:30 }, { h:11, m:30 }, { h:15, m:30 }, { h:18, m:15 },
+];
+function getNextRunTime() {
+  const now = new Date();
+  // Convert to PST (UTC-8, or UTC-7 PDT)
+  const pstOffset = -8 * 60;
+  const utcMins = now.getUTCHours() * 60 + now.getUTCMinutes();
+  const pstMins = ((utcMins + pstOffset) % 1440 + 1440) % 1440;
+  const pstH = Math.floor(pstMins / 60), pstM = pstMins % 60;
+  for (const slot of CRON_SCHEDULE_PST) {
+    const slotMins = slot.h * 60 + slot.m;
+    if (slotMins > pstH * 60 + pstM) {
+      const hh = slot.h % 12 || 12;
+      const mm = String(slot.m).padStart(2,"0");
+      const ampm = slot.h >= 12 ? "PM" : "AM";
+      return `${hh}:${mm} ${ampm} PST`;
+    }
+  }
+  return "8:30 AM PST tomorrow";
+}
+function getStatusDotColor(lastRun) {
+  if (!lastRun) return T.red;
+  const hrs = (Date.now() - new Date(lastRun)) / 3600000;
+  if (hrs < 6) return T.green;
+  if (hrs < 12) return T.gold;
+  return T.red;
+}
+
 // ── Design tokens ─────────────────────────────────────────────────────────────
 const T = {
   bg:       "#080f1a",
@@ -351,8 +381,16 @@ function ConvictionCard({ play, expanded, onExpand }) {
               : <Pill color={T.textDim}>WATCH</Pill>}
             <Pill color={betTypeColor}>{betTypeLabel}</Pill>
             {play.tier && <Pill color={accentColor}>{play.tier}</Pill>}
+            {play.crossConfirmed && <Pill color={T.purple}>⚡ CONFIRMED</Pill>}
           </div>
-          <ScoreRing score={play.convictionScore} size={52} />
+          <div style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:3 }}>
+            <ScoreRing score={play.convictionScore} size={52} />
+            {play.ensembleConfidence != null && (
+              <span style={{ fontSize:9, color:T.textDim, letterSpacing:"0.05em" }}>
+                {play.ensembleConfidence}% conf
+              </span>
+            )}
+          </div>
         </div>
 
         {/* Selection */}
@@ -395,7 +433,11 @@ function ConvictionCard({ play, expanded, onExpand }) {
               <ValueQualityTag bestOdds={play.bestOdds} getAtOrBetter={play.getAtOrBetter} />
             </div>
           ) : (
-            <span style={{ fontSize:11, color:T.textDim }}>Lines loading...</span>
+            <span style={{ fontSize:11, color:T.textDim }}>
+              {(!play.allLines || Object.keys(play.allLines).length === 0)
+                ? "No lines available — check your sportsbook directly"
+                : "Lines loading..."}
+            </span>
           )}
           <BookChips allLines={play.allLines} bestBook={play.bestBook} />
         </div>
@@ -1247,11 +1289,14 @@ export default function App() {
         </div>
         <div style={{ display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>
           <div style={{ display:"flex", alignItems:"center", gap:5 }}>
-            <div style={{ width:6, height:6, borderRadius:"50%", background:T.green,
-              animation:"pulse 2s infinite", boxShadow:`0 0 6px ${T.green}` }}/>
-            <span style={{ fontSize:10, color:T.textMid }}>Updated {timeAgo(data?.lastRun)}</span>
+            <div style={{ width:6, height:6, borderRadius:"50%",
+              background: getStatusDotColor(data?.lastRun),
+              animation:"pulse 2s infinite",
+              boxShadow:`0 0 6px ${getStatusDotColor(data?.lastRun)}` }}/>
+            <span style={{ fontSize:10, color:T.textMid }}>
+              Updated {timeAgo(data?.lastRun)} · Next: {getNextRunTime()}
+            </span>
           </div>
-          <Pill color={T.textDim}>Runs 4x daily</Pill>
           <Pill color={T.green} glow>Live Track Record</Pill>
           <a href="https://discord.gg/TRZQRu58au" target="_blank" rel="noopener noreferrer"
             style={{
@@ -1392,15 +1437,15 @@ export default function App() {
             </div>
             {filteredConviction.length === 0 ? (
               <EmptyState icon="📊" message="No conviction plays yet"
-                sub="Engine hasn't run or no qualifying plays for today's games." />
+                sub={`Engine next runs at ${getNextRunTime()}. No qualifying plays for today's games yet.`} />
             ) : (
               <div className="conv-grid" style={{
-                display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(320px,1fr))", gap:12,
+                display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(320px,1fr))", gap:12, alignItems:"start",
               }}>
-                {filteredConviction.slice(0,9).map((p, idx) => (
+                {filteredConviction.slice(0,9).map((p) => (
                   <ConvictionCard key={p.id} play={p}
-                    expanded={!!expandedConvRows[idx]}
-                    onExpand={() => setExpandedConvRows(r => ({...r,[idx]:!r[idx]}))}
+                    expanded={!!expandedConvRows[p.id]}
+                    onExpand={() => setExpandedConvRows(r => ({...r,[p.id]:!r[p.id]}))}
                   />
                 ))}
               </div>
@@ -1432,17 +1477,17 @@ export default function App() {
             {filteredBets.length === 0 ? (
               <EmptyState icon="🔍" message="No +EV bets right now"
                 sub={data?.hasUpcomingGames === false
-                  ? "All games are underway. New lines open ~9 AM ET tomorrow."
-                  : "Lines are sharp today. The engine runs 4x daily to catch new value."}
+                  ? `All games are underway. New lines open ~9 AM ET tomorrow. Next engine run: ${getNextRunTime()}.`
+                  : `Lines are sharp today. Next check: ${getNextRunTime()}.`}
               />
             ) : (
               <div className="conv-grid" style={{
-                display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(320px,1fr))", gap:12,
+                display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(320px,1fr))", gap:12, alignItems:"start",
               }}>
-                {filteredBets.map((bet, idx) => (
+                {filteredBets.map((bet) => (
                   <EVBetCard key={bet.id} bet={bet}
-                    expanded={!!expandedEvRows[idx]}
-                    onExpand={() => setExpandedEvRows(r => ({...r,[idx]:!r[idx]}))}
+                    expanded={!!expandedEvRows[bet.id]}
+                    onExpand={() => setExpandedEvRows(r => ({...r,[bet.id]:!r[bet.id]}))}
                   />
                 ))}
               </div>
@@ -1478,7 +1523,7 @@ export default function App() {
                   badge={<Pill color={T.purple} glow>Auto-bet ≥70</Pill>} />
                 {convictionProps.length === 0 ? (
                   <EmptyState icon="🏀" message="No conviction props yet"
-                    sub="Engine runs 4x daily for pregame lines." />
+                    sub={`Next engine run: ${getNextRunTime()}.`} />
                 ) : (
                   <div className="conv-grid" style={{
                     display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(300px,1fr))", gap:12,
@@ -1493,7 +1538,9 @@ export default function App() {
                   badge={<Pill color={T.green}>+EV · {propBets.length} props scanned</Pill>} />
                 {evProps.length === 0 ? (
                   <EmptyState icon="🔍" message="No prop edges found"
-                    sub={propBets.length === 0 ? "No prop lines loaded yet." : "All props met conviction threshold above."} />
+                    sub={propBets.length === 0
+                      ? `No prop lines loaded yet. Next run: ${getNextRunTime()}.`
+                      : "All props met conviction threshold above."} />
                 ) : (
                   <div className="conv-grid" style={{
                     display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(300px,1fr))", gap:12,

@@ -92,8 +92,65 @@ export default async function handler(req, res) {
     const mlWeights = ml?.learnedWeights || null;
 
     // 6. Build conviction plays — pass teamStats directly so no module cache needed
-    const convictionPlays = await buildConvictionPlays(espnGames, mlWeights, teamStats || {});
+    let convictionPlays = await buildConvictionPlays(espnGames, mlWeights, teamStats || {});
     console.log(`[Engine] ${convictionPlays.length} conviction plays · sample record: ${convictionPlays[0]?.teamRecord}`);
+
+    // 6.5 — Enrich conviction plays with sportsbook lines from liveOdds when available
+    // (buildConvictionPlays uses espnGames which may have empty bookmakers[])
+    if(games && games.length > 0) {
+      const normTeamLocal = t => t.toLowerCase().replace(/\bfc\b|\bsc\b/g,"").replace(/[^a-z0-9]/g," ").trim().split(/\s+/).slice(-1)[0];
+      convictionPlays = convictionPlays.map(play => {
+        if(play.bestOdds !== null && Object.keys(play.allLines || {}).length > 0) return play;
+        const teamNorm = normTeamLocal(play.selection.replace(/ ML$/i,"").trim());
+        const matchedGame = games.find(g => {
+          const hN = normTeamLocal(g.home_team), aN = normTeamLocal(g.away_team);
+          return hN === teamNorm || aN === teamNorm;
+        });
+        if(!matchedGame) return play;
+        const allLines = {};
+        let bestOdds = null, bestBook = null;
+        for(const bk of (matchedGame.bookmakers || [])) {
+          const mkt = bk.markets?.find(m => m.key === "h2h");
+          const outcome = mkt?.outcomes?.find(o => normTeamLocal(o.name) === teamNorm);
+          if(outcome) {
+            allLines[bk.key] = { odds: outcome.price };
+            if(bestOdds === null || outcome.price > bestOdds) { bestOdds = outcome.price; bestBook = bk.key; }
+          }
+        }
+        if(bestOdds === null) return play;
+        const trueProb = (play.ourProbability || 50) / 100;
+        const getAtOrBetterLine = trueProb > 0 && trueProb < 1
+          ? (trueProb >= 0.5
+              ? Math.round(-((trueProb - 0.035) / (1 - (trueProb - 0.035))) * 100)
+              : Math.round(((1 - (trueProb + 0.035)) / (trueProb + 0.035)) * 100))
+          : null;
+        return { ...play, allLines, bestOdds, bestBook, getAtOrBetter: getAtOrBetterLine };
+      });
+      console.log(`[Engine] Odds enriched: ${convictionPlays.filter(p => p.bestOdds !== null).length}/${convictionPlays.length} plays have lines`);
+    }
+
+    // 6.6 — Cross-signal confirmation: conviction + EV engine agree → +5 bonus
+    if(evBets.length > 0) {
+      const normTeamLocal = t => t.toLowerCase().replace(/[^a-z0-9]/g," ").trim().split(/\s+/).slice(-1)[0];
+      const evTeams = new Set(evBets.map(b => normTeamLocal(b.selection.replace(/ ML$/i,"").trim())));
+      convictionPlays = convictionPlays.map(play => {
+        const teamNorm = normTeamLocal(play.selection.replace(/ ML$/i,"").trim());
+        if(evTeams.has(teamNorm)) {
+          return { ...play, convictionScore: Math.min(95, play.convictionScore + 5), crossConfirmed: true };
+        }
+        return { ...play, crossConfirmed: false };
+      });
+    }
+
+    // 6.7 — Ensemble confidence score (0-100)
+    convictionPlays = convictionPlays.map(play => {
+      const base = (play.convictionScore / 100) * 50;          // 0-50 from conviction
+      const cross = play.crossConfirmed ? 15 : 0;              // +15 if EV engine agrees
+      const injBonus = play.injuryAdvantage ? 10 : (play.injuryRisk ? -5 : 0);
+      const restBonus = play.restAdvantage ? 8 : (play.backToBack ? -5 : 0);
+      const ensembleConfidence = Math.round(Math.min(100, Math.max(0, base + cross + injBonus + restBonus)));
+      return { ...play, ensembleConfidence };
+    });
 
     // 7. Auto-resolve finished games before placing new bets
     const [history, bankroll] = await Promise.all([getHistory(), getBankroll()]);
