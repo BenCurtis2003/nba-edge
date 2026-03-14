@@ -72,6 +72,12 @@ function StatCard({ label, value, sub, color="#00ff88" }) {
   );
 }
 
+function fmtOdds(o) { if(!o) return "—"; return o > 0 ? `+${o}` : `${o}`; }
+function getAtOrBetterLabel(val) {
+  if (!val) return null;
+  return val > 0 ? `+${val} or better` : `${val} or better`;
+}
+
 // Global badge helper — used by sub-components that don't have access to s
 const badge = (c) => ({ fontSize:8, padding:"1px 6px", borderRadius:3, fontWeight:700,
   background:`${c}18`, border:`1px solid ${c}44`, color:c });
@@ -112,6 +118,21 @@ function ConvictionCard({ play, groupExpanded, onExpand }) {
             marginLeft:6, fontWeight:400}}>{play.bestBook}</span>}
         </div>
       )}
+      {/* Get at X or Better */}
+      {play.getAtOrBetter && (
+        <div style={{marginTop:10, padding:"8px 12px", borderRadius:8,
+          background:"rgba(255,215,0,0.06)", border:"1px solid rgba(255,215,0,0.25)",
+          display:"flex", alignItems:"center", justifyContent:"space-between"}}>
+          <div>
+            <div style={{fontSize:8, color:"#7a90a8", letterSpacing:"0.1em", marginBottom:1}}>GET AT OR BETTER</div>
+            <div style={{fontSize:9, color:"#3a5570"}}>walk away if line moves past this</div>
+          </div>
+          <span style={{fontSize:18, fontWeight:800, color:"#ffd700", letterSpacing:"0.05em"}}>
+            {fmtOdds(play.getAtOrBetter)}
+          </span>
+        </div>
+      )}
+
       {expanded && play.signals && (
         <div style={{marginTop:12, borderTop:"1px solid #0e1a28", paddingTop:12}}>
           {/* All book moneyline odds */}
@@ -281,6 +302,21 @@ function EVBetCard({ bet, groupExpanded, onExpand }) {
             a {bet.edge?.toFixed(1)}% edge. At {formatOdds(bet.bestOdds)} on {BOOK_DISPLAY[bet.bestBook]||bet.bestBook},
             this is a {bet.ev?.toFixed(1)}% EV bet. Kelly Criterion recommends {bet.kellyPct?.toFixed(1)}% of bankroll.
           </div>
+        </div>
+      )}
+    </div>
+      {/* Get at X or Better */}
+      {bet.getAtOrBetter && (
+        <div style={{marginTop:10, padding:"8px 12px", borderRadius:8,
+          background:"rgba(0,255,136,0.05)", border:"1px solid rgba(0,255,136,0.2)",
+          display:"flex", alignItems:"center", justifyContent:"space-between"}}>
+          <div>
+            <div style={{fontSize:8, color:"#7a90a8", letterSpacing:"0.1em", marginBottom:1}}>GET AT OR BETTER</div>
+            <div style={{fontSize:9, color:"#3a5570"}}>walk away if line moves past this</div>
+          </div>
+          <span style={{fontSize:18, fontWeight:800, color:"#00ff88", letterSpacing:"0.05em"}}>
+            {fmtOdds(bet.getAtOrBetter)}
+          </span>
         </div>
       )}
     </div>
@@ -484,6 +520,21 @@ function PropCard({ prop }) {
           </span>
         </div>
       </div>
+
+      {/* Get at X or Better */}
+      {prop.getAtOrBetter && (
+        <div style={{marginBottom:10, padding:"8px 12px", borderRadius:8,
+          background:"rgba(180,79,255,0.06)", border:"1px solid rgba(180,79,255,0.25)",
+          display:"flex", alignItems:"center", justifyContent:"space-between"}}>
+          <div>
+            <div style={{fontSize:8, color:"#7a90a8", letterSpacing:"0.1em", marginBottom:1}}>GET AT OR BETTER</div>
+            <div style={{fontSize:9, color:"#3a5570"}}>walk away if line moves past this</div>
+          </div>
+          <span style={{fontSize:18, fontWeight:800, color:"#b44fff", letterSpacing:"0.05em"}}>
+            {fmtOdds(prop.getAtOrBetter)}
+          </span>
+        </div>
+      )}
 
       {/* Signal bars */}
       {prop.signals?.length > 0 && (
