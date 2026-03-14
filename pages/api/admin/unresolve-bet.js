@@ -1,6 +1,6 @@
 // pages/api/admin/unresolve-bet.js
 // Resets a specific resolved bet back to pending by selection name
-import { loadHistory, saveHistory } from "../../../lib/store";
+import { getHistory, saveHistory } from "../../../lib/store";
 
 export default async function handler(req, res) {
   if (req.headers.authorization !== `Bearer ${process.env.CRON_SECRET}`)
@@ -9,7 +9,7 @@ export default async function handler(req, res) {
   const { selection } = req.query;
   if (!selection) return res.status(400).json({ error: "Pass ?selection=Team+Name" });
 
-  const history = await loadHistory();
+  const history = await getHistory();
   let fixed = 0;
 
   const updated = history.map(entry => {
