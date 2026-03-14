@@ -712,6 +712,54 @@ export default function App() {
 
   const tabs = ["All","Moneyline","Spread","Game Total","Props","History","Info"];
 
+  // Sportsbook filter — persisted to localStorage
+  const ALL_BOOKS = [
+    { id:"draftkings", label:"DraftKings", color:"#53d337" },
+    { id:"fanduel",    label:"FanDuel",    color:"#1493ff" },
+    { id:"betmgm",     label:"BetMGM",     color:"#d4af37" },
+    { id:"betrivers",  label:"BetRivers",  color:"#d4213d" },
+    { id:"caesars",    label:"Caesars",    color:"#00a4e4" },
+    { id:"pinnacle",   label:"Pinnacle",   color:"#00e5ff" },
+    { id:"lowvig",     label:"LowVig",     color:"#aaffaa" },
+    { id:"kalshi",     label:"Kalshi",     color:"#b44fff" },
+  ];
+  const [selectedBooks, setSelectedBooks] = useState(() => {
+    if (typeof window === "undefined") return new Set(["all"]);
+    try {
+      const saved = localStorage.getItem("nba_edge_books");
+      return saved ? new Set(JSON.parse(saved)) : new Set(["all"]);
+    } catch { return new Set(["all"]); }
+  });
+
+  function toggleBook(id) {
+    setSelectedBooks(prev => {
+      let next;
+      if (id === "all") {
+        next = new Set(["all"]);
+      } else {
+        const without = new Set([...prev].filter(b => b !== "all"));
+        if (without.has(id)) {
+          without.delete(id);
+          next = without.size === 0 ? new Set(["all"]) : without;
+        } else {
+          without.add(id);
+          // If all books selected, collapse to "all"
+          next = without.size === ALL_BOOKS.length ? new Set(["all"]) : without;
+        }
+      }
+      try { localStorage.setItem("nba_edge_books", JSON.stringify([...next])); } catch {}
+      return next;
+    });
+  }
+
+  // Filter a bet/play by selected books
+  function bookVisible(item) {
+    if (selectedBooks.has("all")) return true;
+    const book = item?.bestBook;
+    if (!book) return true; // no book info — show it
+    return selectedBooks.has(book);
+  }
+
   // Chart data
   const chartData = (() => {
     if(!data?.history?.length) return [];
@@ -727,16 +775,16 @@ export default function App() {
   const conviction = data?.convictionPlays || [];
   const history = data?.history || [];
   const currentBets = data?.currentBets || [];
-  const propBets = data?.propBets || [];
+  const propBets = (data?.propBets || []).filter(bookVisible);
 
-  const filteredConviction = tab==="All" ? conviction : conviction.filter(p => {
+  const filteredConviction = (tab==="All" ? conviction : conviction.filter(p => {
     const t = p.betType || "Moneyline";
     if (tab==="Spread") return t==="Spread" || t==="spreads" || t==="ATS";
     if (tab==="Game Total") return t==="Game Total" || t==="totals" || t==="Total";
     return t===tab;
-  });
-  const filteredHistory = tab==="History" ? history : [];
-  const filteredBets = tab==="All"||tab==="Moneyline"||tab==="Spread"||tab==="Game Total"
+  })).filter(bookVisible);
+  const filteredHistory = tab==="History" ? history.filter(bookVisible) : [];
+  const filteredBets = (tab==="All"||tab==="Moneyline"||tab==="Spread"||tab==="Game Total"
     ? currentBets.filter(b => {
         if (tab==="All") return true;
         const t = b.type || b.betType || "Moneyline";
@@ -744,7 +792,7 @@ export default function App() {
         if (tab==="Game Total") return t==="Game Total" || t==="totals" || t==="Total";
         return t===tab;
       })
-    : [];
+    : []).filter(bookVisible);
 
   if(loading) return (
     <div style={{...s.page, display:"flex", alignItems:"center", justifyContent:"center", minHeight:"100vh"}}>
@@ -812,6 +860,57 @@ export default function App() {
           value={data?.mlStatus||"Learning"}
           sub={`${data?.mlBets||0} bets analyzed`}
           color="#b44fff"/>
+      </div>
+
+      {/* ── Sportsbook Filter Bar ─────────────────────────────────── */}
+      <div style={{padding:"0 16px", marginBottom:8}}>
+        <div style={{display:"flex", alignItems:"center", gap:6, marginBottom:6}}>
+          <span style={{fontSize:8, color:"#3a5570", letterSpacing:"0.12em", whiteSpace:"nowrap"}}>
+            BOOKS
+          </span>
+          <div style={{flex:1, height:"1px", background:"#0e1a28"}}/>
+        </div>
+        <div style={{display:"flex", gap:5, overflowX:"auto", WebkitOverflowScrolling:"touch",
+          scrollbarWidth:"none", msOverflowStyle:"none", paddingBottom:4}}>
+
+          {/* All button */}
+          <button onClick={() => toggleBook("all")} style={{
+            padding:"4px 12px", borderRadius:20, fontSize:10, cursor:"pointer",
+            whiteSpace:"nowrap", flexShrink:0, fontFamily:"inherit", fontWeight:700,
+            border:`1px solid ${selectedBooks.has("all") ? "#ffffff55" : "#172030"}`,
+            background: selectedBooks.has("all") ? "rgba(255,255,255,0.08)" : "transparent",
+            color: selectedBooks.has("all") ? "#fff" : "#3a5570",
+            transition:"all 0.15s",
+          }}>ALL</button>
+
+          {/* Individual book buttons */}
+          {ALL_BOOKS.map(bk => {
+            const active = !selectedBooks.has("all") && selectedBooks.has(bk.id);
+            return (
+              <button key={bk.id} onClick={() => toggleBook(bk.id)} style={{
+                padding:"4px 12px", borderRadius:20, fontSize:10, cursor:"pointer",
+                whiteSpace:"nowrap", flexShrink:0, fontFamily:"inherit",
+                border:`1px solid ${active ? bk.color + "88" : "#172030"}`,
+                background: active ? `${bk.color}15` : "transparent",
+                color: active ? bk.color : "#3a5570",
+                transition:"all 0.15s",
+              }}>
+                {bk.label}
+              </button>
+            );
+          })}
+        </div>
+        {!selectedBooks.has("all") && (
+          <div style={{fontSize:8, color:"#3a5570", marginTop:4, letterSpacing:"0.08em"}}>
+            Showing bets with best odds at: {[...selectedBooks].map(id =>
+              ALL_BOOKS.find(b => b.id === id)?.label || id).join(", ")}
+            <button onClick={() => toggleBook("all")} style={{
+              marginLeft:8, fontSize:8, color:"#3a5570", background:"none",
+              border:"none", cursor:"pointer", textDecoration:"underline", padding:0,
+              fontFamily:"inherit",
+            }}>clear</button>
+          </div>
+        )}
       </div>
 
       {/* Tabs */}
