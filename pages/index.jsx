@@ -73,64 +73,59 @@ const T = {
   discord:  "#5865f2",
 };
 
-// ── Live Scores Strip ─────────────────────────────────────────────────────────
-function LiveScoresStrip() {
-  const [games, setGames] = useState([]);
-  useEffect(() => {
-    fetch("https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard")
-      .then(r => r.json())
-      .then(d => {
-        const parsed = (d.events || []).map(ev => {
-          const comp = ev.competitions?.[0];
-          const status = comp?.status?.type;
-          const home = comp?.competitors?.find(c => c.homeAway === "home");
-          const away = comp?.competitors?.find(c => c.homeAway === "away");
-          const homeAbr = home?.team?.abbreviation || "";
-          const awayAbr = away?.team?.abbreviation || "";
-          const homeScore = home?.score;
-          const awayScore = away?.score;
-          const completed = status?.completed;
-          const inProgress = status?.state === "in";
-          const timeDetail = inProgress
-            ? (comp?.status?.displayClock ? `${comp.status.period}Q ${comp.status.displayClock}` : "LIVE")
-            : completed
-              ? "Final"
-              : (ev.date ? new Date(ev.date).toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit",timeZoneName:"short"}) : "");
-          if (completed || inProgress) {
-            return `${awayAbr} ${awayScore} · ${homeAbr} ${homeScore} ${timeDetail}`;
-          }
-          return `${awayAbr} vs ${homeAbr}  ${timeDetail}`;
-        });
-        setGames(parsed);
-      })
-      .catch(() => {});
-  }, []);
-
-  if (!games.length) return null;
-  const ticker = [...games, ...games].join("     ·     ");
-
+// ── Live Scores Bar ───────────────────────────────────────────────────────────
+function ScoresBar({ games }) {
+  if (!games || !games.length) return null;
   return (
     <div style={{
-      background:"#0d1623", borderBottom:"1px solid #162030",
-      overflow:"hidden", height:28, display:"flex", alignItems:"center",
+      background: T.bg, borderBottom: `1px solid ${T.border}`,
+      display: "flex", alignItems: "center",
+      overflowX: "auto", WebkitOverflowScrolling: "touch",
+      scrollbarWidth: "none", msOverflowStyle: "none",
+      padding: "10px 28px", gap: 8,
     }}>
-      <style>{`
-        @keyframes scoreTicker {
-          from { transform: translateX(0); }
-          to   { transform: translateX(-50%); }
-        }
-        .scores-inner {
-          display: inline-block;
-          white-space: nowrap;
-          animation: scoreTicker ${Math.max(20, games.length * 6)}s linear infinite;
-        }
-        .scores-inner:hover { animation-play-state: paused; }
-      `}</style>
-      <div className="scores-inner" style={{
-        fontSize: 10, color: "#4a6480", letterSpacing: "0.04em", paddingLeft: 20,
-      }}>
-        {ticker}
-      </div>
+      {games.map((g, i) => (
+        <div key={i} style={{
+          flexShrink: 0, width: 140, height: 56,
+          background: T.surface,
+          border: `1px solid ${g.live ? T.green + "55" : T.border}`,
+          borderRadius: 10,
+          padding: "7px 10px",
+          display: "flex", flexDirection: "column", justifyContent: "space-between",
+          opacity: g.final ? 0.6 : 1,
+        }}>
+          {/* Teams row */}
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+            <span style={{ fontSize:11, fontWeight:700, color:"#fff" }}>{g.away}</span>
+            <span style={{ fontSize:9, color: T.textDim }}>·</span>
+            <span style={{ fontSize:11, fontWeight:700, color:"#fff" }}>{g.home}</span>
+          </div>
+          {/* Scores / tip time row */}
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+            {(g.live || g.final) ? (
+              <>
+                <span style={{ fontSize:16, fontWeight:800, color:"#fff" }}>{g.awayScore}</span>
+                <span style={{ fontSize:16, fontWeight:800, color:"#fff" }}>{g.homeScore}</span>
+              </>
+            ) : (
+              <span style={{ fontSize:11, fontWeight:600, color: T.textMid, width:"100%", textAlign:"center" }}>{g.tipTime}</span>
+            )}
+          </div>
+          {/* Status row */}
+          <div style={{ display:"flex", alignItems:"center", gap:4 }}>
+            {g.live && (
+              <div style={{
+                width:5, height:5, borderRadius:"50%", background: T.green,
+                animation: "pulse 2s infinite", boxShadow: `0 0 4px ${T.green}`,
+                flexShrink:0,
+              }}/>
+            )}
+            <span style={{ fontSize:9, color: T.textDim, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>
+              {g.status}
+            </span>
+          </div>
+        </div>
+      ))}
     </div>
   );
 }
@@ -301,6 +296,34 @@ function ValueQualityTag({ bestOdds, getAtOrBetter }) {
   );
 }
 
+// ── Inline Book Chips ─────────────────────────────────────────────────────────
+function BookChips({ allLines, bestBook }) {
+  if (!allLines) return null;
+  const entries = Object.entries(allLines)
+    .filter(([, val]) => val != null)
+    .slice(0, 6);
+  if (!entries.length) return null;
+  return (
+    <div style={{ display:"flex", gap:4, flexWrap:"wrap", marginTop:8 }}>
+      {entries.map(([bk, val]) => {
+        const isBest = bk === bestBook;
+        const meta = BOOK_META[bk] || { short: bk.slice(0,3).toUpperCase() };
+        const oddsColor = val.odds > 0 ? T.gold : T.blue;
+        return (
+          <span key={bk} style={{
+            padding:"3px 7px", borderRadius:6, fontSize:9, fontFamily:"inherit",
+            background: T.bg,
+            border: isBest ? `1px solid ${T.green}55` : `1px solid ${T.border}`,
+            color: isBest ? T.green : oddsColor,
+          }}>
+            {meta.short} {fmtOdds(val.odds)}
+          </span>
+        );
+      })}
+    </div>
+  );
+}
+
 // ── Conviction Card ───────────────────────────────────────────────────────────
 function ConvictionCard({ play, expanded, onExpand }) {
   const isAutoBet = play.convictionScore >= 70;
@@ -357,20 +380,25 @@ function ConvictionCard({ play, expanded, onExpand }) {
         )}
 
         {/* Best odds */}
-        {play.bestOdds && (
-          <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:10, flexWrap:"wrap" }}>
-            <span style={{ fontSize:18, fontWeight:800, color: play.bestOdds < 0 ? T.blue : T.gold }}>
-              {fmtOdds(play.bestOdds)}
-            </span>
-            {play.bestBook && (
-              <span style={{ fontSize:10, fontWeight:600,
-                color: BOOK_META[play.bestBook]?.color || T.textMid }}>
-                {BOOK_META[play.bestBook]?.label || play.bestBook}
+        <div style={{ marginBottom:10 }}>
+          {play.bestOdds != null ? (
+            <div style={{ display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>
+              <span style={{ fontSize:18, fontWeight:800, color: play.bestOdds < 0 ? T.blue : T.gold }}>
+                {fmtOdds(play.bestOdds)}
               </span>
-            )}
-            <ValueQualityTag bestOdds={play.bestOdds} getAtOrBetter={play.getAtOrBetter} />
-          </div>
-        )}
+              {play.bestBook && (
+                <span style={{ fontSize:10, fontWeight:600,
+                  color: BOOK_META[play.bestBook]?.color || T.textMid }}>
+                  {BOOK_META[play.bestBook]?.label || play.bestBook}
+                </span>
+              )}
+              <ValueQualityTag bestOdds={play.bestOdds} getAtOrBetter={play.getAtOrBetter} />
+            </div>
+          ) : (
+            <span style={{ fontSize:11, color:T.textDim }}>Lines loading...</span>
+          )}
+          <BookChips allLines={play.allLines} bestBook={play.bestBook} />
+        </div>
 
         <GetAtOrBetter value={play.getAtOrBetter} color={T.gold} />
 
@@ -420,17 +448,20 @@ function EVBetCard({ bet, expanded, onExpand }) {
         <div style={{ fontSize:11, color:T.textMid, marginBottom:12 }}>{bet.game}</div>
 
         {/* Best odds + book */}
-        <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:12, flexWrap:"wrap" }}>
-          <span style={{ fontSize:22, fontWeight:800, color: bet.bestOdds < 0 ? T.blue : T.gold }}>
-            {fmtOdds(bet.bestOdds)}
-          </span>
-          <div>
-            <div style={{ fontSize:10, fontWeight:600, color: BOOK_META[bet.bestBook]?.color || T.textMid }}>
-              {BOOK_META[bet.bestBook]?.label || bet.bestBook}
+        <div style={{ marginBottom:12 }}>
+          <div style={{ display:"flex", alignItems:"center", gap:10, flexWrap:"wrap" }}>
+            <span style={{ fontSize:22, fontWeight:800, color: bet.bestOdds < 0 ? T.blue : T.gold }}>
+              {fmtOdds(bet.bestOdds)}
+            </span>
+            <div>
+              <div style={{ fontSize:10, fontWeight:600, color: BOOK_META[bet.bestBook]?.color || T.textMid }}>
+                {BOOK_META[bet.bestBook]?.label || bet.bestBook}
+              </div>
+              <div style={{ fontSize:9, color:T.textDim }}>Best available</div>
             </div>
-            <div style={{ fontSize:9, color:T.textDim }}>Best available</div>
+            <ValueQualityTag bestOdds={bet.bestOdds} getAtOrBetter={bet.getAtOrBetter} />
           </div>
-          <ValueQualityTag bestOdds={bet.bestOdds} getAtOrBetter={bet.getAtOrBetter} />
+          <BookChips allLines={bet.allLines} bestBook={bet.bestBook} />
         </div>
 
         {/* Stats row */}
@@ -980,6 +1011,7 @@ export default function App() {
   const [convSort, setConvSort]   = useState("score");
   const [evSort,   setEvSort]     = useState("edge");
   const [propCat,  setPropCat]    = useState("All");
+  const [scoresData, setScoresData] = useState([]);
 
   // Sportsbook filter
   const [selectedBooks, setSelectedBooks] = useState(() => {
@@ -1032,6 +1064,40 @@ export default function App() {
     const id = setInterval(fetchPortfolio, 60000);
     return () => clearInterval(id);
   }, [fetchPortfolio]);
+
+  useEffect(() => {
+    const parseScores = (d) => (d.events || []).map(ev => {
+      const comp = ev.competitions?.[0];
+      const st = comp?.status?.type;
+      const home = comp?.competitors?.find(c => c.homeAway === "home");
+      const away = comp?.competitors?.find(c => c.homeAway === "away");
+      const live = st?.state === "in";
+      const final = st?.completed;
+      const period = comp?.status?.period;
+      const clock = comp?.status?.displayClock;
+      const statusStr = live
+        ? (clock ? `LIVE · Q${period} ${clock}` : "LIVE")
+        : final
+          ? "FINAL"
+          : ev.date
+            ? new Date(ev.date).toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit",timeZoneName:"short"})
+            : "";
+      return {
+        away: away?.team?.abbreviation || "",
+        home: home?.team?.abbreviation || "",
+        awayScore: away?.score ?? "",
+        homeScore: home?.score ?? "",
+        tipTime: ev.date ? new Date(ev.date).toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit"}) : "",
+        live, final, status: statusStr,
+      };
+    });
+    const fetchScores = () =>
+      fetch("https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard")
+        .then(r => r.json()).then(d => setScoresData(parseScores(d))).catch(() => {});
+    fetchScores();
+    const sid = setInterval(fetchScores, 60000);
+    return () => clearInterval(sid);
+  }, []);
 
   const tabs = ["All","Moneyline","Spread","Game Total","Props","History","Info"];
 
@@ -1202,7 +1268,7 @@ export default function App() {
         </div>
       </header>
 
-      <LiveScoresStrip />
+      <ScoresBar games={scoresData} />
 
       {/* ── Stats ───────────────────────────────────────────────────────────── */}
       <div className="stat-grid" style={{
@@ -1234,44 +1300,43 @@ export default function App() {
           color={T.purple}/>
       </div>
 
-      {/* ── Book Filter Card ─────────────────────────────────────────────────── */}
-      <div style={{ margin:"0 28px 20px", background:T.surface, border:`1px solid ${T.border}`, borderRadius:14, padding:"16px 20px" }}>
-        <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:12 }}>
-          <div>
-            <div style={{ fontSize:9, color:T.textDim, letterSpacing:"0.1em", marginBottom:3 }}>MY SPORTSBOOKS</div>
-            <div style={{ fontSize:12, color:T.textMid }}>
-              {isBookFiltered ? `Showing ${activeBookLabels.join(", ")}` : "Showing all sportsbooks"}
-            </div>
+      {/* ── Book Filter Toolbar ───────────────────────────────────────────────── */}
+      <div style={{ margin:"0 28px 14px", background:T.surface, border:`1px solid ${T.border}`, borderRadius:14, padding:"12px 16px" }}>
+        <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:10 }}>
+          <div style={{ display:"flex", alignItems:"center", gap:6 }}>
+            <span style={{ fontSize:11, color:"#f59e0b" }}>⚡</span>
+            <span style={{ fontSize:11, fontWeight:500, color:T.textMid }}>Filter by Sportsbook</span>
           </div>
           {isBookFiltered && (
             <button onClick={() => toggleBook("all")} style={{
-              fontSize:9, color:T.textDim, background:`${T.border}44`,
-              border:`1px solid ${T.border}`, borderRadius:8, cursor:"pointer",
-              padding:"4px 12px", fontFamily:"inherit",
+              fontSize:9, color:T.textDim, background:"transparent",
+              border:"none", cursor:"pointer", padding:0, fontFamily:"inherit",
+              textDecoration:"underline",
             }}>Reset</button>
           )}
         </div>
-        <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
+        <div style={{ display:"flex", gap:5, flexWrap:"wrap" }}>
           <button onClick={() => toggleBook("all")} style={{
-            padding:"5px 14px", borderRadius:20, fontSize:10, cursor:"pointer",
+            padding:"4px 12px", borderRadius:20, fontSize:9, cursor:"pointer",
             fontFamily:"inherit", fontWeight:700,
-            border:`1px solid ${selectedBooks.has("all") ? "#ffffff55" : T.borderHi}`,
-            background: selectedBooks.has("all") ? "rgba(255,255,255,0.08)" : "transparent",
+            border:"none",
+            borderLeft: selectedBooks.has("all") ? "3px solid #ffffff" : "3px solid transparent",
+            background: selectedBooks.has("all") ? "rgba(255,255,255,0.06)" : "transparent",
             color: selectedBooks.has("all") ? "#fff" : T.textDim,
+            transition:"all 0.15s",
           }}>ALL</button>
           {ALL_BOOKS.map(bk => {
             const active = !selectedBooks.has("all") && selectedBooks.has(bk.id);
             return (
               <button key={bk.id} onClick={() => toggleBook(bk.id)} style={{
-                padding:"5px 14px", borderRadius:20, fontSize:10, cursor:"pointer",
-                fontFamily:"inherit", display:"flex", alignItems:"center", gap:5,
-                border:`1px solid ${active ? bk.color + "88" : T.borderHi}`,
-                background: active ? `${bk.color}12` : "transparent",
+                padding:"4px 12px", borderRadius:20, fontSize:9, cursor:"pointer",
+                fontFamily:"inherit",
+                border:"none",
+                borderLeft: active ? `3px solid ${bk.color}` : "3px solid transparent",
+                background: active ? `${bk.color}1a` : "transparent",
                 color: active ? bk.color : T.textDim,
-                boxShadow: active ? `0 0 10px ${bk.color}18` : "none",
                 transition:"all 0.15s",
               }}>
-                <span style={{ width:6, height:6, borderRadius:"50%", background:active ? bk.color : T.textDim, display:"inline-block", flexShrink:0 }}/>
                 {bk.label}
               </button>
             );
@@ -1313,16 +1378,16 @@ export default function App() {
               count={filteredConviction.length}
               badge={<Pill color={T.gold} glow>Stat-driven · Auto-bet ≥70</Pill>}
             />
-            <div style={{ display:"flex", gap:12, marginBottom:12, marginTop:-4 }}>
+            <div style={{ display:"inline-flex", gap:2, marginBottom:12, marginTop:-4, background:T.bg, border:`1px solid ${T.border}`, borderRadius:8, padding:3 }}>
               {[["score","Score ↓"],["edge","Edge %"],["odds","Odds"]].map(([key,label]) => (
                 <button key={key} onClick={() => setConvSort(key)} style={{
-                  background:"transparent", border:"none", cursor:"pointer",
-                  fontSize:10, fontWeight:700, fontFamily:"inherit",
-                  color: convSort === key ? T.green : T.textDim,
-                  padding:"2px 0",
-                  borderBottom: `2px solid ${convSort === key ? T.green : "transparent"}`,
-                  transition:"color 0.15s, border-color 0.15s",
-                }}>{label}</button>
+                  background: convSort === key ? T.surface : "transparent",
+                  border:"none", cursor:"pointer",
+                  fontSize:10, fontWeight:convSort === key ? 700 : 400, fontFamily:"inherit",
+                  color: convSort === key ? T.text : T.textDim,
+                  padding:"4px 12px", borderRadius:6,
+                  transition:"all 0.15s",
+                }}>{label}{convSort === key ? " ↓" : ""}</button>
               ))}
             </div>
             {filteredConviction.length === 0 ? (
@@ -1352,16 +1417,16 @@ export default function App() {
               count={filteredBets.length}
               badge={<Pill color={T.green}>+EV · Odds API · 3.5% min edge</Pill>}
             />
-            <div style={{ display:"flex", gap:12, marginBottom:12, marginTop:-4 }}>
+            <div style={{ display:"inline-flex", gap:2, marginBottom:12, marginTop:-4, background:T.bg, border:`1px solid ${T.border}`, borderRadius:8, padding:3 }}>
               {[["edge","Edge %"],["ev","EV %"],["kelly","Kelly %"]].map(([key,label]) => (
                 <button key={key} onClick={() => setEvSort(key)} style={{
-                  background:"transparent", border:"none", cursor:"pointer",
-                  fontSize:10, fontWeight:700, fontFamily:"inherit",
-                  color: evSort === key ? T.green : T.textDim,
-                  padding:"2px 0",
-                  borderBottom: `2px solid ${evSort === key ? T.green : "transparent"}`,
-                  transition:"color 0.15s, border-color 0.15s",
-                }}>{label}</button>
+                  background: evSort === key ? T.surface : "transparent",
+                  border:"none", cursor:"pointer",
+                  fontSize:10, fontWeight:evSort === key ? 700 : 400, fontFamily:"inherit",
+                  color: evSort === key ? T.text : T.textDim,
+                  padding:"4px 12px", borderRadius:6,
+                  transition:"all 0.15s",
+                }}>{label}{evSort === key ? " ↓" : ""}</button>
               ))}
             </div>
             {filteredBets.length === 0 ? (
