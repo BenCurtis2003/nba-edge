@@ -610,7 +610,7 @@ function InfoTab() {
             with the pick, odds, book, and Kelly sizing — so you can follow along in real time.
           </div>
         </div>
-        <a href="https://discord.gg/YOUR_INVITE" target="_blank" rel="noopener noreferrer"
+        <a href="https://discord.gg/TRZQRu58au" target="_blank" rel="noopener noreferrer"
           style={{
             display:"inline-flex", alignItems:"center", gap:8,
             padding:"10px 22px", borderRadius:10, cursor:"pointer",
@@ -885,7 +885,7 @@ export default function App() {
           </div>
           <span style={s.pill}>Runs 4x daily</span>
           <span style={s.pillGreen}>Live Track Record</span>
-          <a href="https://discord.gg/YOUR_INVITE" target="_blank" rel="noopener noreferrer"
+          <a href="https://discord.gg/TRZQRu58au" target="_blank" rel="noopener noreferrer"
             style={{
               display:"flex", alignItems:"center", gap:5,
               fontSize:9, padding:"2px 10px", borderRadius:20,
