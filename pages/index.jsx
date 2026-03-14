@@ -763,12 +763,30 @@ export default function App() {
   // Chart data
   const chartData = (() => {
     if(!data?.history?.length) return [];
-    const resolved = [...data.history]
+    const allResolved = [...data.history]
       .sort((a,b) => new Date(a.date)-new Date(b.date))
       .filter(h => h.status==="won"||h.status==="lost");
-    if(!resolved.length) return [{bankroll:100, date:"Start"}];
+    if(!allResolved.length) return [{bankroll:100, date:"Start"}];
+
+    // If filtering by book, recalculate bankroll trajectory from scratch
+    const isFiltered = !selectedBooks.has("all");
+    if (!isFiltered) {
+      const pts = [{bankroll:100, date:"Start", status:"start"}];
+      allResolved.forEach(h => pts.push({bankroll:h.bankrollAfter, date:h.date, status:h.status}));
+      return pts;
+    }
+
+    // Filtered: replay only bets from selected books, recalculate running bankroll
+    const filtered = allResolved.filter(bookVisible);
+    if (!filtered.length) return [{bankroll:100, date:"Start"}];
     const pts = [{bankroll:100, date:"Start", status:"start"}];
-    resolved.forEach(h => pts.push({bankroll:h.bankrollAfter, date:h.date, status:h.status}));
+    let runningBankroll = 100;
+    filtered.forEach(h => {
+      if (h.status === "won") runningBankroll += (h.potentialPayout || 0);
+      else runningBankroll -= (h.wagerAmt || 0);
+      runningBankroll = Math.max(0, +runningBankroll.toFixed(2));
+      pts.push({bankroll: runningBankroll, date:h.date, status:h.status});
+    });
     return pts;
   })();
 
@@ -839,6 +857,7 @@ export default function App() {
       </div>
 
       {/* Stats */}
+      {/* Stats row */}
       <div className="stat-grid" style={s.statGrid}>
         <StatCard label="PAPER BANKROLL"
           value={`$${(data?.bankroll||100).toFixed(2)}`}
@@ -862,55 +881,57 @@ export default function App() {
           color="#b44fff"/>
       </div>
 
-      {/* ── Sportsbook Filter Bar ─────────────────────────────────── */}
-      <div style={{padding:"0 16px", marginBottom:8}}>
-        <div style={{display:"flex", alignItems:"center", gap:6, marginBottom:6}}>
-          <span style={{fontSize:8, color:"#3a5570", letterSpacing:"0.12em", whiteSpace:"nowrap"}}>
-            BOOKS
-          </span>
-          <div style={{flex:1, height:"1px", background:"#0e1a28"}}/>
+      {/* ── Sportsbook Filter Card ───────────────────────────────────── */}
+      <div style={{margin:"0 16px 16px", background:"#0a1220",
+        border:"1px solid #172030", borderRadius:14, padding:"14px 18px"}}>
+        <div style={{display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:10}}>
+          <div>
+            <div style={{fontSize:9, color:"#3a5570", letterSpacing:"0.12em", marginBottom:3}}>
+              MY SPORTSBOOKS
+            </div>
+            <div style={{fontSize:11, color:"#dde3ee", fontWeight:600}}>
+              {selectedBooks.has("all")
+                ? "Showing all books"
+                : `${[...selectedBooks].length} book${[...selectedBooks].length !== 1 ? "s" : ""} selected`}
+            </div>
+          </div>
+          {!selectedBooks.has("all") && (
+            <button onClick={() => toggleBook("all")} style={{
+              fontSize:9, color:"#3a5570", background:"rgba(255,255,255,0.04)",
+              border:"1px solid #172030", borderRadius:8, cursor:"pointer",
+              padding:"3px 10px", fontFamily:"inherit",
+            }}>Reset to All</button>
+          )}
         </div>
-        <div style={{display:"flex", gap:5, overflowX:"auto", WebkitOverflowScrolling:"touch",
-          scrollbarWidth:"none", msOverflowStyle:"none", paddingBottom:4}}>
-
-          {/* All button */}
+        <div style={{display:"flex", gap:6, flexWrap:"wrap"}}>
+          {/* ALL pill */}
           <button onClick={() => toggleBook("all")} style={{
-            padding:"4px 12px", borderRadius:20, fontSize:10, cursor:"pointer",
-            whiteSpace:"nowrap", flexShrink:0, fontFamily:"inherit", fontWeight:700,
-            border:`1px solid ${selectedBooks.has("all") ? "#ffffff55" : "#172030"}`,
-            background: selectedBooks.has("all") ? "rgba(255,255,255,0.08)" : "transparent",
+            padding:"5px 14px", borderRadius:20, fontSize:10, cursor:"pointer",
+            whiteSpace:"nowrap", fontFamily:"inherit", fontWeight:700,
+            border:`1px solid ${selectedBooks.has("all") ? "#ffffff66" : "#1e2d40"}`,
+            background: selectedBooks.has("all") ? "rgba(255,255,255,0.1)" : "transparent",
             color: selectedBooks.has("all") ? "#fff" : "#3a5570",
             transition:"all 0.15s",
           }}>ALL</button>
 
-          {/* Individual book buttons */}
           {ALL_BOOKS.map(bk => {
             const active = !selectedBooks.has("all") && selectedBooks.has(bk.id);
             return (
               <button key={bk.id} onClick={() => toggleBook(bk.id)} style={{
-                padding:"4px 12px", borderRadius:20, fontSize:10, cursor:"pointer",
-                whiteSpace:"nowrap", flexShrink:0, fontFamily:"inherit",
-                border:`1px solid ${active ? bk.color + "88" : "#172030"}`,
-                background: active ? `${bk.color}15` : "transparent",
+                padding:"5px 14px", borderRadius:20, fontSize:10, cursor:"pointer",
+                whiteSpace:"nowrap", fontFamily:"inherit",
+                border:`1px solid ${active ? bk.color + "99" : "#1e2d40"}`,
+                background: active ? `${bk.color}18` : "transparent",
                 color: active ? bk.color : "#3a5570",
                 transition:"all 0.15s",
+                boxShadow: active ? `0 0 8px ${bk.color}22` : "none",
               }}>
+                <span style={{marginRight:5, fontSize:8, opacity: active ? 1 : 0.4}}>●</span>
                 {bk.label}
               </button>
             );
           })}
         </div>
-        {!selectedBooks.has("all") && (
-          <div style={{fontSize:8, color:"#3a5570", marginTop:4, letterSpacing:"0.08em"}}>
-            Showing bets with best odds at: {[...selectedBooks].map(id =>
-              ALL_BOOKS.find(b => b.id === id)?.label || id).join(", ")}
-            <button onClick={() => toggleBook("all")} style={{
-              marginLeft:8, fontSize:8, color:"#3a5570", background:"none",
-              border:"none", cursor:"pointer", textDecoration:"underline", padding:0,
-              fontFamily:"inherit",
-            }}>clear</button>
-          </div>
-        )}
       </div>
 
       {/* Tabs */}
@@ -1051,7 +1072,14 @@ export default function App() {
           {/* Portfolio Chart */}
           <div style={{background:"#0a1220",border:"1px solid #172030",borderRadius:12,padding:"20px 24px",marginBottom:20}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:4}}>
-              <div style={{fontSize:13,fontWeight:700,color:"#fff"}}>Portfolio Performance</div>
+              <div style={{fontSize:13,fontWeight:700,color:"#fff"}}>
+              Portfolio Performance
+              {!selectedBooks.has("all") && (
+                <span style={{fontSize:9, color:"#3a5570", fontWeight:400, marginLeft:8}}>
+                  ({[...selectedBooks].map(id => ALL_BOOKS.find(b=>b.id===id)?.label||id).join(", ")})
+                </span>
+              )}
+            </div>
               <div style={{fontSize:10,color:(data?.totalPnl||0)>=0?"#00ff88":"#ff6b6b",fontWeight:700}}>
                 {(data?.totalPnl||0)>=0?"+":""}${(data?.totalPnl||0).toFixed(2)} P&L
               </div>
