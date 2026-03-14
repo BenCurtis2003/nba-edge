@@ -16,8 +16,8 @@ export default async function handler(req, res) {
     if ((entry.status === "won" || entry.status === "lost") &&
         entry.selection?.toLowerCase().includes(selection.toLowerCase())) {
       fixed++;
-      const { bankrollAfter, bankrollBefore, potentialPayout, wagerAmt, ...rest } = entry;
-      return { ...rest, status: "pending", result: null, estimatedResult: false };
+      return { ...entry, status: "pending", result: null, estimatedResult: false,
+        bankrollAfter: undefined, bankrollBefore: undefined };
     }
     return entry;
   });
