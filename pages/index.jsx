@@ -298,7 +298,6 @@ function EVBetCard({ bet, groupExpanded, onExpand }) {
           </div>
         </div>
       )}
-    </div>
       {/* Get at X or Better */}
       {bet.getAtOrBetter && (
         <div style={{marginTop:10, padding:"8px 12px", borderRadius:8,
