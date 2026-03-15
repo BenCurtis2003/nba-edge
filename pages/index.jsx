@@ -49,6 +49,17 @@ const ALL_BOOKS = [
 
 const TOP_5_BOOKS = ["draftkings","fanduel","betmgm","betrivers","pinnacle"];
 
+const PROP_MARKET_FILTERS = [
+  { id:"all",                              label:"All Props" },
+  { id:"player_points",                    label:"Points" },
+  { id:"player_rebounds",                  label:"Rebounds" },
+  { id:"player_assists",                   label:"Assists" },
+  { id:"player_threes",                    label:"3-Pointers" },
+  { id:"player_points_rebounds_assists",   label:"PRA" },
+  { id:"player_points_rebounds",           label:"Pts+Reb" },
+  { id:"player_points_assists",            label:"Pts+Ast" },
+];
+
 // ── Formatters ────────────────────────────────────────────────────────────────
 const fmt$    = n  => n == null ? "—" : `$${Math.abs(n).toFixed(2)}`;
 const fmtOdds = o  => !o ? "—" : o > 0 ? `+${o}` : `${o}`;
@@ -695,6 +706,200 @@ function HistoryRow({ h }) {
   );
 }
 
+// ── Props Table ───────────────────────────────────────────────────────────────
+function PropsTable({ props, ppMap = {}, isMobile }) {
+  if (!props || props.length === 0) return null;
+
+  const MARKET_SHORT = {
+    player_points:"PTS", player_rebounds:"REB", player_assists:"AST",
+    player_threes:"3PM", player_points_rebounds_assists:"PRA",
+    player_points_rebounds:"P+R", player_points_assists:"P+A",
+  };
+
+  const headerStyle = {
+    fontSize:9, color:T.textDim, fontWeight:700, letterSpacing:"0.1em",
+    textTransform:"uppercase", padding:"8px 10px", textAlign:"left",
+    borderBottom:`1px solid ${T.border}`,
+  };
+  const cellStyle = {
+    padding:"10px 10px", borderBottom:`1px solid ${T.border}`,
+    verticalAlign:"middle",
+  };
+
+  return (
+    <div style={{ overflowX:"auto", WebkitOverflowScrolling:"touch" }}>
+      <table style={{ width:"100%", borderCollapse:"collapse", minWidth: isMobile ? 340 : 700 }}>
+        <thead>
+          <tr style={{ background:T.bg }}>
+            <th style={{ ...headerStyle, minWidth:130 }}>Player</th>
+            <th style={{ ...headerStyle, textAlign:"center" }}>Line</th>
+            {!isMobile && <th style={{ ...headerStyle, textAlign:"center" }}>Season Avg</th>}
+            {!isMobile && <th style={{ ...headerStyle, textAlign:"center" }}>Projected</th>}
+            {!isMobile && <th style={{ ...headerStyle, textAlign:"center" }}>Hit Rate</th>}
+            {!isMobile ? (
+              <>
+                <th style={{ ...headerStyle, textAlign:"center" }}>Over</th>
+                <th style={{ ...headerStyle, textAlign:"center" }}>Under</th>
+              </>
+            ) : (
+              <th style={{ ...headerStyle, textAlign:"center" }}>Best Odds</th>
+            )}
+            <th style={{ ...headerStyle, textAlign:"right" }}>Edge</th>
+          </tr>
+        </thead>
+        <tbody>
+          {props.map(prop => {
+            const edgeColor = prop.edge >= 0.08 ? T.green : prop.edge >= 0.05 ? T.gold : "#fb923c";
+            const sideColor = prop.side === "Over" ? T.green : T.red;
+            const autoBet   = prop.convictionScore >= 70;
+            const mktShort  = MARKET_SHORT[prop.market] || prop.marketLabel || "";
+            const ppKey     = `${(prop.player||"").toLowerCase()}:${prop.market}`;
+            const ppData    = ppMap[ppKey];
+
+            // Over/under odds from allLines
+            const overBook  = prop.side === "Over"  ? prop.bestBook : null;
+            const underBook = prop.side === "Under" ? prop.bestBook : null;
+            const overOdds  = prop.side === "Over"  ? prop.bestOdds : null;
+            const underOdds = prop.side === "Under" ? prop.bestOdds : null;
+
+            const hitRateColor = (prop.hitRate||50) >= 60 ? T.green : (prop.hitRate||50) >= 50 ? T.gold : T.red;
+
+            return (
+              <tr key={prop.id} style={{
+                background: autoBet ? `${T.purple}08` : "transparent",
+                transition:"background 0.15s",
+              }}>
+                {/* Player */}
+                <td style={{ ...cellStyle }}>
+                  <div style={{ display:"flex", flexDirection:"column", gap:2 }}>
+                    <div style={{ display:"flex", alignItems:"center", gap:5, flexWrap:"wrap" }}>
+                      <span style={{ fontSize:12, fontWeight:700, color:T.text }}>{prop.player}</span>
+                      {autoBet && (
+                        <span style={{ fontSize:8, color:T.purple, fontWeight:700,
+                          padding:"1px 5px", borderRadius:3,
+                          background:`${T.purple}18`, border:`1px solid ${T.purple}33` }}>AUTO</span>
+                      )}
+                      {ppData && (
+                        <span style={{ fontSize:8, color:"#7c3aed", fontWeight:700,
+                          padding:"1px 5px", borderRadius:3,
+                          background:"rgba(124,58,237,0.15)", border:"1px solid rgba(124,58,237,0.35)" }}>
+                          PP {ppData.line}
+                        </span>
+                      )}
+                    </div>
+                    <div style={{ fontSize:9, color:T.textDim }}>{mktShort} · {prop.game?.split(" @ ")[1] || prop.game}</div>
+                  </div>
+                </td>
+                {/* Line */}
+                <td style={{ ...cellStyle, textAlign:"center" }}>
+                  <div style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:2 }}>
+                    <span style={{ fontSize:15, fontWeight:800, color:sideColor }}>{prop.side}</span>
+                    <span style={{ fontSize:14, fontWeight:700, color:T.text }}>{prop.line}</span>
+                  </div>
+                </td>
+                {/* Season Avg */}
+                {!isMobile && (
+                  <td style={{ ...cellStyle, textAlign:"center" }}>
+                    {prop.playerSeasonAvg != null ? (
+                      <span style={{ fontSize:12, fontWeight:600, color:T.textMid }}>
+                        {prop.playerSeasonAvg.toFixed(1)}
+                      </span>
+                    ) : <span style={{ color:T.textDim }}>—</span>}
+                  </td>
+                )}
+                {/* Projected */}
+                {!isMobile && (
+                  <td style={{ ...cellStyle, textAlign:"center" }}>
+                    {prop.projectedLine != null ? (
+                      <div style={{ display:"flex", flexDirection:"column", alignItems:"center" }}>
+                        <span style={{ fontSize:12, fontWeight:700,
+                          color: prop.side === "Over"
+                            ? (prop.projectedLine > prop.line ? T.green : T.red)
+                            : (prop.projectedLine < prop.line ? T.green : T.red),
+                        }}>
+                          {prop.projectedLine}
+                        </span>
+                        {prop.projectionBasis && (
+                          <span style={{ fontSize:8, color:T.textDim }}>{prop.projectionBasis}</span>
+                        )}
+                      </div>
+                    ) : <span style={{ color:T.textDim }}>—</span>}
+                  </td>
+                )}
+                {/* Hit Rate */}
+                {!isMobile && (
+                  <td style={{ ...cellStyle, textAlign:"center" }}>
+                    <span style={{ fontSize:12, fontWeight:700, color:hitRateColor }}>
+                      {prop.hitRate != null ? `${prop.hitRate}%` : "—"}
+                    </span>
+                  </td>
+                )}
+                {/* Odds */}
+                {!isMobile ? (
+                  <>
+                    <td style={{ ...cellStyle, textAlign:"center" }}>
+                      {overOdds != null ? (
+                        <div style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:1 }}>
+                          <span style={{ fontSize:13, fontWeight:700, color: overOdds > 0 ? T.gold : T.blue }}>
+                            {fmtOdds(overOdds)}
+                          </span>
+                          {overBook && (
+                            <span style={{ fontSize:8, color: BOOK_META[overBook]?.color || T.textDim }}>
+                              {BOOK_META[overBook]?.short || overBook}
+                            </span>
+                          )}
+                        </div>
+                      ) : <span style={{ color:T.textDim }}>—</span>}
+                    </td>
+                    <td style={{ ...cellStyle, textAlign:"center" }}>
+                      {underOdds != null ? (
+                        <div style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:1 }}>
+                          <span style={{ fontSize:13, fontWeight:700, color: underOdds > 0 ? T.gold : T.blue }}>
+                            {fmtOdds(underOdds)}
+                          </span>
+                          {underBook && (
+                            <span style={{ fontSize:8, color: BOOK_META[underBook]?.color || T.textDim }}>
+                              {BOOK_META[underBook]?.short || underBook}
+                            </span>
+                          )}
+                        </div>
+                      ) : <span style={{ color:T.textDim }}>—</span>}
+                    </td>
+                  </>
+                ) : (
+                  <td style={{ ...cellStyle, textAlign:"center" }}>
+                    <div style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:1 }}>
+                      <span style={{ fontSize:13, fontWeight:700, color: prop.bestOdds > 0 ? T.gold : T.blue }}>
+                        {fmtOdds(prop.bestOdds)}
+                      </span>
+                      {prop.bestBook && (
+                        <span style={{ fontSize:8, color: BOOK_META[prop.bestBook]?.color || T.textDim }}>
+                          {BOOK_META[prop.bestBook]?.short || prop.bestBook}
+                        </span>
+                      )}
+                    </div>
+                  </td>
+                )}
+                {/* Edge */}
+                <td style={{ ...cellStyle, textAlign:"right" }}>
+                  <div style={{ display:"flex", flexDirection:"column", alignItems:"flex-end", gap:2 }}>
+                    <span style={{ fontSize:13, fontWeight:800, color:edgeColor }}>
+                      +{(prop.edge * 100).toFixed(1)}%
+                    </span>
+                    <span style={{ fontSize:9, color:T.textDim }}>
+                      {prop.convictionScore}
+                    </span>
+                  </div>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 // ── Prop Card ─────────────────────────────────────────────────────────────────
 function PropCard({ prop }) {
   const [expanded, setExpanded] = useState(false);
@@ -1173,6 +1378,8 @@ export default function App() {
   const [convSort, setConvSort]   = useState("score");
   const [evSort,   setEvSort]     = useState("edge");
   const [propCat,  setPropCat]    = useState("All");
+  const [propMarketFilter, setPropMarketFilter] = useState("all");
+  const [propSort, setPropSort] = useState("conviction");
   const [scoresData, setScoresData] = useState([]);
 
   // Sportsbook filter
@@ -1295,6 +1502,7 @@ export default function App() {
   const currentBets  = data?.currentBets || [];
   const propBets       = (data?.propBets || []).filter(bookVisible);
   const prizePicksBets = data?.prizePicksBets || [];
+  const prizePicksMap  = data?.prizePicksMap  || {};
 
   const matchType = (t, tab) => {
     if (tab === "All") return true;
@@ -1619,55 +1827,79 @@ export default function App() {
 
         {/* Props Tab */}
         {tab === "Props" && (() => {
+          // Filter + sort
+          const filteredProps = propBets
+            .filter(p => propMarketFilter === "all" || p.market === propMarketFilter)
+            .slice().sort((a, b) => {
+              if (propSort === "conviction") return (b.convictionScore||0) - (a.convictionScore||0);
+              if (propSort === "edge")       return (b.edge||0) - (a.edge||0);
+              if (propSort === "hitrate")    return (b.hitRate||0) - (a.hitRate||0);
+              return 0;
+            });
+          const convProps = filteredProps.filter(p => p.convictionScore >= 70);
+          const otherProps = filteredProps.filter(p => p.convictionScore < 70);
+
           return (
             <div>
-              {/* Props category filter */}
-              <div style={{
-                display:"flex", gap:6, overflowX:"auto", WebkitOverflowScrolling:"touch",
-                scrollbarWidth:"none", msOverflowStyle:"none",
-                marginBottom:18, paddingBottom:2,
-              }}>
-                {["All","Points","Rebounds","Assists","3PM","PRA"].map(cat => (
-                  <button key={cat} onClick={() => setPropCat(cat)} style={{
-                    flexShrink:0, padding:"5px 14px", borderRadius:20,
-                    fontSize:10, cursor:"pointer", fontFamily:"inherit", fontWeight:700,
-                    border:`1px solid ${propCat === cat ? T.purple + "88" : T.borderHi}`,
-                    background: propCat === cat ? `${T.purple}18` : "transparent",
-                    color: propCat === cat ? T.purple : T.textDim,
-                    boxShadow: propCat === cat ? `0 0 10px ${T.purple}18` : "none",
-                    transition:"all 0.15s",
-                  }}>{cat}</button>
-                ))}
+              {/* Market filter + sort controls */}
+              <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between",
+                flexWrap:"wrap", gap:10, marginBottom:14 }}>
+                {/* Market pills */}
+                <div style={{
+                  display:"flex", gap:5, overflowX:"auto", WebkitOverflowScrolling:"touch",
+                  scrollbarWidth:"none", msOverflowStyle:"none", paddingBottom:2, flex:1,
+                }}>
+                  {PROP_MARKET_FILTERS.map(f => (
+                    <button key={f.id} onClick={() => setPropMarketFilter(f.id)} style={{
+                      flexShrink:0, padding:"5px 12px", borderRadius:20,
+                      fontSize:10, cursor:"pointer", fontFamily:"inherit", fontWeight:700,
+                      border:`1px solid ${propMarketFilter === f.id ? T.purple + "88" : T.borderHi}`,
+                      background: propMarketFilter === f.id ? `${T.purple}18` : "transparent",
+                      color: propMarketFilter === f.id ? T.purple : T.textDim,
+                      transition:"all 0.15s",
+                    }}>{f.label}</button>
+                  ))}
+                </div>
+                {/* Sort segmented control */}
+                <div style={{ display:"flex", background:T.bg, borderRadius:8, border:`1px solid ${T.border}`,
+                  overflow:"hidden", flexShrink:0 }}>
+                  {[["conviction","Score"],["edge","Edge"],["hitrate","Hit%"]].map(([key,label]) => (
+                    <button key={key} onClick={() => setPropSort(key)} style={{
+                      padding:"5px 12px", fontSize:10, cursor:"pointer", fontFamily:"inherit",
+                      fontWeight:700, border:"none", borderRight:`1px solid ${T.border}`,
+                      background: propSort === key ? T.surface : "transparent",
+                      color: propSort === key ? T.text : T.textDim,
+                      transition:"all 0.15s",
+                    }}>{label}</button>
+                  ))}
+                </div>
               </div>
-              {/* Conviction props */}
-              <div style={{ marginBottom:28 }}>
-                <SectionHeader icon="🎯" title="Props Conviction Plays" count={convictionProps.length}
-                  badge={<Pill color={T.purple} glow>Auto-bet ≥70</Pill>} />
-                {convictionProps.length === 0 ? (
-                  <EmptyState icon="🏀" message="No conviction props yet"
-                    sub={`Next engine run: ${getNextRunTime()}.`} />
-                ) : (
-                  <div className="conv-grid" style={{
-                    display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(300px,1fr))", gap:12,
-                  }}>
-                    {convictionProps.map(prop => <PropCard key={prop.id} prop={prop}/>)}
+
+              {/* Conviction props table */}
+              {convProps.length > 0 && (
+                <div style={{ marginBottom:24 }}>
+                  <SectionHeader icon="🎯" title="Conviction Props" count={convProps.length}
+                    badge={<Pill color={T.purple} glow>Auto-bet ≥70</Pill>} />
+                  <div style={{ background:T.surface, border:`1px solid ${T.border}`, borderRadius:12, overflow:"hidden" }}>
+                    <PropsTable props={convProps} ppMap={prizePicksMap} isMobile={isMobile} />
                   </div>
-                )}
-              </div>
-              {/* EV props */}
+                </div>
+              )}
+
+              {/* All props table */}
               <div>
-                <SectionHeader icon="⚡" title="Props +EV Bets" count={evProps.length}
-                  badge={<Pill color={T.green}>+EV · {propBets.length} props scanned</Pill>} />
-                {evProps.length === 0 ? (
+                <SectionHeader icon="⚡" title="+EV Props" count={otherProps.length}
+                  badge={<Pill color={T.green}>+EV · {propBets.length} scanned</Pill>} />
+                {filteredProps.length === 0 ? (
                   <EmptyState icon="🔍" message="No prop edges found"
                     sub={propBets.length === 0
                       ? `No prop lines loaded yet. Next run: ${getNextRunTime()}.`
-                      : "All props met conviction threshold above."} />
+                      : "Try a different market filter."} />
+                ) : otherProps.length === 0 && convProps.length > 0 ? (
+                  <EmptyState icon="✅" message="All props are conviction plays" sub="See table above." />
                 ) : (
-                  <div className="conv-grid" style={{
-                    display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(300px,1fr))", gap:12,
-                  }}>
-                    {evProps.map(prop => <PropCard key={prop.id} prop={prop}/>)}
+                  <div style={{ background:T.surface, border:`1px solid ${T.border}`, borderRadius:12, overflow:"hidden" }}>
+                    <PropsTable props={otherProps} ppMap={prizePicksMap} isMobile={isMobile} />
                   </div>
                 )}
               </div>

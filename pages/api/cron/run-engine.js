@@ -67,14 +67,11 @@ export default async function handler(req, res) {
 
     // Fetch + extract player props with full conviction engine
     const propGames = games ? await fetchPlayerProps(ODDS_KEY, games) : [];
-    let playerStats = {}, bdlCallsMade = 0, defenseStats = {};
-    if (propGames.length > 0) {
-      const [rawPS, ds] = await Promise.all([fetchPlayerStats(), fetchTeamDefenseStats()]);
-      ({ stats: playerStats, bdlCallsMade } = rawPS);
-      defenseStats = ds;
-    }
+    const [playerStats, defenseStats] = propGames.length > 0
+      ? await Promise.all([fetchPlayerStats(), fetchTeamDefenseStats()])
+      : [{}, {}];
     const evProps = extractPropEV(propGames, playerStats, defenseStats);
-    console.log(`[Props] ${evProps.length} EV props, ${Object.keys(playerStats).length} players loaded, BDL enriched: ${bdlCallsMade}`);
+    console.log(`[Props] ${evProps.length} EV props, ${Object.keys(playerStats).length} players loaded`);
     console.log(`[Engine] ${evBets.length} EV bets`);
 
     // 3.5 — PrizePicks line comparison (never blocks the main engine)
@@ -253,11 +250,12 @@ export default async function handler(req, res) {
       hasUpcomingGames,
       propBetsFound: evProps.length,
       propBetsPlaced: newPropEntries.length,
+      bdlEnabled: !!process.env.BALLDONTLIE_API_KEY,
+      playerStatsLoaded: Object.keys(playerStats).length,
       ppLines: ppLinesCount,
       ppValueBets: ppValueBets.length,
       ppMatched,
       ppFetchError,
-      bdlCallsMade,
     });
   } catch(e) {
     console.error("[Engine] error:", e);

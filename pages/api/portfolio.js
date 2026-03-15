@@ -33,6 +33,17 @@ export default async function handler(req, res) {
           resolved.reduce((s,h) => s + h.wagerAmt, 0) * 100).toFixed(1)
       : 0;
 
+    const [propBets, ppBets, hasUpcomingGames] = await Promise.all([
+      getPropBets(),
+      getPrizePicksBets(),
+      checkUpcomingGames(),
+    ]);
+    const prizePicksMap = {};
+    for (const bet of ppBets) {
+      const key = `${(bet.player || "").toLowerCase()}:${bet.market}`;
+      prizePicksMap[key] = bet;
+    }
+
     return res.status(200).json({
       bankroll,
       totalPnl,
@@ -45,9 +56,10 @@ export default async function handler(req, res) {
       lastRun,
       mlStatus: ml.totalBets >= 15 ? "Active" : "Learning",
       mlBets: ml.totalBets || 0,
-      propBets: await getPropBets(),
-      prizePicksBets: await getPrizePicksBets(),
-      hasUpcomingGames: await checkUpcomingGames(),
+      propBets,
+      prizePicksBets: ppBets,
+      prizePicksMap,
+      hasUpcomingGames,
     });
   } catch(e) {
     console.error("[API] portfolio error:", e);
