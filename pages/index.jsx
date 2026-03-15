@@ -103,10 +103,10 @@ function getStatusDotColor(lastRun) {
 
 // ── Design tokens ─────────────────────────────────────────────────────────────
 const T = {
-  bg:       "#080f1a",
-  surface:  "#0d1623",
-  border:   "#162030",
-  borderHi: "#1e3040",
+  bg:       "#060c14",
+  surface:  "#0b1520",
+  border:   "#13233a",
+  borderHi: "#1c3350",
   text:     "#c8d8e8",
   textDim:  "#4a6480",
   textMid:  "#7a90a8",
@@ -134,23 +134,26 @@ function ScoresBar({ games }) {
           flexShrink: 0, width: 140, height: 56,
           background: T.surface,
           border: `1px solid ${g.live ? T.green + "55" : T.border}`,
+          borderLeft: g.live ? `2px solid ${T.green}` : `1px solid ${T.border}`,
           borderRadius: 10,
           padding: "7px 10px",
           display: "flex", flexDirection: "column", justifyContent: "space-between",
-          opacity: g.final ? 0.6 : 1,
+          opacity: g.final ? 0.5 : 1,
         }}>
           {/* Teams row */}
           <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-            <span style={{ fontSize:11, fontWeight:700, color:"#fff" }}>{g.away}</span>
+            <span style={{ fontSize:10, fontWeight:700, color:"#fff", letterSpacing:"0.05em" }}>{g.away}</span>
             <span style={{ fontSize:9, color: T.textDim }}>·</span>
-            <span style={{ fontSize:11, fontWeight:700, color:"#fff" }}>{g.home}</span>
+            <span style={{ fontSize:10, fontWeight:700, color:"#fff", letterSpacing:"0.05em" }}>{g.home}</span>
           </div>
           {/* Scores / tip time row */}
           <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
             {(g.live || g.final) ? (
               <>
-                <span style={{ fontSize:16, fontWeight:800, color:"#fff" }}>{g.awayScore}</span>
-                <span style={{ fontSize:16, fontWeight:800, color:"#fff" }}>{g.homeScore}</span>
+                <span style={{ fontSize:17, fontWeight:800, color:"#fff",
+                  fontFamily:"'DM Mono',monospace" }}>{g.awayScore}</span>
+                <span style={{ fontSize:17, fontWeight:800, color:"#fff",
+                  fontFamily:"'DM Mono',monospace" }}>{g.homeScore}</span>
               </>
             ) : (
               <span style={{ fontSize:11, fontWeight:600, color: T.textMid, width:"100%", textAlign:"center" }}>{g.tipTime}</span>
@@ -159,14 +162,14 @@ function ScoresBar({ games }) {
           {/* Status row */}
           <div style={{ display:"flex", alignItems:"center", gap:4 }}>
             {g.live && (
-              <div style={{
-                width:5, height:5, borderRadius:"50%", background: T.green,
-                animation: "pulse 2s infinite", boxShadow: `0 0 4px ${T.green}`,
-                flexShrink:0,
-              }}/>
+              <span style={{
+                fontSize:7, fontWeight:800, padding:"1px 5px", borderRadius:3,
+                background:`${T.green}20`, border:`1px solid ${T.green}55`, color:T.green,
+                letterSpacing:"0.08em", flexShrink:0,
+              }}>LIVE</span>
             )}
             <span style={{ fontSize:9, color: T.textDim, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>
-              {g.status}
+              {g.live ? g.status.replace(/^LIVE · /,"") : g.status}
             </span>
           </div>
         </div>
@@ -215,7 +218,8 @@ function ScoreRing({ score, size = 52 }) {
         position:"absolute", inset:0, display:"flex", flexDirection:"column",
         alignItems:"center", justifyContent:"center",
       }}>
-        <span style={{ fontSize:size > 48 ? 14 : 11, fontWeight:800, color, lineHeight:1 }}>{score}</span>
+        <span style={{ fontSize:size > 48 ? 14 : 11, fontWeight:800, color, lineHeight:1,
+          fontFamily:"'DM Mono',monospace" }}>{score}</span>
       </div>
     </div>
   );
@@ -379,13 +383,13 @@ function ConvictionCard({ play, expanded, onExpand }) {
   return (
     <div onClick={onExpand} style={{
       background: T.surface,
-      border:`1px solid ${expanded ? accentColor + "44" : T.border}`,
+      border:`1px solid ${isAutoBet ? accentColor + "55" : expanded ? accentColor + "44" : T.border}`,
       borderRadius:14, cursor:"pointer", overflow:"hidden",
       transition:"border-color 0.2s, box-shadow 0.2s",
-      boxShadow: expanded ? `0 0 20px ${accentColor}10` : "none",
+      boxShadow: expanded ? `0 4px 24px ${accentColor}12, inset 0 0 32px ${accentColor}05` : "none",
     }}>
       {/* Top accent bar */}
-      <div style={{ height:3, background:`linear-gradient(90deg, ${accentColor}88, ${accentColor}22)` }}/>
+      <div style={{ height:2, background:`linear-gradient(90deg, ${accentColor}cc, ${accentColor}22, transparent)` }}/>
 
       <div style={{ padding:"16px 18px" }}>
         {/* Header row */}
@@ -400,19 +404,15 @@ function ConvictionCard({ play, expanded, onExpand }) {
           </div>
           <div style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:3 }}>
             <ScoreRing score={play.convictionScore} size={52} />
-            {play.ensembleConfidence != null && (
-              <span style={{ fontSize:9, color:T.textDim, letterSpacing:"0.05em" }}>
-                {play.ensembleConfidence}% conf
-              </span>
-            )}
           </div>
         </div>
 
         {/* Selection */}
-        <div style={{ fontSize:15, fontWeight:700, color:T.text, marginBottom:3, lineHeight:1.3 }}>
+        <div style={{ fontSize:16, fontWeight:700, color:T.text, marginBottom:3, lineHeight:1.3,
+          letterSpacing:"-0.01em" }}>
           {play.selection}
         </div>
-        <div style={{ fontSize:11, color:T.textMid, marginBottom:10 }}>{play.game}</div>
+        <div style={{ fontSize:10, color:T.textDim, marginBottom:10 }}>{play.game}</div>
 
         {/* Records row */}
         {(play.teamRecord || play.oppRecord) && (
@@ -423,10 +423,13 @@ function ConvictionCard({ play, expanded, onExpand }) {
                 {play.teamRecord}
               </span>
             )}
+            {play.teamRecord && play.oppRecord && (
+              <span style={{ fontSize:9, color:T.textDim, fontWeight:400, padding:"0 2px" }}>vs</span>
+            )}
             {play.oppRecord && (
               <span style={{ fontSize:10, color:T.textMid,
                 padding:"3px 10px", background:T.bg, borderRadius:6, border:`1px solid ${T.border}` }}>
-                vs {play.oppRecord}
+                {play.oppRecord}
               </span>
             )}
           </div>
@@ -436,7 +439,8 @@ function ConvictionCard({ play, expanded, onExpand }) {
         <div style={{ marginBottom:10 }}>
           {play.bestOdds != null ? (
             <div style={{ display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>
-              <span style={{ fontSize:18, fontWeight:800, color: play.bestOdds < 0 ? T.blue : T.gold }}>
+              <span style={{ fontSize:18, fontWeight:800, color: play.bestOdds < 0 ? T.blue : T.gold,
+                fontFamily:"'DM Mono',monospace" }}>
                 {fmtOdds(play.bestOdds)}
               </span>
               {play.bestBook && (
@@ -448,9 +452,9 @@ function ConvictionCard({ play, expanded, onExpand }) {
               <ValueQualityTag bestOdds={play.bestOdds} getAtOrBetter={play.getAtOrBetter} />
             </div>
           ) : (
-            <span style={{ fontSize:11, color:T.textDim }}>
+            <span style={{ fontSize:11, color:T.textDim, fontStyle:"italic" }}>
               {(!play.allLines || Object.keys(play.allLines).length === 0)
-                ? "No lines available — check your sportsbook directly"
+                ? "🔒 No lines available — check your sportsbook directly"
                 : "Lines loading..."}
             </span>
           )}
@@ -471,8 +475,12 @@ function ConvictionCard({ play, expanded, onExpand }) {
         )}
 
         {/* Expand toggle */}
-        <div style={{ textAlign:"center", marginTop:12, fontSize:9, color:T.textDim, letterSpacing:"0.06em" }}>
-          {expanded ? "▲ COLLAPSE" : "▼ EXPAND"}
+        <div style={{ display:"flex", alignItems:"center", gap:8, marginTop:12 }}>
+          <div style={{ flex:1, height:1, background:T.border }}/>
+          <span style={{ fontSize:8, color:T.textDim, letterSpacing:"0.1em", flexShrink:0 }}>
+            {expanded ? "▲ COLLAPSE" : "▼ EXPAND"}
+          </span>
+          <div style={{ flex:1, height:1, background:T.border }}/>
         </div>
       </div>
     </div>
@@ -507,7 +515,8 @@ function EVBetCard({ bet, expanded, onExpand }) {
         {/* Best odds + book */}
         <div style={{ marginBottom:12 }}>
           <div style={{ display:"flex", alignItems:"center", gap:10, flexWrap:"wrap" }}>
-            <span style={{ fontSize:22, fontWeight:800, color: bet.bestOdds < 0 ? T.blue : T.gold }}>
+            <span style={{ fontSize:22, fontWeight:800, color: bet.bestOdds < 0 ? T.blue : T.gold,
+              fontFamily:"'DM Mono',monospace" }}>
               {fmtOdds(bet.bestOdds)}
             </span>
             <div>
@@ -600,8 +609,12 @@ function EVBetCard({ bet, expanded, onExpand }) {
           </div>
         )}
 
-        <div style={{ textAlign:"center", marginTop:12, fontSize:9, color:T.textDim, letterSpacing:"0.06em" }}>
-          {expanded ? "▲ COLLAPSE" : "▼ EXPAND"}
+        <div style={{ display:"flex", alignItems:"center", gap:8, marginTop:12 }}>
+          <div style={{ flex:1, height:1, background:T.border }}/>
+          <span style={{ fontSize:8, color:T.textDim, letterSpacing:"0.1em", flexShrink:0 }}>
+            {expanded ? "▲ COLLAPSE" : "▼ EXPAND"}
+          </span>
+          <div style={{ flex:1, height:1, background:T.border }}/>
         </div>
       </div>
     </div>
@@ -675,7 +688,8 @@ function HistoryRow({ h }) {
         {/* P&L col */}
         <div style={{ textAlign:"right", minWidth:110 }}>
           {pnl !== null && (
-            <div style={{ fontSize:20, fontWeight:800, color:accent, marginBottom:2 }}>
+            <div style={{ fontSize:20, fontWeight:800, color:accent, marginBottom:2,
+              fontFamily:"'DM Mono',monospace" }}>
               {pnl > 0 ? "+" : ""}{fmt$(pnl)}
             </div>
           )}
@@ -1034,17 +1048,18 @@ function PropCard({ prop }) {
 function StatCard({ label, value, sub, color = T.green, icon }) {
   return (
     <div style={{
-      background:T.surface, border:`1px solid ${T.border}`,
-      borderRadius:14, padding:"18px 20px", position:"relative", overflow:"hidden",
+      background:T.surface,
+      border:`1px solid ${T.border}`,
+      borderLeft:`2px solid ${color}`,
+      borderRadius:14, padding:"20px 22px", position:"relative", overflow:"hidden",
+      boxShadow:`inset 0 0 24px ${color}06`,
     }}>
-      <div style={{
-        position:"absolute", top:0, left:0, right:0, height:2,
-        background:`linear-gradient(90deg, ${color}66, transparent)`,
-      }}/>
-      <div style={{ fontSize:9, color:T.textDim, letterSpacing:"0.1em", marginBottom:10, textTransform:"uppercase" }}>
+      <div style={{ fontSize:9, color:T.textDim, letterSpacing:"0.08em", marginBottom:8, textTransform:"uppercase" }}>
         {label}
       </div>
-      <div style={{ fontSize:24, fontWeight:800, color, marginBottom:4, lineHeight:1 }}>{value}</div>
+      <div style={{ height:1, background:`${color}20`, marginBottom:10 }}/>
+      <div style={{ fontSize:26, fontWeight:800, color, marginBottom:4, lineHeight:1,
+        fontFamily:"'DM Mono',monospace" }}>{value}</div>
       {sub && <div style={{ fontSize:10, color:T.textMid, marginTop:4 }}>{sub}</div>}
     </div>
   );
@@ -1189,14 +1204,16 @@ function SectionHeader({ icon, title, badge: badgeEl, count }) {
   return (
     <div style={{
       display:"flex", alignItems:"center", gap:10, marginBottom:16,
-      paddingBottom:12, borderBottom:`1px solid ${T.border}`,
+      paddingBottom:12,
+      background:`linear-gradient(90deg, ${T.border} 0%, transparent 80%) bottom / 100% 1px no-repeat`,
     }}>
       <span style={{ fontSize:16 }}>{icon}</span>
-      <span style={{ fontSize:14, fontWeight:700, color:T.text }}>{title}</span>
+      <span style={{ fontSize:15, fontWeight:700, color:T.text, letterSpacing:"-0.01em" }}>{title}</span>
       {count != null && (
         <span style={{
           fontSize:9, fontWeight:700, padding:"2px 8px", borderRadius:10,
           background:T.bg, border:`1px solid ${T.border}`, color:T.textMid,
+          fontFamily:"'DM Mono',monospace",
         }}>{count}</span>
       )}
       {badgeEl && <div style={{ marginLeft:"auto" }}>{badgeEl}</div>}
@@ -1549,7 +1566,7 @@ export default function App() {
     <div style={{
       minHeight:"100vh", background:T.bg, display:"flex",
       alignItems:"center", justifyContent:"center",
-      fontFamily:"'Inter','SF Pro Display',system-ui,sans-serif",
+      fontFamily:"'DM Sans','IBM Plex Sans',system-ui,sans-serif",
     }}>
       <div style={{ textAlign:"center" }}>
         <div style={{ fontSize:36, marginBottom:16 }}>🏀</div>
@@ -1565,15 +1582,28 @@ export default function App() {
 
   return (
     <div style={{
-      minHeight:"100vh", background:T.bg, color:T.text,
-      fontFamily:"'Inter','SF Pro Display',system-ui,sans-serif",
+      minHeight:"100vh",
+      background:`linear-gradient(160deg, ${T.bg} 0%, #030810 60%, #060c14 100%)`,
+      color:T.text,
+      fontFamily:"'DM Sans','IBM Plex Sans',system-ui,sans-serif",
       padding:"0 0 80px",
     }}>
       <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700;800&family=DM+Mono:wght@400;500;700&display=swap');
         * { box-sizing: border-box; }
-        @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+        @keyframes pulse {
+          0%   { box-shadow: 0 0 0 0 currentColor; opacity: 1; }
+          70%  { box-shadow: 0 0 0 5px transparent; opacity: 0.7; }
+          100% { box-shadow: 0 0 0 0 transparent; opacity: 1; }
+        }
         @keyframes fadeIn { from{opacity:0;transform:translateY(6px)} to{opacity:1;transform:none} }
         .card-enter { animation: fadeIn 0.2s ease; }
+        body::before {
+          content:""; position:fixed; inset:0; pointer-events:none; z-index:0;
+          opacity:0.025;
+          background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+          background-size: 200px 200px;
+        }
         @media (max-width:900px) {
           .stat-grid  { grid-template-columns: repeat(2,1fr) !important; padding: 14px !important; gap:10px !important; }
           .conv-grid  { grid-template-columns: repeat(auto-fill,minmax(280px,1fr)) !important; }
@@ -1593,18 +1623,19 @@ export default function App() {
         borderBottom:`1px solid ${T.border}`,
         padding: isMobile ? "12px 16px" : "14px 28px",
         display:"flex", alignItems:"center", justifyContent:"space-between",
-        position:"sticky", top:0, background:`${T.bg}f0`,
-        backdropFilter:"blur(12px)", WebkitBackdropFilter:"blur(12px)",
+        position:"sticky", top:0, background:`${T.bg}e8`,
+        backdropFilter:"blur(20px)", WebkitBackdropFilter:"blur(20px)",
         zIndex:20, flexWrap:"wrap", gap:8,
       }}>
         <div style={{ display:"flex", alignItems:"center", gap:12 }}>
           <span style={{ fontSize:22 }}>🏀</span>
           <div>
-            <div style={{ fontSize: isMobile ? 15 : 18, fontWeight:800, color:"#fff", letterSpacing:"0.1em" }}>
+            <div style={{ fontSize: isMobile ? 15 : 18, fontWeight:800, color:"#fff", letterSpacing:"0.1em",
+              textShadow:`0 0 20px ${T.green}44` }}>
               NBA EDGE
             </div>
             {!isMobile && (
-              <div style={{ fontSize:9, color:T.textDim, letterSpacing:"0.12em" }}>
+              <div style={{ fontSize:8, color:T.textDim, letterSpacing:"0.15em" }}>
                 EV BETTING ENGINE · ML LEARNING · FULLY AUTOMATED
               </div>
             )}
@@ -1641,7 +1672,7 @@ export default function App() {
       {/* ── Stats ───────────────────────────────────────────────────────────── */}
       <div className="stat-grid" style={{
         display:"grid", gridTemplateColumns:"repeat(5,1fr)",
-        gap:12, padding:"20px 28px",
+        gap:14, padding:"20px 28px",
       }}>
         <StatCard label="Paper Bankroll"
           value={`$${(data?.bankroll||100).toFixed(2)}`}
@@ -1669,11 +1700,10 @@ export default function App() {
       </div>
 
       {/* ── Book Filter Toolbar ───────────────────────────────────────────────── */}
-      <div style={{ margin:"0 28px 14px", background:T.surface, border:`1px solid ${T.border}`, borderRadius:14, padding:"12px 16px" }}>
+      <div style={{ margin:"0 28px 14px", background:T.surface, borderRadius:14, padding:"10px 16px" }}>
         <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:10 }}>
           <div style={{ display:"flex", alignItems:"center", gap:6 }}>
-            <span style={{ fontSize:11, color:"#f59e0b" }}>⚡</span>
-            <span style={{ fontSize:11, fontWeight:500, color:T.textMid }}>Filter by Sportsbook</span>
+            <span style={{ fontSize:8, fontWeight:700, color:T.textDim, letterSpacing:"0.12em" }}>BOOKS</span>
           </div>
           {isBookFiltered && (
             <button onClick={() => toggleBook("all")} style={{
@@ -1685,11 +1715,10 @@ export default function App() {
         </div>
         <div style={{ display:"flex", gap:5, flexWrap:"wrap" }}>
           <button onClick={() => toggleBook("all")} style={{
-            padding:"4px 12px", borderRadius:20, fontSize:9, cursor:"pointer",
+            padding:"4px 12px", borderRadius:0, fontSize:9, cursor:"pointer",
             fontFamily:"inherit", fontWeight:700,
-            border:"none",
-            borderLeft: selectedBooks.has("all") ? "3px solid #ffffff" : "3px solid transparent",
-            background: selectedBooks.has("all") ? "rgba(255,255,255,0.06)" : "transparent",
+            background:"transparent", border:"none",
+            borderBottom: selectedBooks.has("all") ? `2px solid #fff` : "2px solid transparent",
             color: selectedBooks.has("all") ? "#fff" : T.textDim,
             transition:"all 0.15s",
           }}>ALL</button>
@@ -1697,11 +1726,10 @@ export default function App() {
             const active = !selectedBooks.has("all") && selectedBooks.has(bk.id);
             return (
               <button key={bk.id} onClick={() => toggleBook(bk.id)} style={{
-                padding:"4px 12px", borderRadius:20, fontSize:9, cursor:"pointer",
+                padding:"4px 12px", borderRadius:0, fontSize:9, cursor:"pointer",
                 fontFamily:"inherit",
-                border:"none",
-                borderLeft: active ? `3px solid ${bk.color}` : "3px solid transparent",
-                background: active ? `${bk.color}1a` : "transparent",
+                background:"transparent", border:"none",
+                borderBottom: active ? `2px solid ${bk.color}` : "2px solid transparent",
                 color: active ? bk.color : T.textDim,
                 transition:"all 0.15s",
               }}>
@@ -1725,10 +1753,11 @@ export default function App() {
               padding:"8px 16px", fontSize:11, cursor:"pointer",
               whiteSpace:"nowrap", flexShrink:0, fontFamily:"inherit",
               background:"transparent", border:"none",
-              borderBottom:`2px solid ${tab === t ? T.green : "transparent"}`,
+              borderBottom:`3px solid ${tab === t ? T.green : "transparent"}`,
               color: tab === t ? T.text : T.textDim,
               fontWeight: tab === t ? 700 : 400,
-              transition:"color 0.15s, border-color 0.15s",
+              filter: tab === t ? `drop-shadow(0 1px 4px ${T.green}88)` : "none",
+              transition:"color 0.15s, border-color 0.15s, filter 0.15s",
             }}>{t}</button>
           ))}
         </div>
@@ -1900,6 +1929,7 @@ export default function App() {
             {/* Chart */}
             <div style={{
               background:T.surface, border:`1px solid ${T.border}`,
+              borderTop:`1px solid ${T.green}26`,
               borderRadius:14, padding:"20px 24px", marginBottom:20,
             }}>
               <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:4 }}>
@@ -1935,16 +1965,21 @@ export default function App() {
                     <AreaChart data={chartData} margin={{ top:4, right:4, bottom:0, left:0 }}>
                       <defs>
                         <linearGradient id="chartGrad" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%"  stopColor={T.green} stopOpacity={0.15}/>
-                          <stop offset="95%" stopColor={T.green} stopOpacity={0}/>
+                          <stop offset="0%"  stopColor={T.green} stopOpacity={0.25}/>
+                          <stop offset="60%" stopColor={T.green} stopOpacity={0.05}/>
+                          <stop offset="100%" stopColor={T.green} stopOpacity={0}/>
                         </linearGradient>
                       </defs>
                       <XAxis dataKey="date" hide/>
                       <YAxis hide domain={["auto","auto"]}/>
                       <Tooltip content={<ChartTooltip/>}/>
                       <ReferenceLine y={100} stroke={T.border} strokeDasharray="3 3"/>
+                      {chartData.length > 1 && (
+                        <ReferenceLine y={chartData[chartData.length-1].bankroll}
+                          stroke={T.green} strokeDasharray="4 4" strokeOpacity={0.4}/>
+                      )}
                       <Area type="monotone" dataKey="bankroll"
-                        stroke={T.green} strokeWidth={2}
+                        stroke={T.green} strokeWidth={2.5}
                         fill="url(#chartGrad)" dot={false}
                         activeDot={{ r:4, fill:T.green, stroke:T.bg }}/>
                     </AreaChart>
