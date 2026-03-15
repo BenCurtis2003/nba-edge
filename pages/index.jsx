@@ -28,6 +28,8 @@ const BOOK_META = {
   kalshi:     { label:"Kalshi",     color:"#b44fff", short:"KAL" },
   espnbet:    { label:"ESPN Bet",   color:"#e31837", short:"ESPN" },
   fanatics:   { label:"Fanatics",   color:"#022B5B", short:"FAN" },
+  fliff:      { label:"Fliff",      color:"#00d4ff", short:"FLF" },
+  prizepicks: { label:"PrizePicks", color:"#7c3aed", short:"PP"  },
 };
 
 const ALL_BOOKS = [
@@ -41,6 +43,8 @@ const ALL_BOOKS = [
   { id:"kalshi",     label:"Kalshi",     color:"#b44fff" },
   { id:"espnbet",    label:"ESPN Bet",   color:"#e31837" },
   { id:"fanatics",   label:"Fanatics",   color:"#022B5B" },
+  { id:"fliff",      label:"Fliff",      color:"#00d4ff" },
+  { id:"prizepicks", label:"PrizePicks", color:"#7c3aed" },
 ];
 
 const TOP_5_BOOKS = ["draftkings","fanduel","betmgm","betrivers","pinnacle"];
@@ -1001,6 +1005,112 @@ function SectionHeader({ icon, title, badge: badgeEl, count }) {
   );
 }
 
+// ── PrizePicks Card ───────────────────────────────────────────────────────────
+function PrizePicksCard({ pick }) {
+  const [expanded, setExpanded] = useState(false);
+  const isValue   = pick.isValueBet;
+  const isGoblin  = pick.isGoblin;
+  const isDemon   = pick.isDemon;
+  const edgeColor = pick.ppEdgePct >= 0 ? T.green : T.red;
+
+  return (
+    <div onClick={() => setExpanded(e => !e)} style={{
+      background: T.surface,
+      border: `1px solid ${isValue ? T.purple + "55" : T.border}`,
+      borderLeft: isValue ? `3px solid ${T.purple}` : `1px solid ${T.border}`,
+      borderRadius: 14, cursor: "pointer", overflow: "hidden",
+      transition: "border-color 0.2s, box-shadow 0.2s",
+      boxShadow: expanded ? `0 0 20px ${T.purple}10` : "none",
+    }}>
+      <div style={{ height: 3, background: isValue
+        ? `linear-gradient(90deg,${T.purple}88,${T.purple}22)`
+        : `linear-gradient(90deg,${T.border}44,transparent)` }} />
+
+      <div style={{ padding: "14px 16px" }}>
+        {/* Header */}
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 }}>
+          <div style={{ flex: 1, marginRight: 10 }}>
+            <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginBottom: 6 }}>
+              {isValue && <Pill color={T.purple} glow>⚡ VALUE</Pill>}
+              {isGoblin && <Pill color={T.green}>🟢 GOBLIN</Pill>}
+              {isDemon  && <Pill color={T.red}>🔴 DEMON</Pill>}
+              {!isGoblin && !isDemon && <Pill color={T.textDim}>STANDARD</Pill>}
+            </div>
+            <div style={{ fontSize: 14, fontWeight: 700, color: T.text, lineHeight: 1.2 }}>{pick.player}</div>
+            <div style={{ fontSize: 10, color: T.textDim, marginTop: 2 }}>{pick.team} · {pick.marketLabel}</div>
+          </div>
+          {pick.convictionScore != null && <ScoreRing score={pick.convictionScore} size={44} />}
+        </div>
+
+        {/* Recommendation — the main call-to-action */}
+        <div style={{ marginBottom: 10 }}>
+          <span style={{ fontSize: 22, fontWeight: 800,
+            color: pick.recommendation === "OVER" ? T.green : T.gold }}>
+            {pick.recommendation} {pick.line}
+          </span>
+          <span style={{ fontSize: 11, color: T.textDim, marginLeft: 8 }}>{pick.marketLabel}</span>
+        </div>
+
+        {/* Edge vs PP */}
+        {pick.ppEdgePct != null && (
+          <div style={{ fontSize: 11, fontWeight: 700, color: edgeColor, marginBottom: 6 }}>
+            {pick.ppEdgePct >= 0 ? "+" : ""}{pick.ppEdgePct}% edge vs PrizePicks
+          </div>
+        )}
+
+        {/* Sportsbook line diff */}
+        {pick.ourLine != null && pick.lineDiff != null && pick.lineDiff !== 0 && (
+          <div style={{ fontSize: 10, color: T.textDim, marginBottom: 6 }}>
+            Sportsbooks: {pick.ourLine}
+            <span style={{ marginLeft: 5, color: pick.lineDiff > 0 ? T.gold : T.green }}>
+              ({pick.lineDiff > 0 ? `PP +${pick.lineDiff} higher` : `PP ${pick.lineDiff} lower`})
+            </span>
+          </div>
+        )}
+
+        {/* True prob */}
+        {pick.trueProb != null && (
+          <div style={{ fontSize: 10, color: T.textMid, marginBottom: 4 }}>
+            True prob: {pick.trueProb}% · PP implies: {pick.ppImplied}%
+          </div>
+        )}
+
+        {/* Goblin/Demon label explanation */}
+        {isGoblin && (
+          <div style={{ fontSize: 10, color: T.green, marginTop: 4 }}>Easier line — boosted in your favor</div>
+        )}
+        {isDemon && (
+          <div style={{ fontSize: 10, color: T.red, marginTop: 4 }}>Harder line — moved against you</div>
+        )}
+
+        {/* Expanded: WHY section */}
+        {expanded && pick.matched && (
+          <div style={{ marginTop: 14, paddingTop: 12, borderTop: `1px solid ${T.border}`,
+            fontSize: 11, color: T.textMid, lineHeight: 1.6 }}>
+            <div style={{ fontSize: 9, color: T.textDim, letterSpacing: "0.1em", marginBottom: 6, textTransform: "uppercase" }}>
+              Why this pick
+            </div>
+            Our model gives <strong style={{ color: T.text }}>{pick.player}</strong> a{" "}
+            <strong style={{ color: edgeColor }}>{pick.trueProb}%</strong> chance of going{" "}
+            {pick.recommendation} {pick.line}. PrizePicks implies{" "}
+            <strong style={{ color: T.textMid }}>{pick.ppImplied}%</strong>, giving us a{" "}
+            <strong style={{ color: edgeColor }}>{pick.ppEdgePct >= 0 ? "+" : ""}{pick.ppEdgePct}%</strong> edge.
+            {pick.lineDiff !== 0 && pick.lineDiff != null && (
+              <span> The sportsbook line is {pick.ourLine} — PrizePicks is{" "}
+                {Math.abs(pick.lineDiff)} points {pick.lineDiff > 0 ? "higher" : "lower"}.
+              </span>
+            )}
+          </div>
+        )}
+
+        <div style={{ textAlign: "center", marginTop: 10, fontSize: 9, color: T.textDim, letterSpacing: "0.06em" }}>
+          {expanded ? "▲ COLLAPSE" : "▼ EXPAND"}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Empty State ───────────────────────────────────────────────────────────────
 function EmptyState({ icon, message, sub }) {
   return (
@@ -1141,7 +1251,7 @@ export default function App() {
     return () => clearInterval(sid);
   }, []);
 
-  const tabs = ["All","Moneyline","Spread","Game Total","Props","History","Info"];
+  const tabs = ["All","Moneyline","Spread","Game Total","Props","PrizePicks","History","Info"];
 
   // ── Chart data ───────────────────────────────────────────────────────────────
   const chartData = (() => {
@@ -1172,7 +1282,8 @@ export default function App() {
   const conviction   = data?.convictionPlays || [];
   const history      = data?.history || [];
   const currentBets  = data?.currentBets || [];
-  const propBets     = (data?.propBets || []).filter(bookVisible);
+  const propBets       = (data?.propBets || []).filter(bookVisible);
+  const prizePicksBets = data?.prizePicksBets || [];
 
   const matchType = (t, tab) => {
     if (tab === "All") return true;
@@ -1182,7 +1293,7 @@ export default function App() {
   };
 
   const filteredConviction = conviction
-    .filter(p => matchType(p.betType || "Moneyline", tab === "Props" || tab === "History" || tab === "Info" ? "skip" : tab))
+    .filter(p => matchType(p.betType || "Moneyline", tab === "Props" || tab === "History" || tab === "Info" || tab === "PrizePicks" ? "skip" : tab))
     .filter(bookVisible)
     .slice().sort((a, b) => {
       if (convSort === "score") return (b.convictionScore || 0) - (a.convictionScore || 0);
@@ -1552,6 +1663,42 @@ export default function App() {
             </div>
           );
         })()}
+
+        {/* PrizePicks Tab */}
+        {tab === "PrizePicks" && (
+          <div>
+            <SectionHeader icon="🏆" title="PrizePicks Value Picks" count={prizePicksBets.length}
+              badge={<Pill color={T.purple} glow>Model vs PP Lines</Pill>} />
+
+            {/* Disclaimer */}
+            <div style={{
+              background: "rgba(167,139,250,0.06)", border: "1px solid rgba(167,139,250,0.2)",
+              borderRadius: 10, padding: "10px 14px", fontSize: 10, color: T.textMid, marginBottom: 16,
+              lineHeight: 1.6,
+            }}>
+              PrizePicks is DFS pick'em, not a sportsbook. Lines shown are Over/Under projections.
+              Our model compares true probability vs PrizePicks implied probability to find edges.{" "}
+              <strong style={{ color: T.green }}>Goblin lines = easier (boosted)</strong>{" "}
+              | <strong style={{ color: T.red }}>Demon lines = harder (reduced)</strong>.
+              Value picks appear when our model disagrees by 3.5%+.
+            </div>
+
+            {prizePicksBets.length === 0 ? (
+              <EmptyState icon="🏆" message="No PrizePicks edges found"
+                sub={`PrizePicks lines load when the engine runs. Value picks appear when our model disagrees with their projections by 3.5%+. Next run: ${getNextRunTime()}.`}
+              />
+            ) : (
+              <div style={{
+                display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(300px,1fr))",
+                gap: 12, alignItems: "start",
+              }}>
+                {prizePicksBets.map(pick => (
+                  <PrizePicksCard key={`${pick.player}-${pick.market}-${pick.line}`} pick={pick} />
+                ))}
+              </div>
+            )}
+          </div>
+        )}
 
         {/* History Tab */}
         {tab === "History" && (

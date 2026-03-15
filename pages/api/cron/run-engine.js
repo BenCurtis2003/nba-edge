@@ -1,7 +1,8 @@
 import { fetchLiveOdds, extractEVBets, buildConvictionPlays, placeBets, fetchAndCacheTeamStats, fetchScores, resolveHistory } from "../../../lib/engine";
 import { fetchPlayerProps, extractPropEV, placePropBets, resolveProps, fetchPlayerStats, fetchTeamDefenseStats } from "../../../lib/props";
+import { fetchPrizePicksLines, comparePrizePicksToModel } from "../../../lib/prizepicks";
 import { notifyBetsPlaced, notifyBetsResolved } from "../../../lib/discord";
-import { getHistory, getBankroll, getMLModel, getCachedStandings, saveCurrentBets, saveConvictionPlays, saveLastRun, appendHistory, saveStandings, saveHistory, saveBankroll, updateMLAfterResolution, getPropBets, savePropBets } from "../../../lib/store";
+import { getHistory, getBankroll, getMLModel, getCachedStandings, saveCurrentBets, saveConvictionPlays, saveLastRun, appendHistory, saveStandings, saveHistory, saveBankroll, updateMLAfterResolution, getPropBets, savePropBets, savePrizePicksBets } from "../../../lib/store";
 
 export const config = { maxDuration: 60 };
 
@@ -72,6 +73,26 @@ export default async function handler(req, res) {
     const evProps = extractPropEV(propGames, playerStats, defenseStats);
     console.log(`[Props] ${evProps.length} EV props, ${Object.keys(playerStats).length} players loaded`);
     console.log(`[Engine] ${evBets.length} EV bets`);
+
+    // 3.5 — PrizePicks line comparison (runs in parallel, never blocks the main engine)
+    let ppValueBets = [], ppLinesCount = 0, ppFetchError = false;
+    try {
+      const [ppResult] = await Promise.allSettled([fetchPrizePicksLines()]);
+      const ppData = ppResult.status === "fulfilled" ? ppResult.value : [];
+      if (ppResult.status === "rejected") ppFetchError = true;
+      ppLinesCount = ppData.length;
+      if (ppData.length > 0) {
+        const ppComparisons = comparePrizePicksToModel(ppData, evProps);
+        ppValueBets = ppComparisons.filter(p => p.isValueBet && p.matched);
+        console.log(`[PrizePicks] ${ppData.length} lines → ${ppValueBets.length} value bets`);
+      } else {
+        console.log("[PrizePicks] Lines unavailable — fetch blocked");
+        ppFetchError = true;
+      }
+    } catch(e) {
+      console.warn("[PrizePicks] Comparison failed:", e.message);
+      ppFetchError = true;
+    }
 
     // 4. ESPN game list for conviction engine
     let espnGames = games || [];
@@ -194,6 +215,7 @@ export default async function handler(req, res) {
       saveCurrentBets(evBets),
       saveConvictionPlays(convictionPlays),
       savePropBets(evProps),
+      savePrizePicksBets(ppValueBets),
       newEntries.length > 0 ? appendHistory(newEntries) : Promise.resolve(),
       newPropEntries.length > 0 ? appendHistory(newPropEntries) : Promise.resolve(),
       saveLastRun(new Date().toISOString()),
@@ -224,6 +246,9 @@ export default async function handler(req, res) {
       hasUpcomingGames,
       propBetsFound: evProps.length,
       propBetsPlaced: newPropEntries.length,
+      ppLines: ppLinesCount,
+      ppValueBets: ppValueBets.length,
+      ppFetchError,
     });
   } catch(e) {
     console.error("[Engine] error:", e);
