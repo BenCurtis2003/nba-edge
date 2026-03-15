@@ -1007,104 +1007,114 @@ function SectionHeader({ icon, title, badge: badgeEl, count }) {
 
 // ── PrizePicks Card ───────────────────────────────────────────────────────────
 function PrizePicksCard({ pick }) {
-  const [expanded, setExpanded] = useState(false);
-  const isValue   = pick.isValueBet;
-  const isGoblin  = pick.isGoblin;
-  const isDemon   = pick.isDemon;
-  const edgeColor = pick.ppEdgePct >= 0 ? T.green : T.red;
+  const recColor = pick.recommendation === "OVER" ? T.green : T.red;
+  const oddsTypeBadge = pick.isDemon
+    ? { label:"🔴 DEMON",    color:"#f87171", sub:"Harder line" }
+    : pick.isGoblin
+    ? { label:"🟢 GOBLIN",   color:"#00e87a", sub:"Easier line" }
+    : { label:"STANDARD",    color:T.textMid,  sub:"Normal line" };
+  const edgeColor = pick.ppEdgePct >= 7 ? T.green : pick.ppEdgePct >= 4 ? T.gold : "#fb923c";
 
   return (
-    <div onClick={() => setExpanded(e => !e)} style={{
-      background: T.surface,
-      border: `1px solid ${isValue ? T.purple + "55" : T.border}`,
-      borderLeft: isValue ? `3px solid ${T.purple}` : `1px solid ${T.border}`,
-      borderRadius: 14, cursor: "pointer", overflow: "hidden",
-      transition: "border-color 0.2s, box-shadow 0.2s",
-      boxShadow: expanded ? `0 0 20px ${T.purple}10` : "none",
+    <div style={{
+      background:T.surface, borderRadius:14, overflow:"hidden",
+      border:`1px solid ${pick.isValueBet ? T.purple + "55" : T.border}`,
+      boxShadow: pick.isValueBet ? `0 0 20px ${T.purple}10` : "none",
     }}>
-      <div style={{ height: 3, background: isValue
-        ? `linear-gradient(90deg,${T.purple}88,${T.purple}22)`
-        : `linear-gradient(90deg,${T.border}44,transparent)` }} />
-
-      <div style={{ padding: "14px 16px" }}>
+      {pick.isValueBet && (
+        <div style={{ height:2, background:`linear-gradient(90deg, ${T.purple}, ${T.blue})` }}/>
+      )}
+      <div style={{ padding:"16px 18px" }}>
         {/* Header */}
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 }}>
-          <div style={{ flex: 1, marginRight: 10 }}>
-            <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginBottom: 6 }}>
-              {isValue && <Pill color={T.purple} glow>⚡ VALUE</Pill>}
-              {isGoblin && <Pill color={T.green}>🟢 GOBLIN</Pill>}
-              {isDemon  && <Pill color={T.red}>🔴 DEMON</Pill>}
-              {!isGoblin && !isDemon && <Pill color={T.textDim}>STANDARD</Pill>}
-            </div>
-            <div style={{ fontSize: 14, fontWeight: 700, color: T.text, lineHeight: 1.2 }}>{pick.player}</div>
-            <div style={{ fontSize: 10, color: T.textDim, marginTop: 2 }}>{pick.team} · {pick.marketLabel}</div>
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:10 }}>
+          <div style={{ flex:1, marginRight:10 }}>
+            <div style={{ fontSize:15, fontWeight:700, color:T.text, marginBottom:2 }}>{pick.player}</div>
+            <div style={{ fontSize:10, color:T.textMid }}>{pick.team} · {pick.marketLabel}</div>
           </div>
-          {pick.convictionScore != null && <ScoreRing score={pick.convictionScore} size={44} />}
-        </div>
-
-        {/* Recommendation — the main call-to-action */}
-        <div style={{ marginBottom: 10 }}>
-          <span style={{ fontSize: 22, fontWeight: 800,
-            color: pick.recommendation === "OVER" ? T.green : T.gold }}>
-            {pick.recommendation} {pick.line}
-          </span>
-          <span style={{ fontSize: 11, color: T.textDim, marginLeft: 8 }}>{pick.marketLabel}</span>
-        </div>
-
-        {/* Edge vs PP */}
-        {pick.ppEdgePct != null && (
-          <div style={{ fontSize: 11, fontWeight: 700, color: edgeColor, marginBottom: 6 }}>
-            {pick.ppEdgePct >= 0 ? "+" : ""}{pick.ppEdgePct}% edge vs PrizePicks
-          </div>
-        )}
-
-        {/* Sportsbook line diff */}
-        {pick.ourLine != null && pick.lineDiff != null && pick.lineDiff !== 0 && (
-          <div style={{ fontSize: 10, color: T.textDim, marginBottom: 6 }}>
-            Sportsbooks: {pick.ourLine}
-            <span style={{ marginLeft: 5, color: pick.lineDiff > 0 ? T.gold : T.green }}>
-              ({pick.lineDiff > 0 ? `PP +${pick.lineDiff} higher` : `PP ${pick.lineDiff} lower`})
+          <div style={{ display:"flex", flexDirection:"column", alignItems:"flex-end", gap:4 }}>
+            {pick.isValueBet && (
+              <span style={{ fontSize:8, fontWeight:800, padding:"2px 8px", borderRadius:4,
+                background:`${T.purple}18`, border:`1px solid ${T.purple}44`, color:T.purple }}>
+                ⚡ VALUE
+              </span>
+            )}
+            <span style={{ fontSize:8, fontWeight:700, padding:"2px 8px", borderRadius:4,
+              background:`${oddsTypeBadge.color}15`, border:`1px solid ${oddsTypeBadge.color}44`,
+              color:oddsTypeBadge.color }}>
+              {oddsTypeBadge.label}
             </span>
           </div>
-        )}
+        </div>
 
-        {/* True prob */}
-        {pick.trueProb != null && (
-          <div style={{ fontSize: 10, color: T.textMid, marginBottom: 4 }}>
-            True prob: {pick.trueProb}% · PP implies: {pick.ppImplied}%
+        {/* Main line */}
+        <div style={{ background:T.bg, borderRadius:10, padding:"12px 14px", marginBottom:10,
+          border:`1px solid ${T.border}` }}>
+          <div style={{ display:"flex", alignItems:"baseline", gap:10, marginBottom:6 }}>
+            <span style={{ fontSize:22, fontWeight:800, color:recColor }}>{pick.recommendation}</span>
+            <span style={{ fontSize:26, fontWeight:800, color:T.text }}>{pick.line}</span>
+            <span style={{ fontSize:11, color:T.textMid }}>{pick.marketLabel}</span>
           </div>
-        )}
-
-        {/* Goblin/Demon label explanation */}
-        {isGoblin && (
-          <div style={{ fontSize: 10, color: T.green, marginTop: 4 }}>Easier line — boosted in your favor</div>
-        )}
-        {isDemon && (
-          <div style={{ fontSize: 10, color: T.red, marginTop: 4 }}>Harder line — moved against you</div>
-        )}
-
-        {/* Expanded: WHY section */}
-        {expanded && pick.matched && (
-          <div style={{ marginTop: 14, paddingTop: 12, borderTop: `1px solid ${T.border}`,
-            fontSize: 11, color: T.textMid, lineHeight: 1.6 }}>
-            <div style={{ fontSize: 9, color: T.textDim, letterSpacing: "0.1em", marginBottom: 6, textTransform: "uppercase" }}>
-              Why this pick
-            </div>
-            Our model gives <strong style={{ color: T.text }}>{pick.player}</strong> a{" "}
-            <strong style={{ color: edgeColor }}>{pick.trueProb}%</strong> chance of going{" "}
-            {pick.recommendation} {pick.line}. PrizePicks implies{" "}
-            <strong style={{ color: T.textMid }}>{pick.ppImplied}%</strong>, giving us a{" "}
-            <strong style={{ color: edgeColor }}>{pick.ppEdgePct >= 0 ? "+" : ""}{pick.ppEdgePct}%</strong> edge.
-            {pick.lineDiff !== 0 && pick.lineDiff != null && (
-              <span> The sportsbook line is {pick.ourLine} — PrizePicks is{" "}
-                {Math.abs(pick.lineDiff)} points {pick.lineDiff > 0 ? "higher" : "lower"}.
+          <div style={{ display:"flex", gap:16, flexWrap:"wrap" }}>
+            <span style={{ fontSize:10, color:T.textDim }}>
+              PP Line: <span style={{ color:T.text, fontWeight:600 }}>{pick.line}</span>
+            </span>
+            {pick.ourLine != null && pick.lineDiff !== 0 && (
+              <span style={{ fontSize:10, color:T.textDim }}>
+                Books: <span style={{ color: pick.lineDiff > 0 ? T.green : T.red, fontWeight:600 }}>
+                  {pick.ourLine} ({pick.lineDiff > 0 ? "+" : ""}{pick.lineDiff} vs PP)
+                </span>
+              </span>
+            )}
+            {pick.playerSeasonAvg != null && (
+              <span style={{ fontSize:10, color:T.textDim }}>
+                Season avg: <span style={{ color:T.textMid, fontWeight:600 }}>{pick.playerSeasonAvg.toFixed(1)}</span>
+              </span>
+            )}
+            {pick.playerL5Avg != null && (
+              <span style={{ fontSize:10, color:T.textDim }}>
+                L5 avg: <span style={{
+                  fontWeight:700,
+                  color: pick.recommendation === "OVER"
+                    ? (pick.playerL5Avg > pick.line ? T.green : T.red)
+                    : (pick.playerL5Avg < pick.line ? T.green : T.red)
+                }}>{pick.playerL5Avg.toFixed(1)}</span>
               </span>
             )}
           </div>
-        )}
+        </div>
 
-        <div style={{ textAlign: "center", marginTop: 10, fontSize: 9, color: T.textDim, letterSpacing: "0.06em" }}>
-          {expanded ? "▲ COLLAPSE" : "▼ EXPAND"}
+        {/* Edge stats grid */}
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:8, marginBottom:10 }}>
+          {[
+            { label:"PP Edge",    value:`+${pick.ppEdgePct.toFixed(1)}%`,  color:edgeColor },
+            { label:"True Prob",  value:`${pick.trueProb}%`,               color:T.blue    },
+            { label:"PP Implied", value:`${pick.ppImplied}%`,              color:T.textMid },
+          ].map(({ label, value, color }) => (
+            <div key={label} style={{ background:T.bg, borderRadius:8, padding:"8px 10px",
+              border:`1px solid ${T.border}`, textAlign:"center" }}>
+              <div style={{ fontSize:8, color:T.textDim, marginBottom:3 }}>{label}</div>
+              <div style={{ fontSize:13, fontWeight:800, color }}>{value}</div>
+            </div>
+          ))}
+        </div>
+
+        {/* Odds type context */}
+        <div style={{ fontSize:9, color:T.textDim, marginBottom:10 }}>
+          {oddsTypeBadge.sub} · {pick.oddsType === "goblin"
+            ? "PrizePicks boosted this line — easier for bettors"
+            : pick.oddsType === "demon"
+            ? "PrizePicks reduced this line — harder for bettors"
+            : "Standard PrizePicks line"}
+        </div>
+
+        {/* Why box */}
+        <div style={{ background:T.bg, borderRadius:10, padding:"10px 14px",
+          border:`1px solid ${T.border}`, fontSize:10, color:T.textMid, lineHeight:1.7 }}>
+          <span style={{ color:T.purple, fontWeight:700 }}>Why this pick? </span>
+          Our model gives {pick.player} a {pick.trueProb}% chance of going {pick.recommendation} {pick.line} {pick.marketLabel}.
+          PrizePicks implies {pick.ppImplied}%, giving us a +{pick.ppEdgePct.toFixed(1)}% edge.
+          {pick.isDemon && " This is a demon line — PrizePicks has moved it against bettors, making our edge even more meaningful."}
+          {pick.isGoblin && " This is a goblin line — PrizePicks has made it easier, confirming direction."}
         </div>
       </div>
     </div>
@@ -1195,6 +1205,7 @@ export default function App() {
   }
 
   function bookVisible(item) {
+    if (tab === "PrizePicks") return true; // PP picks bypass book filter
     if (selectedBooks.has("all")) return true;
     const book = item?.bestBook;
     if (!book) return true;
@@ -1669,32 +1680,23 @@ export default function App() {
           <div>
             <SectionHeader icon="🏆" title="PrizePicks Value Picks" count={prizePicksBets.length}
               badge={<Pill color={T.purple} glow>Model vs PP Lines</Pill>} />
-
-            {/* Disclaimer */}
-            <div style={{
-              background: "rgba(167,139,250,0.06)", border: "1px solid rgba(167,139,250,0.2)",
-              borderRadius: 10, padding: "10px 14px", fontSize: 10, color: T.textMid, marginBottom: 16,
-              lineHeight: 1.6,
-            }}>
-              PrizePicks is DFS pick'em, not a sportsbook. Lines shown are Over/Under projections.
-              Our model compares true probability vs PrizePicks implied probability to find edges.{" "}
-              <strong style={{ color: T.green }}>Goblin lines = easier (boosted)</strong>{" "}
-              | <strong style={{ color: T.red }}>Demon lines = harder (reduced)</strong>.
-              Value picks appear when our model disagrees by 3.5%+.
+            <div style={{ background:"rgba(124,58,237,0.06)", border:"1px solid rgba(124,58,237,0.2)",
+              borderRadius:10, padding:"10px 14px", fontSize:10, color:T.textMid,
+              marginBottom:16, lineHeight:1.7 }}>
+              PrizePicks is DFS pick'em, not a sportsbook. Our model compares true probability vs their implied probability to find edges.
+              &nbsp;<span style={{ color:"#00e87a", fontWeight:600 }}>Goblin</span> = easier (boosted) line ·
+              &nbsp;<span style={{ color:"#f87171", fontWeight:600 }}>Demon</span> = harder (reduced) line ·
+              &nbsp;Edges ≥3.5% shown.
             </div>
-
             {prizePicksBets.length === 0 ? (
               <EmptyState icon="🏆" message="No PrizePicks edges found"
-                sub={`PrizePicks lines load when the engine runs. Value picks appear when our model disagrees with their projections by 3.5%+. Next run: ${getNextRunTime()}.`}
-              />
+                sub="PrizePicks lines load when the engine runs. Value picks appear when our model disagrees with their projections by 3.5%+. If this persists, PrizePicks may be blocking server-side fetches." />
             ) : (
-              <div style={{
-                display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(300px,1fr))",
-                gap: 12, alignItems: "start",
+              <div className="conv-grid" style={{
+                display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(300px,1fr))",
+                gap:12, alignItems:"start",
               }}>
-                {prizePicksBets.map(pick => (
-                  <PrizePicksCard key={`${pick.player}-${pick.market}-${pick.line}`} pick={pick} />
-                ))}
+                {prizePicksBets.map(pick => <PrizePicksCard key={pick.id} pick={pick} />)}
               </div>
             )}
           </div>

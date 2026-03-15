@@ -67,26 +67,33 @@ export default async function handler(req, res) {
 
     // Fetch + extract player props with full conviction engine
     const propGames = games ? await fetchPlayerProps(ODDS_KEY, games) : [];
-    const [playerStats, defenseStats] = propGames.length > 0
-      ? await Promise.all([fetchPlayerStats(), fetchTeamDefenseStats()])
-      : [{}, {}];
+    let playerStats = {}, bdlCallsMade = 0, defenseStats = {};
+    if (propGames.length > 0) {
+      const [rawPS, ds] = await Promise.all([fetchPlayerStats(), fetchTeamDefenseStats()]);
+      ({ stats: playerStats, bdlCallsMade } = rawPS);
+      defenseStats = ds;
+    }
     const evProps = extractPropEV(propGames, playerStats, defenseStats);
-    console.log(`[Props] ${evProps.length} EV props, ${Object.keys(playerStats).length} players loaded`);
+    console.log(`[Props] ${evProps.length} EV props, ${Object.keys(playerStats).length} players loaded, BDL enriched: ${bdlCallsMade}`);
     console.log(`[Engine] ${evBets.length} EV bets`);
 
-    // 3.5 — PrizePicks line comparison (runs in parallel, never blocks the main engine)
-    let ppValueBets = [], ppLinesCount = 0, ppFetchError = false;
+    // 3.5 — PrizePicks line comparison (never blocks the main engine)
+    let ppValueBets = [], ppLinesCount = 0, ppFetchError = false, ppMatched = 0;
     try {
       const [ppResult] = await Promise.allSettled([fetchPrizePicksLines()]);
-      const ppData = ppResult.status === "fulfilled" ? ppResult.value : [];
+      const ppData = ppResult.status === "fulfilled"
+        ? ppResult.value
+        : { lines: [], error: true };
       if (ppResult.status === "rejected") ppFetchError = true;
-      ppLinesCount = ppData.length;
-      if (ppData.length > 0) {
-        const ppComparisons = comparePrizePicksToModel(ppData, evProps);
-        ppValueBets = ppComparisons.filter(p => p.isValueBet && p.matched);
-        console.log(`[PrizePicks] ${ppData.length} lines → ${ppValueBets.length} value bets`);
+      ppFetchError = ppFetchError || ppData.error;
+      ppLinesCount = ppData.lines.length;
+      if (ppData.lines.length > 0) {
+        const { valueBets, matched } = comparePrizePicksToModel(ppData.lines, evProps);
+        ppValueBets = valueBets;
+        ppMatched   = matched;
+        console.log(`[PrizePicks] ${ppLinesCount} lines → ${ppMatched} matched → ${ppValueBets.length} value bets`);
       } else {
-        console.log("[PrizePicks] Lines unavailable — fetch blocked");
+        console.log("[PrizePicks] Lines unavailable — fetch blocked or no data");
         ppFetchError = true;
       }
     } catch(e) {
@@ -248,7 +255,9 @@ export default async function handler(req, res) {
       propBetsPlaced: newPropEntries.length,
       ppLines: ppLinesCount,
       ppValueBets: ppValueBets.length,
+      ppMatched,
       ppFetchError,
+      bdlCallsMade,
     });
   } catch(e) {
     console.error("[Engine] error:", e);
