@@ -707,195 +707,189 @@ function HistoryRow({ h }) {
 }
 
 // ── Props Table ───────────────────────────────────────────────────────────────
-function PropsTable({ props, ppMap = {}, isMobile }) {
-  if (!props || props.length === 0) return null;
+// Grid-based data-dense layout — Bloomberg terminal aesthetic
+// UI/UX: 36px row height, semantic color per value, overflow-x-auto on mobile
+function PropsTable({ props, ppMap, isMobile }) {
+  if (!props.length) return null;
 
-  const MARKET_SHORT = {
-    player_points:"PTS", player_rebounds:"REB", player_assists:"AST",
-    player_threes:"3PM", player_points_rebounds_assists:"PRA",
-    player_points_rebounds:"P+R", player_points_assists:"P+A",
-  };
+  const cols = isMobile
+    ? "1fr 60px 90px 72px"
+    : "1fr 72px 88px 88px 68px 68px 72px 80px";
 
-  const headerStyle = {
-    fontSize:9, color:T.textDim, fontWeight:700, letterSpacing:"0.1em",
-    textTransform:"uppercase", padding:"8px 10px", textAlign:"left",
-    borderBottom:`1px solid ${T.border}`,
-  };
-  const cellStyle = {
-    padding:"10px 10px", borderBottom:`1px solid ${T.border}`,
-    verticalAlign:"middle",
+  const hdr = {
+    fontSize:9, color:T.textDim, fontWeight:700, letterSpacing:"0.12em",
+    textTransform:"uppercase", textAlign:"center",
   };
 
   return (
-    <div style={{ overflowX:"auto", WebkitOverflowScrolling:"touch" }}>
-      <table style={{ width:"100%", borderCollapse:"collapse", minWidth: isMobile ? 340 : 700 }}>
-        <thead>
-          <tr style={{ background:T.bg }}>
-            <th style={{ ...headerStyle, minWidth:130 }}>Player</th>
-            <th style={{ ...headerStyle, textAlign:"center" }}>Line</th>
-            {!isMobile && <th style={{ ...headerStyle, textAlign:"center" }}>Season Avg</th>}
-            {!isMobile && <th style={{ ...headerStyle, textAlign:"center" }}>Projected</th>}
-            {!isMobile && <th style={{ ...headerStyle, textAlign:"center" }}>Hit Rate</th>}
-            {!isMobile ? (
-              <>
-                <th style={{ ...headerStyle, textAlign:"center" }}>Over</th>
-                <th style={{ ...headerStyle, textAlign:"center" }}>Under</th>
-              </>
-            ) : (
-              <th style={{ ...headerStyle, textAlign:"center" }}>Best Odds</th>
-            )}
-            <th style={{ ...headerStyle, textAlign:"right" }}>Edge</th>
-          </tr>
-        </thead>
-        <tbody>
-          {props.map(prop => {
-            const edgeColor = prop.edge >= 0.08 ? T.green : prop.edge >= 0.05 ? T.gold : "#fb923c";
-            const sideColor = prop.side === "Over" ? T.green : T.red;
-            const autoBet   = prop.convictionScore >= 70;
-            const mktShort  = MARKET_SHORT[prop.market] || prop.marketLabel || "";
+    <div style={{ background:T.surface, border:`1px solid ${T.border}`, borderRadius:14, overflow:"hidden" }}>
+      <div style={{ overflowX:"auto", WebkitOverflowScrolling:"touch" }}>
+        <div style={{ minWidth: isMobile ? 340 : 680 }}>
+          {/* Header row */}
+          <div style={{
+            display:"grid", gridTemplateColumns:cols,
+            padding:"9px 18px", borderBottom:`1px solid ${T.border}`,
+            background:T.bg,
+          }}>
+            <div style={{ ...hdr, textAlign:"left" }}>Player</div>
+            <div style={hdr}>Line</div>
+            {!isMobile && <div style={hdr}>Over</div>}
+            {!isMobile && <div style={hdr}>Under</div>}
+            {isMobile  && <div style={hdr}>Odds</div>}
+            {!isMobile && <div style={hdr}>Avg</div>}
+            {!isMobile && <div style={hdr}>Proj</div>}
+            {!isMobile && <div style={hdr}>Hit%</div>}
+            <div style={{ ...hdr, textAlign:"right" }}>Edge</div>
+          </div>
+
+          {/* Data rows */}
+          {props.map((prop, i) => {
             const ppKey     = `${(prop.player||"").toLowerCase()}:${prop.market}`;
-            const ppData    = ppMap[ppKey];
-
-            // Over/under odds from allLines
-            const overBook  = prop.side === "Over"  ? prop.bestBook : null;
-            const underBook = prop.side === "Under" ? prop.bestBook : null;
-            const overOdds  = prop.side === "Over"  ? prop.bestOdds : null;
-            const underOdds = prop.side === "Under" ? prop.bestOdds : null;
-
-            const hitRateColor = (prop.hitRate||50) >= 60 ? T.green : (prop.hitRate||50) >= 50 ? T.gold : T.red;
+            const ppData    = ppMap?.[ppKey] || null;
+            const isAutobet = prop.convictionScore >= 70;
+            const edgeColor = (prop.edge*100) >= 7 ? T.green : (prop.edge*100) >= 4 ? T.gold : "#fb923c";
+            const hitColor  = (prop.hitRate||0) >= 65 ? T.green : (prop.hitRate||0) >= 55 ? T.gold : T.textMid;
+            const avgGood   = prop.playerSeasonAvg != null && (
+              prop.side === "Over" ? prop.playerSeasonAvg > prop.line : prop.playerSeasonAvg < prop.line);
+            const projGood  = prop.projectedLine != null && (
+              prop.side === "Over" ? prop.projectedLine > prop.line : prop.projectedLine < prop.line);
 
             return (
-              <tr key={prop.id} style={{
-                background: autoBet ? `${T.purple}08` : "transparent",
+              <div key={prop.id} style={{
+                display:"grid", gridTemplateColumns:cols,
+                padding:"13px 18px",
+                borderBottom: i < props.length-1 ? `1px solid ${T.border}` : "none",
+                alignItems:"center",
+                borderLeft:`3px solid ${isAutobet ? T.purple : "transparent"}`,
+                background: isAutobet ? `${T.purple}05` : "transparent",
                 transition:"background 0.15s",
               }}>
-                {/* Player */}
-                <td style={{ ...cellStyle }}>
-                  <div style={{ display:"flex", flexDirection:"column", gap:2 }}>
-                    <div style={{ display:"flex", alignItems:"center", gap:5, flexWrap:"wrap" }}>
-                      <span style={{ fontSize:12, fontWeight:700, color:T.text }}>{prop.player}</span>
-                      {autoBet && (
-                        <span style={{ fontSize:8, color:T.purple, fontWeight:700,
-                          padding:"1px 5px", borderRadius:3,
-                          background:`${T.purple}18`, border:`1px solid ${T.purple}33` }}>AUTO</span>
-                      )}
-                      {ppData && (
-                        <span style={{ fontSize:8, color:"#7c3aed", fontWeight:700,
-                          padding:"1px 5px", borderRadius:3,
-                          background:"rgba(124,58,237,0.15)", border:"1px solid rgba(124,58,237,0.35)" }}>
-                          PP {ppData.line}
-                        </span>
-                      )}
-                    </div>
-                    <div style={{ fontSize:9, color:T.textDim }}>{mktShort} · {prop.game?.split(" @ ")[1] || prop.game}</div>
-                  </div>
-                </td>
-                {/* Line */}
-                <td style={{ ...cellStyle, textAlign:"center" }}>
-                  <div style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:2 }}>
-                    <span style={{ fontSize:15, fontWeight:800, color:sideColor }}>{prop.side}</span>
-                    <span style={{ fontSize:14, fontWeight:700, color:T.text }}>{prop.line}</span>
-                  </div>
-                </td>
-                {/* Season Avg */}
-                {!isMobile && (
-                  <td style={{ ...cellStyle, textAlign:"center" }}>
-                    {prop.playerSeasonAvg != null ? (
-                      <span style={{ fontSize:12, fontWeight:600, color:T.textMid }}>
-                        {prop.playerSeasonAvg.toFixed(1)}
+
+                {/* Player column */}
+                <div style={{ minWidth:0 }}>
+                  <div style={{ display:"flex", alignItems:"center", gap:5, flexWrap:"wrap", marginBottom:3 }}>
+                    <span style={{
+                      fontSize:13, fontWeight:700, color:T.text,
+                      overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap",
+                    }}>{prop.player}</span>
+                    {isAutobet && (
+                      <span style={{
+                        fontSize:8, fontWeight:800, padding:"1px 6px", borderRadius:3, flexShrink:0,
+                        background:`${T.purple}22`, color:T.purple, border:`1px solid ${T.purple}44`,
+                      }}>AUTO-BET</span>
+                    )}
+                    {ppData && (
+                      <span style={{
+                        fontSize:8, fontWeight:700, padding:"1px 6px", borderRadius:3, flexShrink:0,
+                        background: ppData.isGoblin ? `${T.green}18` : ppData.isDemon ? `${T.red}18` : `${T.purple}12`,
+                        color: ppData.isGoblin ? T.green : ppData.isDemon ? T.red : "#a78bfa",
+                        border:`1px solid ${ppData.isGoblin ? T.green : ppData.isDemon ? T.red : "#a78bfa"}33`,
+                      }}>
+                        PP {ppData.isGoblin ? "🟢" : ppData.isDemon ? "🔴" : ""}{ppData.recommendation}
                       </span>
-                    ) : <span style={{ color:T.textDim }}>—</span>}
-                  </td>
+                    )}
+                  </div>
+                  <div style={{ fontSize:10, color:T.textMid }}>
+                    {prop.marketLabel}
+                    {prop.game && ` · ${prop.game.split("@")[1]?.trim() || prop.game}`}
+                  </div>
+                </div>
+
+                {/* Line */}
+                <div style={{ textAlign:"center" }}>
+                  <div style={{ fontSize:15, fontWeight:800, color:T.text }}>{prop.line}</div>
+                  {prop.projectedLine != null && (
+                    <div style={{ fontSize:8, color: projGood ? T.green : T.red }}>
+                      proj {prop.projectedLine}
+                    </div>
+                  )}
+                </div>
+
+                {/* Over odds */}
+                {!isMobile && (
+                  <div style={{ textAlign:"center" }}>
+                    <span style={{
+                      display:"inline-block", padding:"3px 10px", borderRadius:6,
+                      fontSize:11, fontWeight:700,
+                      background: prop.side==="Over" ? `${T.green}18` : `${T.border}55`,
+                      color: prop.side==="Over" ? T.green : T.textDim,
+                      border:`1px solid ${prop.side==="Over" ? T.green+"44" : T.border}`,
+                    }}>
+                      {prop.side==="Over" ? fmtOdds(prop.bestOdds) : "—"}
+                    </span>
+                  </div>
                 )}
+
+                {/* Under odds */}
+                {!isMobile && (
+                  <div style={{ textAlign:"center" }}>
+                    <span style={{
+                      display:"inline-block", padding:"3px 10px", borderRadius:6,
+                      fontSize:11, fontWeight:700,
+                      background: prop.side==="Under" ? "rgba(248,113,113,0.15)" : `${T.border}55`,
+                      color: prop.side==="Under" ? T.red : T.textDim,
+                      border:`1px solid ${prop.side==="Under" ? T.red+"44" : T.border}`,
+                    }}>
+                      {prop.side==="Under" ? fmtOdds(prop.bestOdds) : "—"}
+                    </span>
+                  </div>
+                )}
+
+                {/* Mobile: combined odds pill */}
+                {isMobile && (
+                  <div style={{ textAlign:"center" }}>
+                    <span style={{
+                      display:"inline-block", padding:"3px 10px", borderRadius:6,
+                      fontSize:11, fontWeight:700,
+                      background: prop.side==="Over" ? `${T.green}18` : "rgba(248,113,113,0.15)",
+                      color: prop.side==="Over" ? T.green : T.red,
+                      border:`1px solid ${prop.side==="Over" ? T.green+"44" : T.red+"44"}`,
+                    }}>
+                      {prop.side==="Over" ? "O" : "U"} {fmtOdds(prop.bestOdds)}
+                    </span>
+                  </div>
+                )}
+
+                {/* Season avg */}
+                {!isMobile && (
+                  <div style={{ textAlign:"center", fontSize:12, fontWeight:600,
+                    color: prop.playerSeasonAvg != null ? (avgGood ? T.green : T.red) : T.textDim }}>
+                    {prop.playerSeasonAvg?.toFixed(1) ?? "—"}
+                  </div>
+                )}
+
                 {/* Projected */}
                 {!isMobile && (
-                  <td style={{ ...cellStyle, textAlign:"center" }}>
-                    {prop.projectedLine != null ? (
-                      <div style={{ display:"flex", flexDirection:"column", alignItems:"center" }}>
-                        <span style={{ fontSize:12, fontWeight:700,
-                          color: prop.side === "Over"
-                            ? (prop.projectedLine > prop.line ? T.green : T.red)
-                            : (prop.projectedLine < prop.line ? T.green : T.red),
-                        }}>
-                          {prop.projectedLine}
-                        </span>
-                        {prop.projectionBasis && (
-                          <span style={{ fontSize:8, color:T.textDim }}>{prop.projectionBasis}</span>
-                        )}
-                      </div>
-                    ) : <span style={{ color:T.textDim }}>—</span>}
-                  </td>
+                  <div style={{ textAlign:"center", fontSize:12, fontWeight:700,
+                    color: prop.projectedLine != null ? (projGood ? T.green : T.red) : T.textDim }}>
+                    {prop.projectedLine ?? "—"}
+                  </div>
                 )}
-                {/* Hit Rate */}
+
+                {/* Hit rate */}
                 {!isMobile && (
-                  <td style={{ ...cellStyle, textAlign:"center" }}>
-                    <span style={{ fontSize:12, fontWeight:700, color:hitRateColor }}>
-                      {prop.hitRate != null ? `${prop.hitRate}%` : "—"}
-                    </span>
-                  </td>
-                )}
-                {/* Odds */}
-                {!isMobile ? (
-                  <>
-                    <td style={{ ...cellStyle, textAlign:"center" }}>
-                      {overOdds != null ? (
-                        <div style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:1 }}>
-                          <span style={{ fontSize:13, fontWeight:700, color: overOdds > 0 ? T.gold : T.blue }}>
-                            {fmtOdds(overOdds)}
-                          </span>
-                          {overBook && (
-                            <span style={{ fontSize:8, color: BOOK_META[overBook]?.color || T.textDim }}>
-                              {BOOK_META[overBook]?.short || overBook}
-                            </span>
-                          )}
-                        </div>
-                      ) : <span style={{ color:T.textDim }}>—</span>}
-                    </td>
-                    <td style={{ ...cellStyle, textAlign:"center" }}>
-                      {underOdds != null ? (
-                        <div style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:1 }}>
-                          <span style={{ fontSize:13, fontWeight:700, color: underOdds > 0 ? T.gold : T.blue }}>
-                            {fmtOdds(underOdds)}
-                          </span>
-                          {underBook && (
-                            <span style={{ fontSize:8, color: BOOK_META[underBook]?.color || T.textDim }}>
-                              {BOOK_META[underBook]?.short || underBook}
-                            </span>
-                          )}
-                        </div>
-                      ) : <span style={{ color:T.textDim }}>—</span>}
-                    </td>
-                  </>
-                ) : (
-                  <td style={{ ...cellStyle, textAlign:"center" }}>
-                    <div style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:1 }}>
-                      <span style={{ fontSize:13, fontWeight:700, color: prop.bestOdds > 0 ? T.gold : T.blue }}>
-                        {fmtOdds(prop.bestOdds)}
-                      </span>
-                      {prop.bestBook && (
-                        <span style={{ fontSize:8, color: BOOK_META[prop.bestBook]?.color || T.textDim }}>
-                          {BOOK_META[prop.bestBook]?.short || prop.bestBook}
-                        </span>
-                      )}
-                    </div>
-                  </td>
-                )}
-                {/* Edge */}
-                <td style={{ ...cellStyle, textAlign:"right" }}>
-                  <div style={{ display:"flex", flexDirection:"column", alignItems:"flex-end", gap:2 }}>
-                    <span style={{ fontSize:13, fontWeight:800, color:edgeColor }}>
-                      +{(prop.edge * 100).toFixed(1)}%
-                    </span>
-                    <span style={{ fontSize:9, color:T.textDim }}>
-                      {prop.convictionScore}
+                  <div style={{ textAlign:"center" }}>
+                    <span style={{ fontSize:12, fontWeight:700, color:hitColor }}>
+                      {prop.hitRate ? `${prop.hitRate}%` : "—"}
                     </span>
                   </div>
-                </td>
-              </tr>
+                )}
+
+                {/* Edge */}
+                <div style={{ textAlign:"right" }}>
+                  <div style={{ fontSize:13, fontWeight:800, color:edgeColor }}>
+                    +{(prop.edge*100).toFixed(1)}%
+                  </div>
+                  <div style={{ fontSize:8, color:T.textDim, marginTop:1 }}>
+                    {BOOK_META[prop.bestBook]?.short || prop.bestBook || "—"}
+                  </div>
+                </div>
+
+              </div>
             );
           })}
-        </tbody>
-      </table>
+        </div>
+      </div>
     </div>
   );
 }
@@ -1412,7 +1406,6 @@ export default function App() {
   }
 
   function bookVisible(item) {
-    if (tab === "PrizePicks") return true; // PP picks bypass book filter
     if (selectedBooks.has("all")) return true;
     const book = item?.bestBook;
     if (!book) return true;
@@ -1469,7 +1462,7 @@ export default function App() {
     return () => clearInterval(sid);
   }, []);
 
-  const tabs = ["All","Moneyline","Spread","Game Total","Props","PrizePicks","History","Info"];
+  const tabs = ["All","Moneyline","Spread","Game Total","Props","History","Info"];
 
   // ── Chart data ───────────────────────────────────────────────────────────────
   const chartData = (() => {
@@ -1512,7 +1505,7 @@ export default function App() {
   };
 
   const filteredConviction = conviction
-    .filter(p => matchType(p.betType || "Moneyline", tab === "Props" || tab === "History" || tab === "Info" || tab === "PrizePicks" ? "skip" : tab))
+    .filter(p => matchType(p.betType || "Moneyline", tab === "Props" || tab === "History" || tab === "Info" ? "skip" : tab))
     .filter(bookVisible)
     .slice().sort((a, b) => {
       if (convSort === "score") return (b.convictionScore || 0) - (a.convictionScore || 0);
@@ -1827,112 +1820,79 @@ export default function App() {
 
         {/* Props Tab */}
         {tab === "Props" && (() => {
-          // Filter + sort
-          const filteredProps = propBets
+          const allFiltered = propBets
             .filter(p => propMarketFilter === "all" || p.market === propMarketFilter)
-            .slice().sort((a, b) => {
-              if (propSort === "conviction") return (b.convictionScore||0) - (a.convictionScore||0);
-              if (propSort === "edge")       return (b.edge||0) - (a.edge||0);
-              if (propSort === "hitrate")    return (b.hitRate||0) - (a.hitRate||0);
-              return 0;
+            .sort((a,b) => {
+              if (propSort === "edge")    return ((b.edge*100)||b.ev||0) - ((a.edge*100)||a.ev||0);
+              if (propSort === "hitRate") return (b.hitRate||0) - (a.hitRate||0);
+              if (propSort === "line")    return (a.line||0) - (b.line||0);
+              return (b.convictionScore||0) - (a.convictionScore||0);
             });
-          const convProps = filteredProps.filter(p => p.convictionScore >= 70);
-          const otherProps = filteredProps.filter(p => p.convictionScore < 70);
+
+          const autoProps  = allFiltered.filter(p => p.convictionScore >= 70);
+          const evProps    = allFiltered.filter(p => p.convictionScore < 70);
 
           return (
             <div>
-              {/* Market filter + sort controls */}
-              <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between",
-                flexWrap:"wrap", gap:10, marginBottom:14 }}>
-                {/* Market pills */}
+              {/* Market filter + sort bar */}
+              <div style={{ display:"flex", gap:8, marginBottom:16, flexWrap:"wrap",
+                alignItems:"center", justifyContent:"space-between" }}>
                 <div style={{
-                  display:"flex", gap:5, overflowX:"auto", WebkitOverflowScrolling:"touch",
-                  scrollbarWidth:"none", msOverflowStyle:"none", paddingBottom:2, flex:1,
+                  display:"flex", gap:5, overflowX:"auto",
+                  WebkitOverflowScrolling:"touch", scrollbarWidth:"none", paddingBottom:2,
                 }}>
                   {PROP_MARKET_FILTERS.map(f => (
                     <button key={f.id} onClick={() => setPropMarketFilter(f.id)} style={{
-                      flexShrink:0, padding:"5px 12px", borderRadius:20,
-                      fontSize:10, cursor:"pointer", fontFamily:"inherit", fontWeight:700,
-                      border:`1px solid ${propMarketFilter === f.id ? T.purple + "88" : T.borderHi}`,
-                      background: propMarketFilter === f.id ? `${T.purple}18` : "transparent",
-                      color: propMarketFilter === f.id ? T.purple : T.textDim,
+                      padding:"4px 12px", borderRadius:20, fontSize:10, cursor:"pointer",
+                      whiteSpace:"nowrap", fontFamily:"inherit", flexShrink:0,
+                      border:`1px solid ${propMarketFilter===f.id ? T.purple+"88" : T.border}`,
+                      background: propMarketFilter===f.id ? `${T.purple}15` : "transparent",
+                      color: propMarketFilter===f.id ? T.purple : T.textDim,
                       transition:"all 0.15s",
                     }}>{f.label}</button>
                   ))}
                 </div>
-                {/* Sort segmented control */}
-                <div style={{ display:"flex", background:T.bg, borderRadius:8, border:`1px solid ${T.border}`,
-                  overflow:"hidden", flexShrink:0 }}>
-                  {[["conviction","Score"],["edge","Edge"],["hitrate","Hit%"]].map(([key,label]) => (
-                    <button key={key} onClick={() => setPropSort(key)} style={{
-                      padding:"5px 12px", fontSize:10, cursor:"pointer", fontFamily:"inherit",
-                      fontWeight:700, border:"none", borderRight:`1px solid ${T.border}`,
-                      background: propSort === key ? T.surface : "transparent",
-                      color: propSort === key ? T.text : T.textDim,
+                <div style={{
+                  display:"inline-flex", background:T.bg, border:`1px solid ${T.border}`,
+                  borderRadius:8, padding:3, gap:2, flexShrink:0,
+                }}>
+                  {[{id:"conviction",label:"Conviction"},{id:"edge",label:"Edge %"},{id:"hitRate",label:"Hit Rate"}].map(opt => (
+                    <button key={opt.id} onClick={() => setPropSort(opt.id)} style={{
+                      padding:"3px 10px", borderRadius:6, fontSize:9, cursor:"pointer",
+                      border:"none", fontFamily:"inherit",
+                      background: propSort===opt.id ? T.surface : "transparent",
+                      color: propSort===opt.id ? T.text : T.textDim,
+                      fontWeight: propSort===opt.id ? 700 : 400,
                       transition:"all 0.15s",
-                    }}>{label}</button>
+                    }}>{opt.label}{propSort===opt.id ? " ↓" : ""}</button>
                   ))}
                 </div>
               </div>
 
-              {/* Conviction props table */}
-              {convProps.length > 0 && (
-                <div style={{ marginBottom:24 }}>
-                  <SectionHeader icon="🎯" title="Conviction Props" count={convProps.length}
+              {autoProps.length > 0 && (
+                <div style={{ marginBottom:28 }}>
+                  <SectionHeader icon="🎯" title="Props Conviction" count={autoProps.length}
                     badge={<Pill color={T.purple} glow>Auto-bet ≥70</Pill>} />
-                  <div style={{ background:T.surface, border:`1px solid ${T.border}`, borderRadius:12, overflow:"hidden" }}>
-                    <PropsTable props={convProps} ppMap={prizePicksMap} isMobile={isMobile} />
-                  </div>
+                  <PropsTable props={autoProps} ppMap={prizePicksMap} isMobile={isMobile} />
                 </div>
               )}
 
-              {/* All props table */}
               <div>
-                <SectionHeader icon="⚡" title="+EV Props" count={otherProps.length}
-                  badge={<Pill color={T.green}>+EV · {propBets.length} scanned</Pill>} />
-                {filteredProps.length === 0 ? (
-                  <EmptyState icon="🔍" message="No prop edges found"
-                    sub={propBets.length === 0
-                      ? `No prop lines loaded yet. Next run: ${getNextRunTime()}.`
-                      : "Try a different market filter."} />
-                ) : otherProps.length === 0 && convProps.length > 0 ? (
-                  <EmptyState icon="✅" message="All props are conviction plays" sub="See table above." />
-                ) : (
-                  <div style={{ background:T.surface, border:`1px solid ${T.border}`, borderRadius:12, overflow:"hidden" }}>
-                    <PropsTable props={otherProps} ppMap={prizePicksMap} isMobile={isMobile} />
-                  </div>
-                )}
+                <SectionHeader icon="⚡" title="Props +EV" count={evProps.length}
+                  badge={<Pill color={T.green}>3.5% min edge</Pill>} />
+                {evProps.length === 0
+                  ? <EmptyState icon="🔍" message="No prop edges found"
+                      sub={propBets.length === 0
+                        ? "Prop lines load when the engine runs. Check back after the next scheduled run."
+                        : autoProps.length > 0
+                          ? "All props met the conviction threshold above."
+                          : "Try a different market filter."} />
+                  : <PropsTable props={evProps} ppMap={prizePicksMap} isMobile={isMobile} />
+                }
               </div>
             </div>
           );
         })()}
-
-        {/* PrizePicks Tab */}
-        {tab === "PrizePicks" && (
-          <div>
-            <SectionHeader icon="🏆" title="PrizePicks Value Picks" count={prizePicksBets.length}
-              badge={<Pill color={T.purple} glow>Model vs PP Lines</Pill>} />
-            <div style={{ background:"rgba(124,58,237,0.06)", border:"1px solid rgba(124,58,237,0.2)",
-              borderRadius:10, padding:"10px 14px", fontSize:10, color:T.textMid,
-              marginBottom:16, lineHeight:1.7 }}>
-              PrizePicks is DFS pick'em, not a sportsbook. Our model compares true probability vs their implied probability to find edges.
-              &nbsp;<span style={{ color:"#00e87a", fontWeight:600 }}>Goblin</span> = easier (boosted) line ·
-              &nbsp;<span style={{ color:"#f87171", fontWeight:600 }}>Demon</span> = harder (reduced) line ·
-              &nbsp;Edges ≥3.5% shown.
-            </div>
-            {prizePicksBets.length === 0 ? (
-              <EmptyState icon="🏆" message="No PrizePicks edges found"
-                sub="PrizePicks lines load when the engine runs. Value picks appear when our model disagrees with their projections by 3.5%+. If this persists, PrizePicks may be blocking server-side fetches." />
-            ) : (
-              <div className="conv-grid" style={{
-                display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(300px,1fr))",
-                gap:12, alignItems:"start",
-              }}>
-                {prizePicksBets.map(pick => <PrizePicksCard key={pick.id} pick={pick} />)}
-              </div>
-            )}
-          </div>
-        )}
 
         {/* History Tab */}
         {tab === "History" && (
