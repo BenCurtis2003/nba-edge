@@ -103,100 +103,36 @@ function getStatusDotColor(lastRun) {
 
 // ── Design tokens ─────────────────────────────────────────────────────────────
 const T = {
-  bg:        "#03080f",
-  bgAlt:     "#060d18",
-  surface:   "#0a1628",
-  surfaceHi: "#0f1f38",
-  border:    "#112240",
+  bg:        "#060a14",
+  bgAlt:     "#070d1c",
+  surface:   "#070e1d",
+  surfaceHi: "#0a1628",
+  border:    "#0e1c33",
   borderHi:  "#1a3355",
-  text:      "#e8f0f8",
-  textMid:   "#7a9ab8",
-  textDim:   "#3d5a78",
-  green:     "#00d68f",
-  greenDim:  "#003d28",
-  red:       "#ff4d6a",
-  redDim:    "#3d0015",
-  blue:      "#3b9eff",
-  blueDim:   "#0a2240",
-  gold:      "#f5a623",
-  goldDim:   "#3d2800",
-  purple:    "#9b6dff",
-  purpleDim: "#1a0f3d",
-  espn:      "#cc0000",
-  live:      "#00ff88",
-  discord:   "#5865f2",
+  text:      "#f1f5f9",
+  textMid:   "#94a3b8",
+  textDim:   "#475569",
+  textDeep:  "#334155",
+  label:     "#1e3a5f",
+  blue:      "#1d6cf5",
+  blueDim:   "rgba(29,108,245,0.08)",
+  green:     "#22c55e",
+  greenDim:  "rgba(34,197,94,0.05)",
+  amber:     "#f59e0b",
+  amberDim:  "rgba(245,158,11,0.1)",
+  red:       "#ef4444",
+  indigo:    "#5865f2",
+  orange:    "#f97316",
+  // legacy aliases for components not yet migrated:
+  gold:      "#f59e0b",
+  goldDim:   "rgba(245,158,11,0.1)",
+  live:      "#22c55e",
+  purple:    "#6366f1",
+  purpleDim: "rgba(99,102,241,0.08)",
+  espn:      "#ef4444",
+  discord:   "#5865f2",   // used by Discord link in header — do NOT remove
 };
 
-// ── Live Scores Bar ───────────────────────────────────────────────────────────
-function ScoresBar({ games }) {
-  if (!games || !games.length) return null;
-  return (
-    <div style={{
-      background: T.bgAlt, borderBottom: `1px solid ${T.border}`,
-      display: "flex", alignItems: "center",
-      overflowX: "auto", WebkitOverflowScrolling: "touch",
-      scrollbarWidth: "none", msOverflowStyle: "none",
-      padding: "6px 28px", gap: 6,
-    }}>
-      {games.map((g, i) => {
-        const awayWin = g.final && +g.awayScore > +g.homeScore;
-        const homeWin = g.final && +g.homeScore > +g.awayScore;
-        return (
-          <div key={i} style={{
-            flexShrink: 0, width: 130, height: 52,
-            background: g.live ? `${T.live}06` : "transparent",
-            border: g.live ? `1px solid ${T.live}22` : "none",
-            borderLeft: g.live ? `3px solid ${T.live}` : "3px solid transparent",
-            borderRadius: 6,
-            padding: "8px 10px 8px 8px",
-            display: "flex", gap: 8, alignItems: "center",
-            opacity: g.final ? 0.55 : 1,
-          }}>
-            {/* Teams + scores */}
-            <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 4 }}>
-              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-                <span style={{ fontSize:10, fontWeight:700,
-                  color: awayWin ? T.text : g.final ? T.textMid : T.textMid,
-                  fontFamily:"'Barlow',system-ui,sans-serif" }}>{g.away}</span>
-                {(g.live || g.final) ? (
-                  <span style={{ fontSize:16, fontWeight: awayWin ? 800 : 500,
-                    color: awayWin ? T.text : T.textMid,
-                    fontFamily:"'Barlow Condensed',system-ui,sans-serif" }}>{g.awayScore}</span>
-                ) : null}
-              </div>
-              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-                <span style={{ fontSize:10, fontWeight:700,
-                  color: homeWin ? T.text : g.final ? T.textMid : T.textMid,
-                  fontFamily:"'Barlow',system-ui,sans-serif" }}>{g.home}</span>
-                {(g.live || g.final) ? (
-                  <span style={{ fontSize:16, fontWeight: homeWin ? 800 : 500,
-                    color: homeWin ? T.text : T.textMid,
-                    fontFamily:"'Barlow Condensed',system-ui,sans-serif" }}>{g.homeScore}</span>
-                ) : (
-                  <span style={{ fontSize:10, fontWeight:600,
-                    color: T.gold, fontFamily:"'JetBrains Mono',monospace" }}>{g.tipTime}</span>
-                )}
-              </div>
-            </div>
-            {/* Status */}
-            <div style={{ textAlign:"right", flexShrink:0 }}>
-              {g.live ? (
-                <span style={{ fontSize:7, fontWeight:700, color: T.live,
-                  fontFamily:"'Barlow',system-ui,sans-serif",
-                  letterSpacing:"0.06em", display:"block" }}>
-                  {g.status.replace(/^LIVE · /,"")}
-                </span>
-              ) : g.final ? (
-                <span style={{ fontSize:7, color: T.textDim, letterSpacing:"0.06em",
-                  fontFamily:"'Barlow',system-ui,sans-serif" }}>FINAL</span>
-              ) : null}
-            </div>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
 
 // ── Badge ─────────────────────────────────────────────────────────────────────
 const badge = (c, text) => (
@@ -1776,8 +1712,6 @@ export default function App() {
           </a>
         </div>
       </header>
-
-      <ScoresBar games={scoresData} />
 
       {/* ── Stats ───────────────────────────────────────────────────────────── */}
       {(() => {
