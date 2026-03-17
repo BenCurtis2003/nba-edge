@@ -1429,6 +1429,14 @@ export default function App() {
   const [propSort, setPropSort] = useState("conviction");
   const [scoresData, setScoresData] = useState([]);
 
+  // New UI state for redesign
+  const [expandedId, setExpandedId] = useState(null);
+  const [autoBetFilter, setAutoBetFilter] = useState(false);
+  const [mlEngineFilter, setMlEngineFilter] = useState(false);
+  const [evPlusFilter, setEvPlusFilter] = useState(false);
+  const [crossConfirmedFilter, setCrossConfirmedFilter] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+
   // Sportsbook filter
   const [selectedBooks, setSelectedBooks] = useState(() => {
     if (typeof window === "undefined") return new Set(["all"]);
