@@ -1605,6 +1605,27 @@ export default function App() {
       sum + (h.status === "won" ? (h.potentialPayout || 0) : -(h.wagerAmt || 0)), 0);
   })();
 
+  // New table grouping for redesigned plays table
+  const tablePlays = (() => {
+    if (!["All","Moneyline","Spread","Game Total"].includes(tab)) return [];
+    let plays = filteredConviction;
+    if (autoBetFilter)        plays = plays.filter(p => p.convictionScore >= 70);
+    if (mlEngineFilter)       plays = plays.filter(p => p.mlScore != null);
+    if (evPlusFilter)         plays = plays.filter(p => (p.ev || 0) > 0);
+    if (crossConfirmedFilter) plays = plays.filter(p => p.crossConfirmed === true);
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      plays = plays.filter(p =>
+        (p.selection || "").toLowerCase().includes(q) ||
+        (p.game || "").toLowerCase().includes(q)
+      );
+    }
+    return plays.slice().sort((a, b) => (b.convictionScore || 0) - (a.convictionScore || 0));
+  })();
+  const autoPlays   = tablePlays.filter(p => p.convictionScore >= 70);
+  const mediumPlays = tablePlays.filter(p => p.convictionScore >= 55 && p.convictionScore < 70);
+  const watchPlays  = tablePlays.filter(p => p.convictionScore < 55);
+
   // ── Loading ──────────────────────────────────────────────────────────────────
   if (loading) return (
     <div style={{
@@ -1894,10 +1915,286 @@ export default function App() {
       </div>
     );
   };
-  const renderContent = () => (
-    <div style={{ padding:24, color:T.textMid, fontFamily:"'Barlow',system-ui,sans-serif" }}>Loading new layout…</div>
-  );
-  const renderBottomNav = () => null;
+  const renderContent = () => {
+    if (tab === "Props")   return renderPropsTab();
+    if (tab === "History") return renderHistoryTab();
+    if (tab === "Info")    return renderInfoTab();
+
+    const colTemplate = "1.9fr 0.36fr 0.3fr 0.58fr 0.42fr 0.42fr 0.48fr";
+    const thStyle = () => ({
+      fontSize:7, fontWeight:700, letterSpacing:"0.12em", color:T.textDeep,
+      textTransform:"uppercase", fontFamily:"'Barlow',system-ui,sans-serif",
+      padding:"7px 8px",
+    });
+
+    const renderGroupSection = (plays, bucket) => {
+      if (!plays.length) return null;
+      const configs = {
+        "AUTO-BET":  { label:`⚡ AUTO-BET (${plays.length})`,  accent:T.green,    rowBg:`rgba(34,197,94,0.05)` },
+        "MEDIUM":    { label:`MEDIUM (${plays.length})`,        accent:T.amber,    rowBg:"transparent" },
+        "WATCHLIST": { label:`WATCHLIST (${plays.length})`,     accent:T.textDeep, rowBg:"transparent" },
+      };
+      const cfg = configs[bucket];
+      return (
+        <div key={bucket}>
+          <div style={{
+            padding:"6px 12px", background:T.bg,
+            borderBottom:`1px solid ${T.border}`,
+            display:"flex", alignItems:"center", gap:8,
+          }}>
+            <span style={{ fontSize:9, fontWeight:700, color:cfg.accent,
+              fontFamily:"'Barlow',system-ui,sans-serif", letterSpacing:"0.08em" }}>
+              {cfg.label}
+            </span>
+            <div style={{ flex:1, height:1, background:T.border }} />
+          </div>
+          {plays.map(play => {
+            const isExpanded = expandedId === play.id;
+            const betTypeLabel = play.betType === "Moneyline" ? "ML"
+              : play.betType === "Spread" ? "SPR"
+              : play.betType === "Game Total" ? "TOT"
+              : play.betType === "Props" ? "PP"
+              : (play.betType || "ML").slice(0,3).toUpperCase();
+            const oddsColor = (play.bestOdds || 0) < 0 ? T.amber : T.blue;
+            const tierLabel = play.convictionScore >= 70 ? "AUTO"
+              : play.convictionScore >= 55 ? "MED" : "WATCH";
+            const tierStyle = play.convictionScore >= 70
+              ? { color:T.amber, background:T.amberDim, border:`1px solid rgba(245,158,11,0.2)` }
+              : play.convictionScore >= 55
+              ? { color:"#64748b", background:"rgba(100,116,139,0.08)", border:"1px solid rgba(100,116,139,0.15)" }
+              : { color:"#475569", background:"rgba(71,85,105,0.08)", border:"1px solid rgba(71,85,105,0.15)" };
+            const rowBorderLeft = `2px solid ${cfg.accent}`;
+            const rowOpacity = bucket === "WATCHLIST" ? 0.75 : 1;
+            return (
+              <div key={play.id}>
+                <div
+                  className="play-row"
+                  onClick={() => setExpandedId(isExpanded ? null : play.id)}
+                  style={{
+                    display:"grid", gridTemplateColumns:colTemplate,
+                    alignItems:"center", padding:"8px 12px",
+                    borderBottom:`1px solid ${T.border}`,
+                    borderLeft: rowBorderLeft,
+                    background: cfg.rowBg,
+                    cursor:"pointer", opacity:rowOpacity,
+                  }}
+                >
+                  <div style={{ minWidth:0 }}>
+                    <div style={{ fontSize:9.5, fontWeight:700, color:T.text, overflow:"hidden",
+                      textOverflow:"ellipsis", whiteSpace:"nowrap",
+                      fontFamily:"'Barlow',system-ui,sans-serif" }}>
+                      {play.selection?.replace(/ ML$/i,"")}
+                    </div>
+                    <div style={{ fontSize:6.5, color:T.textMid, overflow:"hidden",
+                      textOverflow:"ellipsis", whiteSpace:"nowrap",
+                      fontFamily:"'Barlow',system-ui,sans-serif" }}>
+                      {play.game}
+                    </div>
+                  </div>
+                  <div style={{ textAlign:"center" }}>
+                    <span style={{
+                      fontSize:15, fontWeight:700, fontFamily:"'Courier New',monospace",
+                      color: play.convictionScore >= 70 ? T.green
+                        : play.convictionScore >= 55 ? T.amber : T.red,
+                    }}>{play.convictionScore}</span>
+                  </div>
+                  <div className="td-type" style={{ textAlign:"center" }}>
+                    <span style={{ fontSize:7, fontWeight:700, color:T.blue,
+                      fontFamily:"'Barlow',system-ui,sans-serif", letterSpacing:"0.06em" }}>
+                      {betTypeLabel}
+                    </span>
+                  </div>
+                  <div style={{ textAlign:"center" }}>
+                    <span style={{ fontSize:9, fontWeight:600, color:oddsColor,
+                      fontFamily:"'JetBrains Mono',monospace" }}>
+                      {fmtOdds(play.bestOdds)}
+                    </span>
+                  </div>
+                  <div className="td-book" style={{ textAlign:"center" }}>
+                    <span style={{ fontSize:6.5, color:T.green,
+                      fontFamily:"'Barlow',system-ui,sans-serif" }}>
+                      {BOOK_META[play.bestBook]?.short || play.bestBook || "—"}
+                      {play.bestBook ? " ★" : ""}
+                    </span>
+                  </div>
+                  <div className="td-ev" style={{ textAlign:"center" }}>
+                    <span style={{ fontSize:8.5, fontFamily:"'Courier New',monospace",
+                      color: (play.ev || 0) > 0 ? T.green : T.textDim }}>
+                      {play.ev != null ? `+${play.ev.toFixed(1)}` : "—"}
+                    </span>
+                  </div>
+                  <div style={{ textAlign:"center" }}>
+                    <span style={{
+                      fontSize:7, fontWeight:700, padding:"2px 5px", borderRadius:3,
+                      fontFamily:"'Barlow',system-ui,sans-serif", letterSpacing:"0.04em",
+                      ...tierStyle,
+                    }}>{tierLabel}</span>
+                  </div>
+                </div>
+                {isExpanded && (
+                  <div style={{
+                    borderBottom:`1px solid ${T.border}`,
+                    borderLeft: rowBorderLeft,
+                    background: T.surfaceHi,
+                    padding:"12px 16px",
+                  }}>
+                    <ConvictionCard
+                      play={play}
+                      expanded={true}
+                      onExpand={() => setExpandedId(null)}
+                    />
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      );
+    };
+
+    return (
+      <div style={{ minWidth:0 }}>
+        <div style={{
+          position:"sticky", top:0, zIndex:10,
+          background: T.bg, borderBottom:`2px solid ${T.border}`,
+          display:"grid", gridTemplateColumns:colTemplate, padding:"0 12px",
+        }}>
+          <div style={thStyle()}>PLAY</div>
+          <div style={{ ...thStyle(), textAlign:"center" }}>SCORE</div>
+          <div className="th-type" style={{ ...thStyle(), textAlign:"center" }}>TYPE</div>
+          <div style={{ ...thStyle(), textAlign:"center" }}>LINE</div>
+          <div className="th-book" style={{ ...thStyle(), textAlign:"center" }}>BOOK</div>
+          <div className="th-ev" style={{ ...thStyle(), textAlign:"center" }}>EV</div>
+          <div style={{ ...thStyle(), textAlign:"center" }}>TIER</div>
+        </div>
+
+        {tablePlays.length === 0 ? (
+          <div style={{ padding:"40px 24px", textAlign:"center", color:T.textDim }}>
+            <div style={{ fontSize:28, marginBottom:12 }}>📊</div>
+            <div style={{ fontSize:13, color:T.textMid, fontWeight:600 }}>No plays match current filters</div>
+            <div style={{ fontSize:10, marginTop:6, fontFamily:"'Barlow',sans-serif" }}>
+              Engine next runs at {getNextRunTime()}
+            </div>
+          </div>
+        ) : (
+          <>
+            {renderGroupSection(autoPlays,   "AUTO-BET")}
+            {renderGroupSection(mediumPlays, "MEDIUM")}
+            {renderGroupSection(watchPlays,  "WATCHLIST")}
+          </>
+        )}
+      </div>
+    );
+  };
+
+  const renderPropsTab = () => <div style={{ padding:20 }}>{renderLegacyPropsContent()}</div>;
+  const renderHistoryTab = () => <div style={{ padding:20 }}>{renderLegacyHistoryContent()}</div>;
+  const renderInfoTab = () => <div style={{ padding:20 }}>{renderLegacyInfoContent()}</div>;
+  const renderLegacyPropsContent = () => {
+    if (tab !== "Props") return null;
+    return (
+      <div>
+        {/* Prop category filter */}
+        <div style={{ display:"flex", gap:6, marginBottom:16, flexWrap:"wrap" }}>
+          {["All","Points","Rebounds","Assists","3PM","PRA"].map(cat => (
+            <button key={cat} onClick={() => setPropCat(cat)} style={{
+              padding:"4px 10px", borderRadius:4, fontSize:10, cursor:"pointer",
+              background: propCat === cat ? T.blue : "transparent",
+              border: propCat === cat ? `1px solid ${T.blue}` : `1px solid ${T.border}`,
+              color: propCat === cat ? "#fff" : T.textDim,
+              fontFamily:"'Barlow',sans-serif",
+            }}>{cat}</button>
+          ))}
+        </div>
+        {convictionProps.length > 0 && (
+          <div style={{ marginBottom:24 }}>
+            <div style={{ fontSize:10, fontWeight:700, color:T.green, marginBottom:8,
+              fontFamily:"'Barlow',sans-serif", letterSpacing:"0.06em" }}>
+              ⚡ CONVICTION PROPS ({convictionProps.length})
+            </div>
+            <PropsTable props={convictionProps} ppMap={prizePicksMap} isMobile={isMobile} />
+          </div>
+        )}
+        {evProps.length > 0 && (
+          <div>
+            <div style={{ fontSize:10, fontWeight:700, color:T.textMid, marginBottom:8,
+              fontFamily:"'Barlow',sans-serif", letterSpacing:"0.06em" }}>
+              +EV PROPS ({evProps.length})
+            </div>
+            <PropsTable props={evProps} ppMap={prizePicksMap} isMobile={isMobile} />
+          </div>
+        )}
+        {convictionProps.length === 0 && evProps.length === 0 && (
+          <div style={{ textAlign:"center", padding:"40px 20px", color:T.textDim }}>
+            <div style={{ fontSize:24, marginBottom:8 }}>🎯</div>
+            <div style={{ fontSize:12, color:T.textMid }}>No prop bets available</div>
+          </div>
+        )}
+      </div>
+    );
+  };
+  const renderLegacyHistoryContent = () => {
+    if (tab !== "History") return null;
+    return (
+      <div>
+        {filteredHistory.length === 0 ? (
+          <div style={{ textAlign:"center", padding:"40px 20px", color:T.textDim }}>
+            <div style={{ fontSize:24, marginBottom:8 }}>📊</div>
+            <div style={{ fontSize:12, color:T.textMid }}>No bet history yet</div>
+          </div>
+        ) : (
+          <div>
+            {filteredHistory.map((h, i) => (
+              <HistoryRow key={h.id || i} h={h} rowIndex={i} />
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  };
+  const renderLegacyInfoContent = () => {
+    if (tab !== "Info") return null;
+    return (
+      <div style={{ maxWidth:600, margin:"0 auto" }}>
+        <div style={{ fontSize:14, fontWeight:700, color:T.text, marginBottom:16,
+          fontFamily:"'Barlow',sans-serif" }}>About NBA Edge</div>
+        <div style={{ fontSize:12, color:T.textMid, lineHeight:1.7,
+          fontFamily:"'Barlow',sans-serif" }}>
+          NBA Edge is a fully automated EV betting engine that analyzes NBA games
+          using machine learning to identify high-conviction betting opportunities.
+        </div>
+        <div style={{ marginTop:16, fontSize:10, color:T.textDim }}>
+          Engine last run: {timeAgo(data?.lastRun)} · Next: {getNextRunTime()}
+        </div>
+      </div>
+    );
+  };
+
+  const renderBottomNav = () => {
+    const navItems = [
+      { icon:"⚡", label:"Plays",    value:"All" },
+      { icon:"🏀", label:"Lines",    value:"Moneyline" },
+      { icon:"📊", label:"History",  value:"History" },
+      { icon:"🎯", label:"Props",    value:"Props" },
+      { icon:"⚙️", label:"Settings", value:"Info" },
+    ];
+    return navItems.map(item => (
+      <button key={item.value} onClick={() => setTab(item.value)} style={{
+        flex:1, display:"flex", flexDirection:"column",
+        alignItems:"center", justifyContent:"center",
+        gap:3, background:"transparent", border:"none", cursor:"pointer",
+        color: tab === item.value ? T.blue : T.textDim,
+        padding:"6px 0",
+      }}>
+        <span style={{ fontSize:16 }}>{item.icon}</span>
+        <span style={{ fontSize:7, fontWeight:600, fontFamily:"'Barlow',sans-serif",
+          letterSpacing:"0.04em",
+          color: tab === item.value ? T.blue : T.textDim }}>
+          {item.label}
+        </span>
+      </button>
+    ));
+  };
 
   return (
     <div style={{
