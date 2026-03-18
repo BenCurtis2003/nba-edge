@@ -73,10 +73,10 @@ GET /api/bdl-context?betType=Props&selection=LeBron+James+Over+27.5+Points&game=
 ```
 
 Query params:
-- `betType` — one of: `Moneyline`, `Spread`, `Game Total`, `Props`
+- `betType` — one of: `Moneyline`, `Spread`, `Game Total`, `Props`. If missing or unrecognized, treat as `Moneyline`.
 - `selection` — the full play selection string (used to extract player/team name)
 - `game` — the game string (e.g. "Lakers @ Celtics", used to identify opponent)
-- `gameDate` — ISO date string of the game (used for rest calculation)
+- `gameDate` — ISO date string (optional). Play objects do not currently have a `date` field, so the client passes `new Date().toISOString().slice(0,10)` (today's date) as a reasonable fallback. Rest calculation uses this date to determine days since the team's last game.
 
 ### Response
 ```json
@@ -100,7 +100,7 @@ Query params:
 }
 ```
 
-For team bets (ML/SPR/TOT), `type` is `"team"` and `last5` contains game results with margin/total data. `playerName` is null. `opponentContext` contains the opponent's defensive rank for the relevant stat when available.
+For team bets (ML/SPR/TOT), `type` is `"team"` and `last5` contains game results with margin/total data. `playerName` is null. `opponentContext` is always `null` in this version — opponent defensive rank data is not available via BDL v1 and is deferred to v2.
 
 ### Error handling
 - If BDL player lookup returns no results: return `{ "error": "not_found" }` — panel shows "No BDL data available for this play"
@@ -111,10 +111,10 @@ For team bets (ML/SPR/TOT), `type` is `"team"` and `last5` contains game results
 ## BDL API Calls (server-side, in order)
 
 ### For Props
-1. `GET /players?search={playerName}&per_page=5` → get player ID
-2. `GET /stats?player_ids[]={id}&seasons[]={currentSeason}&per_page=1` → season average for the stat
-3. `GET /games?player_ids[]={id}&per_page=5&postseason=false` — **Note: BDL v1 doesn't support per-player game filtering directly.** Use team game log instead: `GET /games?team_ids[]={teamId}&per_page=6` to get last 5 completed games + check rest gap
-4. For each of the last 5 games, `GET /stats?game_ids[]={id}&player_ids[]={playerId}` to get the player's stat in that game
+1. `GET /players?search={playerName}&per_page=5` → get player ID and `team_id`
+2. `GET /season_averages?season={currentSeason}&player_ids[]={id}` → season averages object (BDL v1 has a dedicated `/season_averages` endpoint that returns pre-aggregated averages — use this, not `/stats`)
+3. `GET /games?team_ids[]={teamId}&per_page=6` → last 5 completed games for the player's team + rest gap calculation (use `date` field of most recent game vs. `gameDate` param)
+4. For each of the last 5 game IDs: `GET /stats?game_ids[]={id}&player_ids[]={playerId}` → player's stat line for that game. Make these calls sequentially to respect rate limits.
 
 ### For Team bets (ML/SPR/TOT)
 1. Parse team name from `play.game` string
@@ -155,8 +155,10 @@ if (!bdlCache.current.has(play.id)) {
 ### BDLContextPanel component
 New component in `pages/index.jsx` (above `HistoryRow`). Props: `{ context, play }`.
 
+`context` is always sourced from `bdlData[play.id]` (the React state map), never from `bdlCache.current` directly. `bdlCache` is a ref used only to prevent duplicate fetches — it is never passed to components.
+
 States:
-- `context === undefined` → loading skeleton (3 shimmer rows)
+- `context === undefined` (key absent from `bdlData`) → loading skeleton (3 shimmer rows)
 - `context?.error === "not_found"` → "No BDL data available"
 - `context?.error === "unavailable"` → "Stats temporarily unavailable"
 - Otherwise → full panel render
