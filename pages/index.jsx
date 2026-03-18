@@ -621,6 +621,147 @@ function EVBetCard({ bet, expanded, onExpand }) {
   );
 }
 
+// ── BDL Context Panel — "Picks with Proof" stat context on row expand ────────
+function BDLContextPanel({ context, play }) {
+  // Note: `stat` uses BDL field name abbreviations ("pts", "reb", "ast", "fg3m")
+  // internally. The spec example shows "points" but BDL's actual field names are
+  // abbreviated — the statLabel map handles display. This is an intentional deviation
+  // from the spec's example JSON for practical BDL compatibility.
+  const statLabel = {
+    pts: "PTS", reb: "REB", ast: "AST", fg3m: "3PM",
+    margin: "MARGIN", total: "TOTAL",
+  };
+
+  // Loading state
+  if (context === undefined) {
+    return (
+      <div style={{ padding:"14px 16px", borderBottom:`1px solid ${T.border}` }}>
+        <div style={{ fontSize:9, color:T.textDim, letterSpacing:"0.12em", marginBottom:10,
+          fontFamily:"'Barlow',sans-serif", textTransform:"uppercase" }}>
+          Statistical Context
+        </div>
+        {[1,2,3].map(i => (
+          <div key={i} style={{ height:14, background:T.surfaceHi, borderRadius:4,
+            marginBottom:8, width: i === 3 ? "60%" : "100%",
+            animation:"pulse 1.5s ease-in-out infinite" }} />
+        ))}
+      </div>
+    );
+  }
+
+  // Error states
+  if (context?.error === "not_found") {
+    return (
+      <div style={{ padding:"10px 16px", borderBottom:`1px solid ${T.border}`,
+        fontSize:10, color:T.textDim, fontFamily:"'Barlow',sans-serif" }}>
+        No BDL data available for this play
+      </div>
+    );
+  }
+  if (context?.error) {
+    return (
+      <div style={{ padding:"10px 16px", borderBottom:`1px solid ${T.border}`,
+        fontSize:10, color:T.textDim, fontFamily:"'Barlow',sans-serif" }}>
+        Stats temporarily unavailable
+      </div>
+    );
+  }
+
+  const { last5 = [], hitRate, seasonAvg, restDays, isBackToBack, stat, propLine,
+    playerName, teamName } = context;
+  const label = statLabel[stat] || stat?.toUpperCase() || "STAT";
+  const maxVal = Math.max(...last5.map(g => Math.abs(g.value || 0)), 1); // guard against 0-max
+  const hitRateColor = hitRate === null ? T.textDim
+    : hitRate >= 0.6 ? T.green : hitRate >= 0.4 ? T.amber : T.red;
+  const restColor = isBackToBack ? T.red : restDays === 1 ? T.amber : T.green;
+  const restText = isBackToBack ? "Back-to-back" : restDays === 1 ? "1 day rest" : `${restDays ?? "?"} days rest`;
+
+  return (
+    <div style={{ borderBottom:`1px solid ${T.border}`, background:T.surface }}>
+      {/* Header */}
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center",
+        padding:"10px 16px 6px", borderBottom:`1px solid ${T.border}` }}>
+        <div style={{ fontSize:9, fontWeight:800, color:T.textDim, letterSpacing:"0.12em",
+          textTransform:"uppercase", fontFamily:"'Barlow',sans-serif" }}>
+          Statistical Context · {playerName || teamName}
+        </div>
+        <div style={{ fontSize:8, color:T.textDim, fontFamily:"'Barlow',sans-serif" }}>
+          Powered by BallDontLie
+        </div>
+      </div>
+
+      <div style={{ padding:"10px 16px", display:"flex", flexDirection:"column", gap:10 }}>
+        {/* Last 5 game log */}
+        {last5.length > 0 && (
+          <div>
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center",
+              marginBottom:6 }}>
+              <div style={{ fontSize:9, color:T.textDim, letterSpacing:"0.1em",
+                textTransform:"uppercase", fontFamily:"'Barlow',sans-serif" }}>
+                Last {last5.length} Games · {label}
+                {propLine !== null && (
+                  <span style={{ color:T.textMid }}> (line: {propLine})</span>
+                )}
+              </div>
+              {hitRate !== null && (
+                <div style={{ fontSize:10, fontWeight:700, color:hitRateColor,
+                  fontFamily:"'JetBrains Mono',monospace" }}>
+                  {Math.round(hitRate * last5.length)}/{last5.length} HIT
+                </div>
+              )}
+            </div>
+            <div style={{ display:"flex", flexDirection:"column", gap:4 }}>
+              {last5.map((g, i) => {
+                // Minimum bar width of 4% so a value of exactly 0 still renders a visible sliver
+                const barPct = Math.max(Math.round((Math.abs(g.value || 0) / maxVal) * 100), 4);
+                const barWidth = `${barPct}%`;
+                const dateStr = new Date(g.date).toLocaleDateString("en-US",
+                  { month:"short", day:"numeric" });
+                return (
+                  <div key={i} style={{ display:"grid",
+                    gridTemplateColumns:"48px 52px 1fr 28px", gap:6, alignItems:"center" }}>
+                    <div style={{ fontSize:9, color:T.textDim,
+                      fontFamily:"'JetBrains Mono',monospace" }}>{dateStr}</div>
+                    <div style={{ fontSize:10, fontWeight:700, color:T.text, textAlign:"right",
+                      fontFamily:"'JetBrains Mono',monospace" }}>
+                      {g.value > 0 ? "+" : ""}{g.value}
+                    </div>
+                    <div style={{ height:3, borderRadius:2, background:T.border, overflow:"hidden" }}>
+                      <div style={{ height:"100%", width:barWidth,
+                        background: g.hitsLine ? T.green : T.red, borderRadius:2 }} />
+                    </div>
+                    <div style={{ fontSize:10, textAlign:"center",
+                      color: g.hitsLine ? T.green : g.hitsLine === false ? T.red : T.textDim }}>
+                      {g.hitsLine === true ? "✓" : g.hitsLine === false ? "✗" : "—"}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Season avg + rest — side by side */}
+        <div style={{ display:"flex", gap:16 }}>
+          {seasonAvg !== null && (
+            <div style={{ fontSize:10, color:T.textMid, fontFamily:"'Barlow',sans-serif" }}>
+              Season avg:{" "}
+              <span style={{ fontFamily:"'JetBrains Mono',monospace", color:T.text,
+                fontWeight:700 }}>{Number(seasonAvg).toFixed(1)}</span>
+            </div>
+          )}
+          {restDays !== null && (
+            <div style={{ fontSize:10, fontFamily:"'Barlow',sans-serif",
+              color:restColor, fontWeight:600 }}>
+              {restText}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── History Row — trading blotter style ──────────────────────────────────────
 function HistoryRow({ h, rowIndex }) {
   const isWon = h.status === "won";
