@@ -642,7 +642,7 @@ function HistoryRow({ h, rowIndex }) {
     >
       <div style={{
         display:"grid",
-        gridTemplateColumns:"48px 80px 1fr 52px 70px 80px 72px 80px",
+        gridTemplateColumns:"48px 80px 1fr 52px 70px 80px 60px 72px 80px",
         gap:8, padding:"10px 18px", alignItems:"center",
         fontSize:11,
       }}>
@@ -707,6 +707,15 @@ function HistoryRow({ h, rowIndex }) {
         <div style={{ textAlign:"right" }}>
           <span style={{ fontSize:10, color:T.textMid,
             fontFamily:"'JetBrains Mono',monospace" }}>{fmt$(h.wagerAmt)}</span>
+        </div>
+
+        {/* Kelly % */}
+        <div style={{ textAlign:"right" }}>
+          {h.kellyPct != null ? (
+            <span style={{ fontSize:10, color:T.amber, fontFamily:"'JetBrains Mono',monospace" }}>
+              {(h.kellyPct * 100).toFixed(1)}%
+            </span>
+          ) : <span style={{ color:T.textDim }}>—</span>}
         </div>
 
         {/* P&L */}
@@ -2144,8 +2153,7 @@ export default function App() {
     const resolved = (data?.history || []).filter(h => h.status === "won" || h.status === "lost");
     const wins = resolved.filter(h => h.status === "won").length;
     const losses = resolved.filter(h => h.status === "lost").length;
-    const totalPnl = resolved.reduce((s, h) =>
-      s + (h.status === "won" ? (h.potentialPayout || 0) : -(h.wagerAmt || 0)), 0);
+    const totalPnl = (data?.bankroll || 100) - 100;
     const winRate = resolved.length > 0 ? ((wins / resolved.length) * 100).toFixed(0) : 0;
 
     const displayData = chartData.map(d => ({
@@ -2222,7 +2230,7 @@ export default function App() {
             {/* Blotter header */}
             <div style={{
               display:"grid",
-              gridTemplateColumns:"48px 80px 1fr 52px 70px 80px 72px 80px",
+              gridTemplateColumns:"48px 80px 1fr 52px 70px 80px 60px 72px 80px",
               gap:8, padding:"10px 18px",
               borderBottom:`1px solid ${T.border}`,
               background:T.bg,
@@ -2235,10 +2243,11 @@ export default function App() {
               <div style={{ textAlign:"center" }}>TYPE</div>
               <div style={{ textAlign:"right" }}>ODDS</div>
               <div style={{ textAlign:"right" }}>BOOK</div>
+              <div style={{ textAlign:"right" }}>KELLY</div>
               <div style={{ textAlign:"right" }}>WAGERED</div>
               <div style={{ textAlign:"right" }}>P&L</div>
             </div>
-            {filteredHistory.map((h, i) => (
+            {filteredHistory.slice().sort((a, b) => new Date(b.date) - new Date(a.date)).map((h, i) => (
               <HistoryRow key={h.id || i} h={h} rowIndex={i} />
             ))}
           </div>
@@ -2248,18 +2257,105 @@ export default function App() {
   };
   const renderLegacyInfoContent = () => {
     if (tab !== "Info") return null;
+    const Section = ({ title, children }) => (
+      <div style={{ marginBottom:28 }}>
+        <div style={{ fontSize:10, fontWeight:800, color:T.blue, letterSpacing:"0.12em",
+          textTransform:"uppercase", marginBottom:10, fontFamily:"'Barlow',sans-serif",
+          borderBottom:`1px solid ${T.border}`, paddingBottom:6 }}>{title}</div>
+        {children}
+      </div>
+    );
+    const P = ({ children }) => (
+      <div style={{ fontSize:12, color:T.textMid, lineHeight:1.75, marginBottom:8,
+        fontFamily:"'Barlow',sans-serif" }}>{children}</div>
+    );
+    const Highlight = ({ label, value, color }) => (
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center",
+        padding:"8px 12px", background:T.surfaceHi, borderRadius:6, marginBottom:6,
+        border:`1px solid ${T.border}` }}>
+        <span style={{ fontSize:11, color:T.textMid, fontFamily:"'Barlow',sans-serif" }}>{label}</span>
+        <span style={{ fontSize:11, fontWeight:700, color: color || T.text,
+          fontFamily:"'JetBrains Mono',monospace" }}>{value}</span>
+      </div>
+    );
     return (
-      <div style={{ maxWidth:600, margin:"0 auto" }}>
-        <div style={{ fontSize:14, fontWeight:700, color:T.text, marginBottom:16,
-          fontFamily:"'Barlow',sans-serif" }}>About NBA Edge</div>
-        <div style={{ fontSize:12, color:T.textMid, lineHeight:1.7,
-          fontFamily:"'Barlow',sans-serif" }}>
-          NBA Edge is a fully automated EV betting engine that analyzes NBA games
-          using machine learning to identify high-conviction betting opportunities.
+      <div style={{ maxWidth:660, margin:"0 auto", padding:"24px 20px 40px" }}>
+        <div style={{ fontSize:18, fontWeight:900, color:T.text, marginBottom:4,
+          fontFamily:"'Barlow Condensed',sans-serif", letterSpacing:"-0.02em" }}>
+          NBA EDGE — How It Works
         </div>
-        <div style={{ marginTop:16, fontSize:10, color:T.textDim }}>
+        <div style={{ fontSize:11, color:T.textDim, marginBottom:28, fontFamily:"'Barlow',sans-serif" }}>
           Engine last run: {timeAgo(data?.lastRun)} · Next: {getNextRunTime()}
         </div>
+
+        <Section title="What Is NBA Edge?">
+          <P>NBA Edge is a fully automated sports betting intelligence engine. Every few hours, it scans every NBA game on the schedule, analyzes the betting markets across multiple sportsbooks, and surfaces plays where the math says the odds are in your favor.</P>
+          <P>Think of it like a stock screener — but for bets. Instead of finding undervalued stocks, it finds undervalued bets: situations where a sportsbook is offering better odds than the true probability of the outcome.</P>
+        </Section>
+
+        <Section title="Conviction Score (0–100)">
+          <P>Every play gets a Conviction Score from 0–100. This is the engine's overall confidence rating, combining multiple signals:</P>
+          <Highlight label="Expected Value (EV)" value="Is the bet mathematically profitable long-term?" color={T.green} />
+          <Highlight label="ML Model Signal" value="What does the machine learning model predict?" color={T.blue} />
+          <Highlight label="Market Consensus" value="Do multiple books agree on the line?" color={T.amber} />
+          <Highlight label="Line Movement" value="Is the line moving in our favor or against us?" color={T.textMid} />
+          <P>Higher score = higher confidence. A score of 85 doesn't mean the team wins 85% of the time — it means the engine is 85% confident this is a good value bet.</P>
+        </Section>
+
+        <Section title="Bet Tiers">
+          <Highlight label="⚡ AUTO-BET (Score ≥ 70)" value="Strongest plays — bet these" color={T.green} />
+          <Highlight label="MEDIUM (Score 55–69)" value="Solid plays — bet selectively" color={T.amber} />
+          <Highlight label="WATCHLIST (Score < 55)" value="Monitor only — skip unless you have a strong read" color={T.textDim} />
+          <P>The AUTO-BET threshold of 70 is where the historical edge is most consistent. Below 55, the edge shrinks enough that variance can easily wipe out your profit.</P>
+        </Section>
+
+        <Section title="Bet Types">
+          <Highlight label="ML — Moneyline" value="Pick who wins the game outright" color={T.blue} />
+          <Highlight label="SPR — Spread" value="Pick who covers the point spread" color={T.blue} />
+          <Highlight label="TOT — Game Total" value="Pick if the combined score goes Over or Under" color={T.blue} />
+          <Highlight label="PP — Player Prop" value="Pick a player stat: points, rebounds, assists, etc." color={T.blue} />
+          <P>Moneylines are the simplest: team wins, you win. Spreads add a handicap (e.g., Lakers -5.5 means they must win by 6+). Totals ignore who wins and just focus on scoring. Props are independent of the game result — you're betting on a single player's performance.</P>
+        </Section>
+
+        <Section title="Expected Value (EV)">
+          <P>EV is the most important number in sports betting. It tells you how much you expect to profit (or lose) on average per $100 wagered.</P>
+          <Highlight label="+EV" value="The bet pays more than it should, long-term profit" color={T.green} />
+          <Highlight label="-EV" value="The bet pays less than it should, long-term loss" color={T.red} />
+          <P>Example: A coin flip at +100 (even money) is 0 EV — fair. But if a book offers +120 on a true 50/50, that's +EV. For every $100 you bet on plays like that, you expect to profit $10 on average over many bets. The key word is "average" — any single bet can still lose. EV only wins over volume.</P>
+        </Section>
+
+        <Section title="Kelly Criterion (Kelly %)">
+          <P>Kelly % tells you how much of your bankroll to wager on each bet. It's a formula that maximizes long-term bankroll growth without over-betting.</P>
+          <Highlight label="Example: Kelly 4.2%" value="Bet 4.2% of your current bankroll" color={T.amber} />
+          <P>If your bankroll is $500 and Kelly says 4.2%, the optimal wager is $21. Betting more is greedier than the math supports and increases your risk of ruin. Many sharp bettors use "half Kelly" (bet half the suggested amount) to reduce volatility while still growing the bankroll.</P>
+        </Section>
+
+        <Section title="How to Use the Filters">
+          <Highlight label="⚡ Auto-Bet Only" value="Show only plays with Score ≥ 70" color={T.green} />
+          <Highlight label="🤖 ML Engine" value="Show only plays the ML model flagged" color={T.blue} />
+          <Highlight label="📈 EV+ Only" value="Show only positive expected value plays" color={T.green} />
+          <Highlight label="🎯 Cross-Confirmed" value="Show plays confirmed across multiple models" color={T.amber} />
+          <P>Stack filters to narrow your focus. For the tightest edge, enable both Auto-Bet and EV+ together — these are plays where the conviction is high AND the math is positive.</P>
+        </Section>
+
+        <Section title="Sportsbook Filter">
+          <P>Use the sportsbook selector in the left sidebar to show only plays available at a specific book. Different books offer different lines — the engine always shows the best available odds across all books you have access to.</P>
+          <P>If you only have DraftKings, filter to DraftKings so you only see plays you can actually place. Opening accounts at 3–5 books dramatically improves your ability to find the best lines.</P>
+        </Section>
+
+        <Section title="Risk Disclaimer">
+          <div style={{ padding:"12px 14px", background:`rgba(239,68,68,0.06)`,
+            border:`1px solid rgba(239,68,68,0.2)`, borderRadius:8 }}>
+            <div style={{ fontSize:11, color:T.red, fontWeight:700, marginBottom:6,
+              fontFamily:"'Barlow',sans-serif" }}>Sports betting involves real financial risk.</div>
+            <div style={{ fontSize:11, color:T.textMid, lineHeight:1.7,
+              fontFamily:"'Barlow',sans-serif" }}>
+              No system wins every bet. Even the best EV plays lose sometimes — that's the nature of probability.
+              Only bet what you can afford to lose. Never chase losses. This tool provides analysis, not guarantees.
+              Please gamble responsibly and within your local regulations.
+            </div>
+          </div>
+        </Section>
       </div>
     );
   };
