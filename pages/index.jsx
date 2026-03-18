@@ -1,5 +1,5 @@
 // pages/index.jsx — NBA Edge v2 Professional UI
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceLine, Area, AreaChart } from "recharts";
 
 // ── Hooks ─────────────────────────────────────────────────────────────────────
@@ -1581,6 +1581,8 @@ export default function App() {
 
   // New UI state for redesign
   const [expandedId, setExpandedId] = useState(null);
+  const bdlCache = useRef(new Map()); // play.id → sentinel or context (prevents duplicate fetches)
+  const [bdlData, setBdlData] = useState({}); // play.id → context object (drives re-render)
   const [autoBetFilter, setAutoBetFilter] = useState(false);
   const [mlEngineFilter, setMlEngineFilter] = useState(false);
   const [evPlusFilter, setEvPlusFilter] = useState(false);
@@ -1754,6 +1756,28 @@ export default function App() {
     return resolved.reduce((sum, h) =>
       sum + (h.status === "won" ? (h.potentialPayout || 0) : -(h.wagerAmt || 0)), 0);
   })();
+
+  const fetchBdlContext = (play) => {
+    if (bdlCache.current.has(play.id)) return; // already fetching or fetched
+    bdlCache.current.set(play.id, "loading");
+    const params = new URLSearchParams({
+      betType: play.betType || "Moneyline",
+      selection: play.selection || "",
+      game: play.game || "",
+      gameDate: new Date().toISOString().slice(0, 10),
+    });
+    fetch(`/api/bdl-context?${params}`)
+      .then(r => r.json())
+      .then(ctx => {
+        bdlCache.current.set(play.id, ctx);
+        setBdlData(prev => ({ ...prev, [play.id]: ctx }));
+      })
+      .catch(() => {
+        const err = { error: "unavailable" };
+        bdlCache.current.set(play.id, err);
+        setBdlData(prev => ({ ...prev, [play.id]: err }));
+      });
+  };
 
   // New table grouping for redesigned plays table
   const tablePlays = (() => {
@@ -2125,7 +2149,11 @@ export default function App() {
               <div key={play.id}>
                 <div
                   className="play-row"
-                  onClick={() => setExpandedId(isExpanded ? null : play.id)}
+                  onClick={() => {
+                  const newId = isExpanded ? null : play.id;
+                  setExpandedId(newId);
+                  if (newId) fetchBdlContext(play);
+                }}
                   style={{
                     display:"grid", gridTemplateColumns:colTemplate,
                     alignItems:"center", padding:"12px 16px",
@@ -2192,13 +2220,15 @@ export default function App() {
                     borderBottom:`1px solid ${T.border}`,
                     borderLeft: rowBorderLeft,
                     background: T.surfaceHi,
-                    padding:"12px 16px",
                   }}>
-                    <ConvictionCard
-                      play={play}
-                      expanded={true}
-                      onExpand={() => setExpandedId(null)}
-                    />
+                    <BDLContextPanel context={bdlData[play.id]} play={play} />
+                    <div style={{ padding:"12px 16px" }}>
+                      <ConvictionCard
+                        play={play}
+                        expanded={true}
+                        onExpand={() => setExpandedId(null)}
+                      />
+                    </div>
                   </div>
                 )}
               </div>
