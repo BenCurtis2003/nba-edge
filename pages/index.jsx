@@ -673,7 +673,7 @@ function BDLContextPanel({ context, play }) {
   const maxVal = Math.max(...last5.map(g => Math.abs(g.value || 0)), 1); // guard against 0-max
   const hitRateColor = hitRate === null ? T.textDim
     : hitRate >= 0.6 ? T.green : hitRate >= 0.4 ? T.amber : T.red;
-  const restColor = isBackToBack ? T.red : restDays === 1 ? T.amber : T.green;
+  const restColor = isBackToBack ? T.red : restDays === 1 ? T.amber : restDays >= 2 ? T.green : T.textDim;
   const restText = isBackToBack ? "Back-to-back" : restDays === 1 ? "1 day rest" : `${restDays ?? "?"} days rest`;
 
   return (
@@ -728,7 +728,7 @@ function BDLContextPanel({ context, play }) {
                     </div>
                     <div style={{ height:3, borderRadius:2, background:T.border, overflow:"hidden" }}>
                       <div style={{ height:"100%", width:barWidth,
-                        background: g.hitsLine ? T.green : T.red, borderRadius:2 }} />
+                        background: g.hitsLine === true ? T.green : g.hitsLine === false ? T.red : T.textDim, borderRadius:2 }} />
                     </div>
                     <div style={{ fontSize:10, textAlign:"center",
                       color: g.hitsLine ? T.green : g.hitsLine === false ? T.red : T.textDim }}>
