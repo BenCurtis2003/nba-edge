@@ -1625,18 +1625,275 @@ export default function App() {
     : [];
 
   // ── Render helpers (filled in by subsequent tasks) ──────────────────────
-  const renderHeader = () => (
-    <header style={{ height: 44, background: T.bgAlt, borderBottom: `1px solid ${T.border}`,
-      display:"flex", alignItems:"center", padding:"0 16px", flexShrink:0, zIndex:20 }}>
-      <span style={{ fontSize:18, fontWeight:900, color:T.blue, fontFamily:"'Barlow Condensed',sans-serif" }}>NBA</span>
-      <span style={{ fontSize:18, fontWeight:900, color:T.text, fontFamily:"'Barlow Condensed',sans-serif" }}>EDGE</span>
-    </header>
-  );
-  const renderTicker = () => (
-    <div style={{ height:48, background:"#060c1a", borderBottom:`1px solid ${T.border}`, flexShrink:0 }} />
-  );
-  const renderSidebar = () => null;
-  const renderFilterBar = () => null;
+  const renderHeader = () => {
+    const bankroll   = data?.bankroll   || 100;
+    const winRate    = data?.winRate    != null ? `${Number(data.winRate).toFixed(0)}%` : "—";
+    const roi        = data?.roi        != null ? `${Number(data.roi).toFixed(1)}%`     : "—";
+    const playsCount = (data?.convictionPlays || []).length;
+
+    return (
+      <header style={{
+        height: 44, background: T.bgAlt, borderBottom: `1px solid ${T.border}`,
+        display: "flex", alignItems: "center", justifyContent: "space-between",
+        padding: "0 12px 0 16px", flexShrink: 0, zIndex: 20,
+      }}>
+        <div style={{ display:"flex", alignItems:"baseline", gap:0, lineHeight:1 }}>
+          <span style={{ fontSize:20, fontWeight:900, color:T.blue, letterSpacing:"-0.04em",
+            fontFamily:"'Barlow Condensed',system-ui,sans-serif" }}>NBA</span>
+          <span style={{ fontSize:20, fontWeight:900, color:T.text, letterSpacing:"-0.04em",
+            fontFamily:"'Barlow Condensed',system-ui,sans-serif" }}>EDGE</span>
+          <span className="header-stats-extra" style={{ fontSize:7, color:T.label,
+            letterSpacing:"0.12em", marginLeft:8, alignSelf:"center",
+            fontFamily:"'Barlow',system-ui,sans-serif" }}>EV BETTING ENGINE</span>
+        </div>
+
+        <div style={{ display:"flex", alignItems:"center", gap:0 }}>
+          {[
+            { value: `$${Number(bankroll).toFixed(0)}`, label:"BANKROLL", color:T.green },
+            { value: winRate,                            label:"WIN RATE",  color:T.blue },
+            { value: roi,                                label:"ROI",       color:T.red,     extraClass:"header-stats-extra" },
+            { value: `${playsCount}`,                    label:"PLAYS",     color:T.textMid, extraClass:"header-stats-extra" },
+          ].map(({ value, label, color, extraClass }, i) => (
+            <div key={label} className={extraClass} style={{
+              display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center",
+              padding:"0 10px", height:44,
+              borderLeft: `1px solid ${T.border}`,
+            }}>
+              <span style={{ fontSize:11, fontWeight:700, color,
+                fontFamily:"'Courier New',monospace", lineHeight:1 }}>{value}</span>
+              <span style={{ fontSize:6, color:T.textDeep, letterSpacing:"0.12em",
+                fontFamily:"'Barlow',system-ui,sans-serif", marginTop:2 }}>{label}</span>
+            </div>
+          ))}
+
+          <div style={{ display:"flex", alignItems:"center", gap:6, paddingLeft:8 }}>
+            <div style={{ width:6, height:6, borderRadius:"50%", background:T.green,
+              animation:"livePulse 2s infinite", flexShrink:0 }} />
+            <span style={{
+              fontSize:9, fontWeight:700, padding:"3px 10px", borderRadius:20,
+              background:T.blue, color:"#fff", letterSpacing:"0.04em",
+              fontFamily:"'Barlow',system-ui,sans-serif", cursor:"default",
+            }}>AUTO-BET ≥70</span>
+            <a href="https://discord.gg/TRZQRu58au" target="_blank" rel="noopener noreferrer"
+              className="header-actions-extra"
+              style={{
+                fontSize:9, fontWeight:700, padding:"3px 10px", borderRadius:20,
+                border:`1px solid ${T.indigo}44`, color:T.indigo,
+                background:`${T.indigo}10`, textDecoration:"none",
+                fontFamily:"'Barlow',system-ui,sans-serif",
+              }}>DISCORD</a>
+          </div>
+        </div>
+      </header>
+    );
+  };
+  const renderTicker = () => {
+    if (!scoresData || !scoresData.length) {
+      return <div style={{ height:48, background:"#060c1a", borderBottom:`1px solid ${T.border}`, flexShrink:0 }} />;
+    }
+    const doubled = [...scoresData, ...scoresData];
+    return (
+      <div style={{
+        height: 48, background: "#060c1a",
+        borderBottom: `1px solid ${T.border}`,
+        flexShrink: 0, display:"flex", alignItems:"center",
+        overflow: "hidden", position:"relative",
+      }}>
+        <div style={{
+          flexShrink:0, display:"flex", alignItems:"center", gap:5,
+          padding:"0 10px 0 12px", zIndex:2,
+        }}>
+          <div style={{ width:5, height:5, borderRadius:"50%", background:T.green,
+            animation:"pulse 1.4s ease-in-out infinite", color:T.green }} />
+          <span style={{ fontSize:7, fontWeight:700, color:T.green, letterSpacing:"0.12em",
+            fontFamily:"'Barlow',system-ui,sans-serif" }}>LIVE</span>
+        </div>
+        <div style={{
+          position:"absolute", left:60, top:0, width:30, height:"100%", zIndex:1,
+          background:`linear-gradient(90deg, #060c1a, transparent)`, pointerEvents:"none",
+        }} />
+        <div style={{
+          position:"absolute", right:0, top:0, width:40, height:"100%", zIndex:1,
+          background:`linear-gradient(270deg, #060c1a, transparent)`, pointerEvents:"none",
+        }} />
+        <div style={{ flex:1, overflow:"hidden" }}>
+          <div className="ticker-track">
+            {doubled.map((g, i) => {
+              const isLive = g.live;
+              const isFinal = g.final;
+              const statusColor = isLive ? T.orange : isFinal ? T.textDeep : "#1d4ed8";
+              const statusText = isLive
+                ? (g.status.replace(/^LIVE · /, "") || "LIVE")
+                : isFinal ? "FINAL" : (g.tipTime || "");
+              return (
+                <div key={i} style={{
+                  flexShrink:0, display:"flex", alignItems:"center", gap:6,
+                  padding:"0 14px", borderRight:`1px solid ${T.border}`,
+                  opacity: isFinal ? 0.4 : 1,
+                }}>
+                  <div style={{ display:"flex", flexDirection:"column", gap:2 }}>
+                    <div style={{ display:"flex", alignItems:"center", gap:6 }}>
+                      <span style={{ fontSize:9, fontWeight:700, color:T.textMid, minWidth:26,
+                        fontFamily:"'Barlow Condensed',sans-serif" }}>{g.away}</span>
+                      {(isLive || isFinal) && (
+                        <span style={{ fontSize:13, fontWeight:700,
+                          color: isFinal ? T.textMid : T.text,
+                          fontFamily:"'JetBrains Mono',monospace" }}>{g.awayScore}</span>
+                      )}
+                    </div>
+                    <div style={{ display:"flex", alignItems:"center", gap:6 }}>
+                      <span style={{ fontSize:9, fontWeight:700, color:T.textMid, minWidth:26,
+                        fontFamily:"'Barlow Condensed',sans-serif" }}>{g.home}</span>
+                      {(isLive || isFinal) && (
+                        <span style={{ fontSize:13, fontWeight:700,
+                          color: isFinal ? T.textMid : T.text,
+                          fontFamily:"'JetBrains Mono',monospace" }}>{g.homeScore}</span>
+                      )}
+                      {!isLive && !isFinal && g.tipTime && (
+                        <span style={{ fontSize:9, fontWeight:600, color:"#1d4ed8",
+                          fontFamily:"'JetBrains Mono',monospace" }}>{g.tipTime}</span>
+                      )}
+                    </div>
+                  </div>
+                  <span style={{ fontSize:7, fontWeight:700, color:statusColor,
+                    letterSpacing:"0.06em", fontFamily:"'Barlow',sans-serif",
+                    whiteSpace:"nowrap" }}>{statusText}</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+    );
+  };
+  const renderSidebar = () => {
+    const navItems = [
+      { label:"All Plays", value:"All",       icon:"⚡", countKey:"all" },
+      { label:"Moneyline", value:"Moneyline",  icon:"ML" },
+      { label:"Spread",    value:"Spread",     icon:"SPR" },
+      { label:"Total",     value:"Game Total", icon:"TOT" },
+      { label:"Props",     value:"Props",      icon:"🎯" },
+      { label:"History",   value:"History",    icon:"📊" },
+      { label:"Info",      value:"Info",       icon:"ℹ" },
+    ];
+    const totalPlays = (data?.convictionPlays || []).length;
+
+    return (
+      <>
+        <div style={{ padding:"8px 0", borderBottom:`1px solid ${T.border}` }}>
+          {navItems.map(item => {
+            const active = tab === item.value;
+            return (
+              <button key={item.value} onClick={() => setTab(item.value)} style={{
+                width:"100%", display:"flex", flexDirection:"column",
+                alignItems:"center", justifyContent:"center",
+                padding:"8px 4px", gap:3, cursor:"pointer",
+                background: active ? T.surfaceHi : "transparent",
+                border:"none",
+                borderLeft: active ? `2px solid ${T.blue}` : "2px solid transparent",
+                color: active ? T.text : T.textDim,
+                transition:"all 0.15s",
+              }}>
+                <span style={{ fontSize:10, fontFamily:"'JetBrains Mono',monospace",
+                  color: active ? T.blue : T.textDim }}>{item.icon}</span>
+                <span style={{ fontSize:7.5, fontWeight:600, letterSpacing:"0.04em",
+                  fontFamily:"'Barlow',system-ui,sans-serif", textAlign:"center",
+                  lineHeight:1.2 }}>{item.label}</span>
+                {item.countKey === "all" && totalPlays > 0 && (
+                  <span style={{ fontSize:7, padding:"1px 5px", borderRadius:8,
+                    background:`${T.blue}18`, color:T.blue,
+                    fontFamily:"'JetBrains Mono',monospace" }}>{totalPlays}</span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+
+        <div style={{ padding:"8px 0", flex:1 }}>
+          <div style={{ fontSize:6, color:T.textDeep, letterSpacing:"0.14em",
+            padding:"4px 8px 6px", fontFamily:"'Barlow',sans-serif" }}>BOOKS</div>
+          {[{ id:"all", label:"All" }, ...ALL_BOOKS.slice(0,6)].map(bk => {
+            const active = bk.id === "all" ? selectedBooks.has("all") : selectedBooks.has(bk.id);
+            const meta = BOOK_META[bk.id];
+            return (
+              <button key={bk.id} onClick={() => toggleBook(bk.id)} style={{
+                width:"100%", display:"flex", flexDirection:"column",
+                alignItems:"center", padding:"5px 4px", gap:2,
+                background: active ? T.surfaceHi : "transparent",
+                border:"none", cursor:"pointer",
+                borderLeft: active ? `2px solid ${T.green}` : "2px solid transparent",
+                transition:"all 0.15s",
+              }}>
+                <span style={{ fontSize:8, fontWeight:700,
+                  color: active ? (meta?.color || T.green) : T.textDim,
+                  fontFamily:"'Barlow',system-ui,sans-serif" }}>
+                  {meta?.short || bk.label}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </>
+    );
+  };
+  const renderFilterBar = () => {
+    const chips = [
+      { icon:"⚡", label:"Auto-Bet Only",   state:autoBetFilter,        set:setAutoBetFilter },
+      { icon:"🤖", label:"ML Engine",       state:mlEngineFilter,       set:setMlEngineFilter },
+      { icon:"📈", label:"EV+ Only",        state:evPlusFilter,         set:setEvPlusFilter },
+      { icon:"🎯", label:"Cross-Confirmed", state:crossConfirmedFilter, set:setCrossConfirmedFilter },
+    ];
+    return (
+      <div style={{
+        background: T.surface, borderBottom:`1px solid ${T.border}`,
+        padding:"7px 12px", display:"flex", alignItems:"center",
+        gap:6, flexWrap:"wrap", flexShrink:0,
+      }}>
+        {chips.map(chip => (
+          <button key={chip.label} onClick={() => chip.set(v => !v)} style={{
+            display:"flex", alignItems:"center", gap:5,
+            padding:"4px 8px", borderRadius:6, cursor:"pointer",
+            background: chip.state ? T.blueDim : "transparent",
+            border: chip.state ? `1px solid ${T.blue}44` : `1px solid ${T.border}`,
+            color: chip.state ? T.blue : T.textDim,
+            transition:"all 0.15s", fontSize:9,
+            fontFamily:"'Barlow',system-ui,sans-serif", fontWeight:600,
+          }}>
+            <span>{chip.icon}</span>
+            <span className="filter-chip-label">{chip.label}</span>
+            <span style={{
+              width:18, height:10, borderRadius:5, position:"relative",
+              background: chip.state ? T.blue : T.border, transition:"background 0.15s",
+              flexShrink:0, display:"inline-block",
+            }}>
+              <span style={{
+                position:"absolute", top:2,
+                left: chip.state ? 10 : 2,
+                width:6, height:6, borderRadius:"50%",
+                background:"#fff", transition:"left 0.15s",
+              }} />
+            </span>
+          </button>
+        ))}
+
+        <input
+          value={searchQuery}
+          onChange={e => setSearchQuery(e.target.value)}
+          placeholder="Search plays…"
+          style={{
+            flex:1, minWidth:80, background:"transparent",
+            border:`1px solid ${T.border}`, borderRadius:6,
+            padding:"4px 8px", fontSize:10, color:T.text,
+            fontFamily:"'Barlow',system-ui,sans-serif",
+            outline:"none",
+          }}
+        />
+
+        <span style={{ fontSize:9, color:T.textDim, whiteSpace:"nowrap",
+          fontFamily:"'JetBrains Mono',monospace" }}>Sort: Score ↓</span>
+      </div>
+    );
+  };
   const renderContent = () => (
     <div style={{ padding:24, color:T.textMid, fontFamily:"'Barlow',system-ui,sans-serif" }}>Loading new layout…</div>
   );
