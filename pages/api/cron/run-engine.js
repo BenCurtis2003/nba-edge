@@ -1,8 +1,8 @@
 import { fetchLiveOdds, extractEVBets, buildConvictionPlays, placeBets, fetchAndCacheTeamStats, fetchScores, resolveHistory } from "../../../lib/engine";
-import { fetchPlayerProps, extractPropEV, placePropBets, resolveProps, fetchPlayerStats, fetchTeamDefenseStats } from "../../../lib/props";
+import { fetchPlayerProps, extractPropEV, extractAllProps, placePropBets, resolveProps, fetchPlayerStats, fetchTeamDefenseStats } from "../../../lib/props";
 import { fetchPrizePicksLines, comparePrizePicksToModel } from "../../../lib/prizepicks";
 import { notifyBetsPlaced, notifyBetsResolved } from "../../../lib/discord";
-import { getHistory, getBankroll, getMLModel, getCachedStandings, saveCurrentBets, saveConvictionPlays, saveLastRun, appendHistory, saveStandings, saveHistory, saveBankroll, updateMLAfterResolution, getPropBets, savePropBets, savePrizePicksBets } from "../../../lib/store";
+import { getHistory, getBankroll, getMLModel, getCachedStandings, saveCurrentBets, saveConvictionPlays, saveLastRun, appendHistory, saveStandings, saveHistory, saveBankroll, updateMLAfterResolution, getPropBets, savePropBets, saveAllProps, savePrizePicksBets } from "../../../lib/store";
 
 export const config = { maxDuration: 60 };
 
@@ -70,8 +70,9 @@ export default async function handler(req, res) {
     const [playerStats, defenseStats] = propGames.length > 0
       ? await Promise.all([fetchPlayerStats(), fetchTeamDefenseStats()])
       : [{}, {}];
-    const evProps = extractPropEV(propGames, playerStats, defenseStats);
-    console.log(`[Props] ${evProps.length} EV props, ${Object.keys(playerStats).length} players loaded`);
+    const evProps  = extractPropEV(propGames, playerStats, defenseStats);
+    const allProps = extractAllProps(propGames, playerStats, defenseStats);
+    console.log(`[Props] ${evProps.length} EV props, ${allProps.length} total props, ${Object.keys(playerStats).length} players loaded`);
     console.log(`[Engine] ${evBets.length} EV bets`);
 
     // 3.5 — PrizePicks line comparison (never blocks the main engine)
@@ -219,6 +220,7 @@ export default async function handler(req, res) {
       saveCurrentBets(evBets),
       saveConvictionPlays(convictionPlays),
       savePropBets(evProps),
+      saveAllProps(allProps),
       savePrizePicksBets(ppValueBets),
       newEntries.length > 0 ? appendHistory(newEntries) : Promise.resolve(),
       newPropEntries.length > 0 ? appendHistory(newPropEntries) : Promise.resolve(),

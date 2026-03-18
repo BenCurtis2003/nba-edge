@@ -2,7 +2,7 @@
 // Public endpoint — returns the shared portfolio for all visitors.
 // No authentication required — this is the live track record.
 
-import { getPortfolioSnapshot, getPropBets, getPrizePicksBets } from "../../lib/store";
+import { getPortfolioSnapshot, getPropBets, getAllProps, getPrizePicksBets } from "../../lib/store";
 
 
 async function checkUpcomingGames() {
@@ -33,8 +33,9 @@ export default async function handler(req, res) {
           resolved.reduce((s,h) => s + h.wagerAmt, 0) * 100).toFixed(1)
       : 0;
 
-    const [propBets, ppBets, hasUpcomingGames] = await Promise.all([
+    const [propBets, allPropsList, ppBets, hasUpcomingGames] = await Promise.all([
       getPropBets(),
+      getAllProps(),
       getPrizePicksBets(),
       checkUpcomingGames(),
     ]);
@@ -57,6 +58,7 @@ export default async function handler(req, res) {
       mlStatus: ml.totalBets >= 15 ? "Active" : "Learning",
       mlBets: ml.totalBets || 0,
       propBets,
+      allProps: allPropsList,
       prizePicksBets: ppBets,
       prizePicksMap,
       hasUpcomingGames,

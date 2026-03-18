@@ -1671,7 +1671,7 @@ export default function App() {
       fetch("https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard")
         .then(r => r.json()).then(d => setScoresData(parseScores(d))).catch(() => {});
     fetchScores();
-    const sid = setInterval(fetchScores, 60000);
+    const sid = setInterval(fetchScores, 30000);
     return () => clearInterval(sid);
   }, []);
 
@@ -1707,6 +1707,7 @@ export default function App() {
   const history      = data?.history || [];
   const currentBets  = data?.currentBets || [];
   const propBets       = (data?.propBets || []).filter(bookVisible);
+  const allPropsList   = (data?.allProps || []).filter(bookVisible);
   const prizePicksBets = data?.prizePicksBets || [];
   const prizePicksMap  = data?.prizePicksMap  || {};
 
@@ -1747,8 +1748,11 @@ export default function App() {
   };
   const filterPropCat = arr => propCat === "All" ? arr : arr.filter(p => p.market === PROP_CAT_MAP[propCat]);
 
-  const convictionProps = filterPropCat(propBets.filter(p => p.convictionScore >= 70));
-  const evProps         = filterPropCat(propBets.filter(p => p.convictionScore < 70));
+  // All props sorted by hit likelihood (trueProb) for the Props tab
+  const allPropsDisplay  = filterPropCat(allPropsList.length > 0 ? allPropsList : propBets);
+  // High-conviction subset for "auto-bet" badge
+  const convictionProps  = filterPropCat(propBets.filter(p => p.convictionScore >= 70));
+  const evProps          = filterPropCat(propBets.filter(p => p.convictionScore < 70));
 
   const filteredPnl = (() => {
     const resolved = (tab === "History" ? filteredHistory : history.filter(bookVisible))
@@ -2278,10 +2282,11 @@ export default function App() {
   const renderInfoTab = () => <div style={{ padding:20 }}>{renderLegacyInfoContent()}</div>;
   const renderLegacyPropsContent = () => {
     if (tab !== "Props") return null;
+    const displayProps = allPropsDisplay;
     return (
       <div>
         {/* Prop category filter */}
-        <div style={{ display:"flex", gap:6, marginBottom:16, flexWrap:"wrap" }}>
+        <div style={{ display:"flex", gap:6, marginBottom:16, flexWrap:"wrap", alignItems:"center" }}>
           {["All","Points","Rebounds","Assists","3PM","PRA"].map(cat => (
             <button key={cat} onClick={() => setPropCat(cat)} style={{
               padding:"4px 10px", borderRadius:4, fontSize:10, cursor:"pointer",
@@ -2291,29 +2296,21 @@ export default function App() {
               fontFamily:"'Barlow',sans-serif",
             }}>{cat}</button>
           ))}
+          {displayProps.length > 0 && (
+            <span style={{ marginLeft:"auto", fontSize:10, color:T.textDim,
+              fontFamily:"'Barlow',sans-serif" }}>
+              {displayProps.length} player{displayProps.length !== 1 ? "s" : ""} · ranked by hit likelihood
+            </span>
+          )}
         </div>
-        {convictionProps.length > 0 && (
-          <div style={{ marginBottom:24 }}>
-            <div style={{ fontSize:10, fontWeight:700, color:T.green, marginBottom:8,
-              fontFamily:"'Barlow',sans-serif", letterSpacing:"0.06em" }}>
-              ⚡ CONVICTION PROPS ({convictionProps.length})
-            </div>
-            <PropsTable props={convictionProps} ppMap={prizePicksMap} isMobile={isMobile} />
-          </div>
-        )}
-        {evProps.length > 0 && (
-          <div>
-            <div style={{ fontSize:10, fontWeight:700, color:T.textMid, marginBottom:8,
-              fontFamily:"'Barlow',sans-serif", letterSpacing:"0.06em" }}>
-              +EV PROPS ({evProps.length})
-            </div>
-            <PropsTable props={evProps} ppMap={prizePicksMap} isMobile={isMobile} />
-          </div>
-        )}
-        {convictionProps.length === 0 && evProps.length === 0 && (
+        {displayProps.length > 0 ? (
+          <PropsTable props={displayProps} ppMap={prizePicksMap} isMobile={isMobile} />
+        ) : (
           <div style={{ textAlign:"center", padding:"40px 20px", color:T.textDim }}>
             <div style={{ fontSize:24, marginBottom:8 }}>🎯</div>
-            <div style={{ fontSize:12, color:T.textMid }}>No prop bets available</div>
+            <div style={{ fontSize:12, color:T.textMid }}>
+              {data ? "No prop lines available yet — engine runs every 5 min" : "Loading…"}
+            </div>
           </div>
         )}
       </div>
