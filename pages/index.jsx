@@ -1624,478 +1624,96 @@ export default function App() {
     ? [...selectedBooks].map(id => ALL_BOOKS.find(b => b.id === id)?.label || id)
     : [];
 
+  // ── Render helpers (filled in by subsequent tasks) ──────────────────────
+  const renderHeader = () => (
+    <header style={{ height: 44, background: T.bgAlt, borderBottom: `1px solid ${T.border}`,
+      display:"flex", alignItems:"center", padding:"0 16px", flexShrink:0, zIndex:20 }}>
+      <span style={{ fontSize:18, fontWeight:900, color:T.blue, fontFamily:"'Barlow Condensed',sans-serif" }}>NBA</span>
+      <span style={{ fontSize:18, fontWeight:900, color:T.text, fontFamily:"'Barlow Condensed',sans-serif" }}>EDGE</span>
+    </header>
+  );
+  const renderTicker = () => (
+    <div style={{ height:48, background:"#060c1a", borderBottom:`1px solid ${T.border}`, flexShrink:0 }} />
+  );
+  const renderSidebar = () => null;
+  const renderFilterBar = () => null;
+  const renderContent = () => (
+    <div style={{ padding:24, color:T.textMid, fontFamily:"'Barlow',system-ui,sans-serif" }}>Loading new layout…</div>
+  );
+  const renderBottomNav = () => null;
+
   return (
     <div style={{
-      minHeight:"100vh",
-      background: T.bg,
-      color:T.text,
-      fontFamily:"'Barlow',system-ui,sans-serif",
-      padding:"0 0 80px",
+      display: "flex", flexDirection: "column", height: "100vh",
+      background: T.bg, color: T.text,
+      fontFamily: "'Barlow', system-ui, sans-serif",
+      overflow: "hidden",
     }}>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700;800;900&family=Barlow+Condensed:wght@600;700;800;900&family=JetBrains+Mono:wght@400;500;700&display=swap');
         * { box-sizing: border-box; }
-        @keyframes livePulse {
-          0%,100% { opacity:1; box-shadow: 0 0 0 0 rgba(0,255,136,0.6); }
-          50% { opacity:0.8; box-shadow: 0 0 0 5px rgba(0,255,136,0); }
+        html, body { height: 100%; margin: 0; }
+        @keyframes scrollTicker {
+          0%   { transform: translateX(0); }
+          100% { transform: translateX(-50%); }
         }
         @keyframes pulse {
-          0%,100% { opacity:1; }
-          50% { opacity:0.4; }
+          0%, 100% { opacity: 1; box-shadow: 0 0 6px currentColor; }
+          50%       { opacity: 0.4; box-shadow: none; }
         }
-        @keyframes fadeUp {
-          from { opacity:0; transform:translateY(8px); }
-          to   { opacity:1; transform:translateY(0); }
+        @keyframes livePulse {
+          0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(34,197,94,0.6); }
+          50%       { opacity: 0.8; box-shadow: 0 0 0 5px rgba(34,197,94,0); }
         }
-        .card-enter { animation: fadeUp 0.25s ease forwards; }
-        @media (max-width:900px) {
-          .stat-grid  { grid-template-columns: repeat(2,1fr) !important; padding: 14px !important; gap:10px !important; }
-          .conv-grid  { grid-template-columns: repeat(auto-fill,minmax(280px,1fr)) !important; }
-          .blotter-row { grid-template-columns: 48px 70px 1fr 52px 70px 72px !important; }
+        .ticker-track { animation: scrollTicker 24s linear infinite; display: flex; width: max-content; }
+        .ticker-track:hover { animation-play-state: paused; }
+        .play-row:hover { background: rgba(255,255,255,0.03) !important; transition: background 120ms; }
+        @media (max-width: 640px) {
+          .th-type, .td-type   { display: none !important; }
+          .th-book, .td-book   { display: none !important; }
+          .th-ev,   .td-ev     { display: none !important; }
+          .sidebar-desktop     { display: none !important; }
+          .bottom-nav          { display: flex !important; }
+          .header-stats-extra  { display: none !important; }
+          .header-actions-extra { display: none !important; }
+          .filter-chip-label   { display: none !important; }
         }
-        @media (max-width:600px) {
-          .conv-grid  { grid-template-columns: 1fr !important; }
-          .stat-grid  { grid-template-columns: repeat(2,1fr) !important; padding:10px !important; gap:8px !important; }
-          .blotter-row { grid-template-columns: 48px 1fr auto !important; }
-        }
-        ::-webkit-scrollbar { width:3px; height:3px; }
-        ::-webkit-scrollbar-track { background:transparent; }
-        ::-webkit-scrollbar-thumb { background:${T.border}; border-radius:2px; }
-        ::selection { background:rgba(59,158,255,0.3); color:${T.text}; }
+        @media (min-width: 641px) { .bottom-nav { display: none !important; } }
+        ::-webkit-scrollbar { width: 3px; height: 3px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: ${T.border}; border-radius: 2px; }
+        ::selection { background: rgba(29,108,245,0.3); color: ${T.text}; }
       `}</style>
 
-      {/* ── Header ─────────────────────────────────────────────────────────── */}
-      <header style={{
-        borderBottom:`1px solid ${T.border}`,
-        borderTop:"3px solid transparent",
-        borderImage:"linear-gradient(90deg,#cc0000,#3b9eff,#00d68f) 1",
-        padding: isMobile ? "8px 16px" : "10px 28px",
-        display:"flex", alignItems:"center", justifyContent:"space-between",
-        position:"sticky", top:0, background:T.bg,
-        backdropFilter:"blur(16px)", WebkitBackdropFilter:"blur(16px)",
-        zIndex:20, overflow:"hidden",
-      }}>
-        <div style={{ display:"flex", alignItems:"center", gap:10 }}>
-          <div>
-            <div style={{ display:"flex", alignItems:"baseline", gap:0, lineHeight:1 }}>
-              <span style={{ fontSize: isMobile ? 18 : 22, fontWeight:900, color:T.espn,
-                fontFamily:"'Barlow Condensed',system-ui,sans-serif", letterSpacing:"0.02em" }}>NBA</span>
-              <span style={{ fontSize: isMobile ? 18 : 22, fontWeight:900, color:T.text,
-                fontFamily:"'Barlow Condensed',system-ui,sans-serif", letterSpacing:"0.02em" }}>EDGE</span>
-            </div>
-            {!isMobile && (
-              <div style={{ fontSize:8, color:T.textDim, letterSpacing:"0.15em",
-                fontFamily:"'Barlow',system-ui,sans-serif", marginTop:1 }}>
-                EV BETTING ENGINE · ML LEARNING · FULLY AUTOMATED
-              </div>
-            )}
+      {renderHeader()}
+      {renderTicker()}
+
+      <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
+        <div className="sidebar-desktop" style={{
+          width: 88, flexShrink: 0,
+          background: T.surface, borderRight: `1px solid ${T.border}`,
+          display: "flex", flexDirection: "column",
+          overflowY: "auto",
+        }}>
+          {renderSidebar()}
+        </div>
+
+        <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+          {renderFilterBar()}
+          <div style={{ flex: 1, overflowY: "auto" }}>
+            {renderContent()}
           </div>
         </div>
-        <div style={{ display:"flex", alignItems:"center", gap:10 }}>
-          <div style={{ display:"flex", alignItems:"center", gap:5 }}>
-            <div style={{ width:6, height:6, borderRadius:"50%", flexShrink:0,
-              background: T.live,
-              animation:"livePulse 2s infinite", color:T.live }}/>
-            <span style={{ fontSize:10, color:T.textMid, fontFamily:"'JetBrains Mono',monospace" }}>
-              {timeAgo(data?.lastRun)} · {getNextRunTime()}
-            </span>
-          </div>
-          <span style={{
-            fontSize:9, fontWeight:700, padding:"2px 8px", borderRadius:3,
-            background:T.espn, color:"#fff", letterSpacing:"0.04em",
-            fontFamily:"'Barlow',system-ui,sans-serif",
-          }}>● LIVE</span>
-          <a href="https://discord.gg/TRZQRu58au" target="_blank" rel="noopener noreferrer"
-            style={{
-              display:"flex", alignItems:"center", gap:4,
-              fontSize:9, padding:"3px 8px", borderRadius:4,
-              border:`1px solid ${T.discord}44`, color:T.discord,
-              background:`${T.discord}10`, textDecoration:"none", fontWeight:600,
-              fontFamily:"'Barlow',system-ui,sans-serif",
-            }}>
-            <svg width="9" height="9" viewBox="0 0 24 24" fill={T.discord}>
-              <path d="M20.317 4.37a19.791 19.791 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 0 0 .031.057 19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028c.462-.63.874-1.295 1.226-1.994a.076.076 0 0 0-.041-.106 13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128 10.2 10.2 0 0 0 .372-.292.074.074 0 0 1 .077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 0 1 .078.01c.12.098.246.198.373.292a.077.077 0 0 1-.006.127 12.299 12.299 0 0 1-1.873.892.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.03z"/>
-            </svg>
-            DISCORD
-          </a>
-        </div>
-      </header>
+      </div>
 
-      {/* ── Stats ───────────────────────────────────────────────────────────── */}
-      {(() => {
-        const last5 = [...(data?.history||[])]
-          .sort((a,b)=>new Date(b.date)-new Date(a.date))
-          .filter(h=>h.status==="won"||h.status==="lost")
-          .slice(0,5).reverse();
-        const maxAmt = Math.max(1,...last5.map(h=>Math.abs(h.status==="won"?(h.potentialPayout||0):-(h.wagerAmt||0))));
-        const sparkBars = last5.map(h=>({
-          win: h.status==="won",
-          pct: (Math.abs(h.status==="won"?(h.potentialPayout||0):-(h.wagerAmt||0))/maxAmt)*100,
-        }));
-        return (
-          <div className="stat-grid" style={{
-            display:"grid", gridTemplateColumns:"repeat(5,1fr)",
-            gap:10, padding:"16px 28px",
-          }}>
-            <StatCard label="Paper Bankroll"
-              value={`$${(data?.bankroll||100).toFixed(2)}`}
-              sub={`${(data?.totalPnl||0)>=0?"+":""}$${(data?.totalPnl||0).toFixed(2)} P&L`}
-              color={T.green} watermark="BK" sparkBars={sparkBars}/>
-            <StatCard label="Win Rate"
-              value={`${data?.winRate||0}%`}
-              sub={`${data?.record?.wins||0}W / ${data?.record?.losses||0}L`}
-              color={T.blue} watermark="W%"/>
-            <StatCard label="ROI"
-              value={`${(data?.roi||0)>=0?"+":""}${data?.roi||0}%`}
-              sub="on resolved bets"
-              color={(data?.roi||0)>=0?T.green:T.red} watermark="ROI"/>
-            <StatCard label="Bets Today"
-              value={(() => {
-                const today = new Date().toDateString();
-                return (data?.history||[]).filter(h=>new Date(h.date).toDateString()===today).length;
-              })()}
-              sub={`${conviction.filter(p=>p.convictionScore>=70).length} auto-bet`}
-              color={T.gold} watermark="BET"/>
-            <StatCard label="ML Engine"
-              value={data?.mlStatus||"Learning"}
-              sub={`${data?.mlBets||0} analyzed`}
-              color={T.purple} watermark="ML"/>
-          </div>
-        );
-      })()}
-
-      {/* ── Book Filter Toolbar ───────────────────────────────────────────────── */}
-      <div style={{
-        background:T.bg, borderBottom:`1px solid ${T.border}`,
-        padding:"0 28px", height:36,
-        display:"flex", alignItems:"center", gap:4,
-        overflowX:"auto", WebkitOverflowScrolling:"touch", scrollbarWidth:"none",
+      <nav className="bottom-nav" style={{
+        background: T.surface, borderTop: `1px solid ${T.border}`,
+        display: "none",
+        justifyContent: "space-around", alignItems: "center",
+        height: 56, flexShrink: 0,
       }}>
-        <span style={{ fontSize:8, fontWeight:700, color:T.textDim, letterSpacing:"0.12em",
-          marginRight:4, flexShrink:0, fontFamily:"'Barlow',system-ui,sans-serif" }}>BOOKS:</span>
-        <div style={{ width:1, height:14, background:T.border, marginRight:4, flexShrink:0 }}/>
-        <button onClick={() => toggleBook("all")} style={{
-          height:24, padding:"0 10px", borderRadius:4, fontSize:9, cursor:"pointer",
-          fontFamily:"'Barlow',system-ui,sans-serif", fontWeight:600, flexShrink:0,
-          background: selectedBooks.has("all") ? T.espn : "transparent",
-          border: selectedBooks.has("all") ? "none" : "none",
-          color: selectedBooks.has("all") ? "#fff" : T.textDim,
-          transition:"all 0.15s",
-        }}>ALL</button>
-        {ALL_BOOKS.map(bk => {
-          const active = !selectedBooks.has("all") && selectedBooks.has(bk.id);
-          return (
-            <button key={bk.id} onClick={() => toggleBook(bk.id)} style={{
-              height:24, padding:"0 10px", borderRadius:4, fontSize:9, cursor:"pointer",
-              fontFamily:"'Barlow',system-ui,sans-serif", fontWeight:600, flexShrink:0,
-              background: active ? T.surfaceHi : "transparent",
-              border: active ? `1px solid ${T.borderHi}` : "none",
-              color: active ? T.text : T.textDim,
-              transition:"all 0.15s",
-            }}>
-              {bk.label}
-            </button>
-          );
-        })}
-      </div>
-
-      {/* ── Tabs ─────────────────────────────────────────────────────────────── */}
-      <div style={{
-        background:T.bg, borderBottom:`2px solid ${T.border}`,
-        padding: isMobile ? "0 12px" : "0 28px", marginBottom:20,
-        display:"flex", gap:0,
-        overflowX:"auto", WebkitOverflowScrolling:"touch",
-        scrollbarWidth:"none", msOverflowStyle:"none",
-      }}>
-        {tabs.map(t => (
-          <button key={t} onClick={() => setTab(t)} style={{
-            height:40, padding:"0 16px", fontSize:12, cursor:"pointer",
-            whiteSpace:"nowrap", flexShrink:0,
-            fontFamily:"'Barlow',system-ui,sans-serif", fontWeight:600,
-            letterSpacing:"0.03em",
-            background:"transparent", border:"none",
-            borderBottom:`3px solid ${tab===t ? T.espn : "transparent"}`,
-            marginBottom:-2,
-            color: tab===t ? T.text : T.textDim,
-            textShadow: tab===t ? `0 0 12px ${T.espn}44` : "none",
-            transition:"color 0.15s, border-color 0.15s",
-          }}>{t}</button>
-        ))}
-      </div>
-
-      {/* ── Content ──────────────────────────────────────────────────────────── */}
-      <div style={{ padding: isMobile ? "0 12px" : "0 28px" }}>
-
-        {/* Conviction Plays */}
-        {(tab==="All"||tab==="Moneyline"||tab==="Spread"||tab==="Game Total") && (
-          <div style={{ marginBottom:28 }}>
-            <SectionHeader
-              icon="🎯"
-              title={tab === "All" ? "Conviction Plays" : `${tab} Conviction Plays`}
-              count={filteredConviction.length}
-              badge={<Pill color={T.gold} glow>Stat-driven · Auto-bet ≥70</Pill>}
-            />
-            <div style={{ display:"flex", gap:16, marginBottom:12, marginTop:-4 }}>
-              {[["score","Score ↓"],["edge","Edge %"],["odds","Odds"]].map(([key,label]) => (
-                <button key={key} onClick={() => setConvSort(key)} style={{
-                  background:"transparent", border:"none", cursor:"pointer",
-                  fontSize:10, fontWeight:600, fontFamily:"'Barlow',system-ui,sans-serif",
-                  color: convSort===key ? T.text : T.textDim,
-                  padding:"0 0 3px 0",
-                  borderBottom: convSort===key ? `2px solid ${T.espn}` : "2px solid transparent",
-                  transition:"color 0.15s",
-                }}>{label}</button>
-              ))}
-            </div>
-            {filteredConviction.length === 0 ? (
-              <EmptyState icon="📊" message="No conviction plays yet"
-                sub={`Engine next runs at ${getNextRunTime()}. No qualifying plays for today's games yet.`} />
-            ) : (
-              <div className="conv-grid" style={{
-                display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(320px,1fr))", gap:12, alignItems:"start",
-              }}>
-                {filteredConviction.slice(0,9).map((p) => (
-                  <ConvictionCard key={p.id} play={p}
-                    expanded={!!expandedConvRows[p.id]}
-                    onExpand={() => setExpandedConvRows(r => ({...r,[p.id]:!r[p.id]}))}
-                  />
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* +EV Bets */}
-        {(tab==="All"||tab==="Moneyline"||tab==="Spread"||tab==="Game Total") && (
-          <div style={{ marginBottom:28 }}>
-            <SectionHeader
-              icon="⚡"
-              title={tab === "All" ? "+EV Bets" : `${tab} +EV Bets`}
-              count={filteredBets.length}
-              badge={<Pill color={T.green}>+EV · Odds API · 3.5% min edge</Pill>}
-            />
-            <div style={{ display:"flex", gap:16, marginBottom:12, marginTop:-4 }}>
-              {[["edge","Edge %"],["ev","EV %"],["kelly","Kelly %"]].map(([key,label]) => (
-                <button key={key} onClick={() => setEvSort(key)} style={{
-                  background:"transparent", border:"none", cursor:"pointer",
-                  fontSize:10, fontWeight:600, fontFamily:"'Barlow',system-ui,sans-serif",
-                  color: evSort===key ? T.text : T.textDim,
-                  padding:"0 0 3px 0",
-                  borderBottom: evSort===key ? `2px solid ${T.espn}` : "2px solid transparent",
-                  transition:"color 0.15s",
-                }}>{label}</button>
-              ))}
-            </div>
-            {filteredBets.length === 0 ? (
-              <EmptyState icon="🔍" message="No +EV bets right now"
-                sub={data?.hasUpcomingGames === false
-                  ? `All games are underway. New lines open ~9 AM ET tomorrow. Next engine run: ${getNextRunTime()}.`
-                  : `Lines are sharp today. Next check: ${getNextRunTime()}.`}
-              />
-            ) : (
-              <div className="conv-grid" style={{
-                display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(320px,1fr))", gap:12, alignItems:"start",
-              }}>
-                {filteredBets.map((bet) => (
-                  <EVBetCard key={bet.id} bet={bet}
-                    expanded={!!expandedEvRows[bet.id]}
-                    onExpand={() => setExpandedEvRows(r => ({...r,[bet.id]:!r[bet.id]}))}
-                  />
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Props Tab */}
-        {tab === "Props" && (() => {
-          const allFiltered = propBets
-            .filter(p => propMarketFilter === "all" || p.market === propMarketFilter)
-            .sort((a,b) => {
-              if (propSort === "edge")    return ((b.edge*100)||b.ev||0) - ((a.edge*100)||a.ev||0);
-              if (propSort === "hitRate") return (b.hitRate||0) - (a.hitRate||0);
-              if (propSort === "line")    return (a.line||0) - (b.line||0);
-              return (b.convictionScore||0) - (a.convictionScore||0);
-            });
-
-          const autoProps  = allFiltered.filter(p => p.convictionScore >= 70);
-          const evProps    = allFiltered.filter(p => p.convictionScore < 70);
-
-          return (
-            <div>
-              {/* Market filter + sort bar */}
-              <div style={{ display:"flex", gap:8, marginBottom:16, flexWrap:"wrap",
-                alignItems:"center", justifyContent:"space-between" }}>
-                <div style={{
-                  display:"flex", gap:5, overflowX:"auto",
-                  WebkitOverflowScrolling:"touch", scrollbarWidth:"none", paddingBottom:2,
-                }}>
-                  {PROP_MARKET_FILTERS.map(f => (
-                    <button key={f.id} onClick={() => setPropMarketFilter(f.id)} style={{
-                      padding:"4px 12px", borderRadius:20, fontSize:10, cursor:"pointer",
-                      whiteSpace:"nowrap", fontFamily:"inherit", flexShrink:0,
-                      border:`1px solid ${propMarketFilter===f.id ? T.purple+"88" : T.border}`,
-                      background: propMarketFilter===f.id ? `${T.purple}15` : "transparent",
-                      color: propMarketFilter===f.id ? T.purple : T.textDim,
-                      transition:"all 0.15s",
-                    }}>{f.label}</button>
-                  ))}
-                </div>
-                <div style={{
-                  display:"inline-flex", background:T.bg, border:`1px solid ${T.border}`,
-                  borderRadius:8, padding:3, gap:2, flexShrink:0,
-                }}>
-                  {[{id:"conviction",label:"Conviction"},{id:"edge",label:"Edge %"},{id:"hitRate",label:"Hit Rate"}].map(opt => (
-                    <button key={opt.id} onClick={() => setPropSort(opt.id)} style={{
-                      padding:"3px 10px", borderRadius:6, fontSize:9, cursor:"pointer",
-                      border:"none", fontFamily:"inherit",
-                      background: propSort===opt.id ? T.surface : "transparent",
-                      color: propSort===opt.id ? T.text : T.textDim,
-                      fontWeight: propSort===opt.id ? 700 : 400,
-                      transition:"all 0.15s",
-                    }}>{opt.label}{propSort===opt.id ? " ↓" : ""}</button>
-                  ))}
-                </div>
-              </div>
-
-              {autoProps.length > 0 && (
-                <div style={{ marginBottom:28 }}>
-                  <SectionHeader icon="🎯" title="Props Conviction" count={autoProps.length}
-                    badge={<Pill color={T.purple} glow>Auto-bet ≥70</Pill>} />
-                  <PropsTable props={autoProps} ppMap={prizePicksMap} isMobile={isMobile} />
-                </div>
-              )}
-
-              <div>
-                <SectionHeader icon="⚡" title="Props +EV" count={evProps.length}
-                  badge={<Pill color={T.green}>3.5% min edge</Pill>} />
-                {evProps.length === 0
-                  ? <EmptyState icon="🔍" message="No prop edges found"
-                      sub={propBets.length === 0
-                        ? "Prop lines load when the engine runs. Check back after the next scheduled run."
-                        : autoProps.length > 0
-                          ? "All props met the conviction threshold above."
-                          : "Try a different market filter."} />
-                  : <PropsTable props={evProps} ppMap={prizePicksMap} isMobile={isMobile} />
-                }
-              </div>
-            </div>
-          );
-        })()}
-
-        {/* History Tab */}
-        {tab === "History" && (
-          <div>
-            {/* Chart */}
-            <div style={{
-              background:T.surface, border:`1px solid ${T.border}`,
-              borderTop:`1px solid ${T.green}26`,
-              borderRadius:14, padding:"20px 24px", marginBottom:20,
-            }}>
-              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:4 }}>
-                <div>
-                  <div style={{ fontSize:14, fontWeight:700, color:T.text }}>
-                    Portfolio Performance
-                    {isBookFiltered && (
-                      <span style={{ fontSize:9, color:T.textDim, fontWeight:400, marginLeft:8 }}>
-                        ({activeBookLabels.join(", ")})
-                      </span>
-                    )}
-                  </div>
-                  <div style={{ fontSize:10, color:T.textDim, marginTop:3 }}>
-                    $100 starting · Kelly Criterion · ML-weighted signals
-                  </div>
-                </div>
-                <div style={{
-                  fontSize:14, fontWeight:800,
-                  color: filteredPnl >= 0 ? T.green : T.red,
-                }}>
-                  {filteredPnl >= 0 ? "+" : ""}${filteredPnl.toFixed(2)}
-                </div>
-              </div>
-
-              {chartData.length < 2 ? (
-                <div style={{ height:140, display:"flex", alignItems:"center", justifyContent:"center",
-                  borderTop:`1px solid ${T.border}`, marginTop:16 }}>
-                  <span style={{ fontSize:11, color:T.textDim }}>Resolving first bets…</span>
-                </div>
-              ) : (
-                <div style={{ height:160, marginTop:16 }}>
-                  <ResponsiveContainer width="100%" height="100%">
-                    <AreaChart data={chartData} margin={{ top:4, right:4, bottom:0, left:0 }}>
-                      <defs>
-                          <linearGradient id="chartGrad" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="0%"  stopColor={T.espn} stopOpacity={0.2}/>
-                          <stop offset="60%" stopColor={T.espn} stopOpacity={0.04}/>
-                          <stop offset="100%" stopColor={T.espn} stopOpacity={0}/>
-                        </linearGradient>
-                      </defs>
-                      <XAxis dataKey="date" hide/>
-                      <YAxis hide domain={["auto","auto"]}/>
-                      <Tooltip content={<ChartTooltip/>}/>
-                      <ReferenceLine y={100} stroke={T.border} strokeDasharray="3 3"/>
-                      {chartData.length > 1 && (
-                        <ReferenceLine y={chartData[chartData.length-1].bankroll}
-                          stroke={T.espn} strokeDasharray="4 4" strokeOpacity={0.4}/>
-                      )}
-                      <Area type="monotone" dataKey="bankroll"
-                        stroke={T.espn} strokeWidth={2.5}
-                        fill="url(#chartGrad)" dot={false}
-                        activeDot={{ r:4, fill:T.espn, stroke:T.bg }}/>
-                    </AreaChart>
-                  </ResponsiveContainer>
-                </div>
-              )}
-            </div>
-
-            {/* History list */}
-            <div style={{ background:T.surface, border:`1px solid ${T.border}`, borderRadius:14, overflow:"hidden" }}>
-              <div style={{
-                display:"flex", justifyContent:"space-between", alignItems:"center",
-                padding:"14px 20px", borderBottom:`1px solid ${T.border}`,
-              }}>
-                <div style={{ fontSize:13, fontWeight:700, color:T.text }}>Bet History</div>
-                <div style={{ fontSize:10, color:T.textDim }}>
-                  {filteredHistory.filter(h=>h.status==="won").length}W /&nbsp;
-                  {filteredHistory.filter(h=>h.status==="lost").length}L /&nbsp;
-                  {filteredHistory.filter(h=>h.status==="pending").length} pending
-                </div>
-              </div>
-              {filteredHistory.length === 0 ? (
-                <div style={{ padding:"40px 20px", textAlign:"center", color:T.textDim, fontSize:11 }}>
-                  No bets yet — history appears here after the engine places its first bet.
-                </div>
-              ) : (
-                <>
-                  {/* Blotter column headers */}
-                  <div style={{
-                    display:"grid",
-                    gridTemplateColumns:"48px 80px 1fr 52px 70px 80px 72px 80px",
-                    gap:8, padding:"6px 18px",
-                    background:T.bg, borderBottom:`1px solid ${T.border}`,
-                    fontSize:8, fontWeight:700, color:T.textDim,
-                    letterSpacing:"0.1em", textTransform:"uppercase",
-                    fontFamily:"'Barlow',system-ui,sans-serif",
-                  }}>
-                    <div>Status</div>
-                    <div>Date</div>
-                    <div>Selection</div>
-                    <div>Type</div>
-                    <div style={{textAlign:"right"}}>Odds</div>
-                    <div style={{textAlign:"right"}}>Book</div>
-                    <div style={{textAlign:"right"}}>Wagered</div>
-                    <div style={{textAlign:"right"}}>P&L</div>
-                  </div>
-                  {[...filteredHistory].reverse().map((h,i) => <HistoryRow key={h.id} h={h} rowIndex={i}/>)}
-                </>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* Info Tab */}
-        {tab === "Info" && <InfoTab/>}
-      </div>
+        {renderBottomNav()}
+      </nav>
     </div>
   );
 }
