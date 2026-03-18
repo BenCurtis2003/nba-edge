@@ -5,7 +5,7 @@ const BDL_BASE = "https://api.balldontlie.io/v1";
 
 async function bdlFetch(path) {
   const res = await fetch(`${BDL_BASE}${path}`, {
-    headers: { Authorization: `Bearer ${process.env.BDL_API_KEY}` },
+    headers: { Authorization: `Bearer ${process.env.BALLDONTLIE_API_KEY}` },
   });
   if (!res.ok) throw new Error(`BDL ${path} → HTTP ${res.status}`);
   return res.json();
