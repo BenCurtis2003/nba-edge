@@ -1654,14 +1654,14 @@ export default function App() {
 
     return (
       <header style={{
-        height: 44, background: T.bgAlt, borderBottom: `1px solid ${T.border}`,
+        height: 56, background: T.bgAlt, borderBottom: `1px solid ${T.border}`,
         display: "flex", alignItems: "center", justifyContent: "space-between",
         padding: "0 12px 0 16px", flexShrink: 0, zIndex: 20,
       }}>
         <div style={{ display:"flex", alignItems:"baseline", gap:0, lineHeight:1 }}>
-          <span style={{ fontSize:20, fontWeight:900, color:T.blue, letterSpacing:"-0.04em",
+          <span style={{ fontSize:26, fontWeight:900, color:T.blue, letterSpacing:"-0.04em",
             fontFamily:"'Barlow Condensed',system-ui,sans-serif" }}>NBA</span>
-          <span style={{ fontSize:20, fontWeight:900, color:T.text, letterSpacing:"-0.04em",
+          <span style={{ fontSize:26, fontWeight:900, color:T.text, letterSpacing:"-0.04em",
             fontFamily:"'Barlow Condensed',system-ui,sans-serif" }}>EDGE</span>
           <span className="header-stats-extra" style={{ fontSize:7, color:T.label,
             letterSpacing:"0.12em", marginLeft:8, alignSelf:"center",
@@ -1677,28 +1677,28 @@ export default function App() {
           ].map(({ value, label, color, extraClass }, i) => (
             <div key={label} className={extraClass} style={{
               display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center",
-              padding:"0 10px", height:44,
+              padding:"0 14px", height:56,
               borderLeft: `1px solid ${T.border}`,
             }}>
-              <span style={{ fontSize:11, fontWeight:700, color,
+              <span style={{ fontSize:13, fontWeight:700, color,
                 fontFamily:"'Courier New',monospace", lineHeight:1 }}>{value}</span>
-              <span style={{ fontSize:6, color:T.textDeep, letterSpacing:"0.12em",
+              <span style={{ fontSize:8, color:T.textDeep, letterSpacing:"0.12em",
                 fontFamily:"'Barlow',system-ui,sans-serif", marginTop:2 }}>{label}</span>
             </div>
           ))}
 
           <div style={{ display:"flex", alignItems:"center", gap:6, paddingLeft:8 }}>
-            <div style={{ width:6, height:6, borderRadius:"50%", background:T.green,
+            <div style={{ width:8, height:8, borderRadius:"50%", background:T.green,
               animation:"livePulse 2s infinite", flexShrink:0 }} />
             <span style={{
-              fontSize:9, fontWeight:700, padding:"3px 10px", borderRadius:20,
+              fontSize:11, fontWeight:700, padding:"4px 14px", borderRadius:20,
               background:T.blue, color:"#fff", letterSpacing:"0.04em",
               fontFamily:"'Barlow',system-ui,sans-serif", cursor:"default",
             }}>AUTO-BET ≥70</span>
             <a href="https://discord.gg/TRZQRu58au" target="_blank" rel="noopener noreferrer"
               className="header-actions-extra"
               style={{
-                fontSize:9, fontWeight:700, padding:"3px 10px", borderRadius:20,
+                fontSize:11, fontWeight:700, padding:"4px 12px", borderRadius:20,
                 border:`1px solid ${T.indigo}44`, color:T.indigo,
                 background:`${T.indigo}10`, textDecoration:"none",
                 fontFamily:"'Barlow',system-ui,sans-serif",
@@ -1710,12 +1710,12 @@ export default function App() {
   };
   const renderTicker = () => {
     if (!scoresData || !scoresData.length) {
-      return <div style={{ height:48, background:"#060c1a", borderBottom:`1px solid ${T.border}`, flexShrink:0 }} />;
+      return <div style={{ height:64, background:"#060c1a", borderBottom:`1px solid ${T.border}`, flexShrink:0 }} />;
     }
     const doubled = [...scoresData, ...scoresData];
     return (
       <div style={{
-        height: 48, background: "#060c1a",
+        height: 64, background: "#060c1a",
         borderBottom: `1px solid ${T.border}`,
         flexShrink: 0, display:"flex", alignItems:"center",
         overflow: "hidden", position:"relative",
@@ -1724,9 +1724,9 @@ export default function App() {
           flexShrink:0, display:"flex", alignItems:"center", gap:5,
           padding:"0 10px 0 12px", zIndex:2,
         }}>
-          <div style={{ width:5, height:5, borderRadius:"50%", background:T.green,
+          <div style={{ width:7, height:7, borderRadius:"50%", background:T.green,
             animation:"pulse 1.4s ease-in-out infinite", color:T.green }} />
-          <span style={{ fontSize:7, fontWeight:700, color:T.green, letterSpacing:"0.12em",
+          <span style={{ fontSize:9, fontWeight:700, color:T.green, letterSpacing:"0.12em",
             fontFamily:"'Barlow',system-ui,sans-serif" }}>LIVE</span>
         </div>
         <div style={{
@@ -1749,24 +1749,24 @@ export default function App() {
               return (
                 <div key={i} style={{
                   flexShrink:0, display:"flex", alignItems:"center", gap:6,
-                  padding:"0 14px", borderRight:`1px solid ${T.border}`,
+                  padding:"0 18px", borderRight:`1px solid ${T.border}`,
                   opacity: isFinal ? 0.4 : 1,
                 }}>
                   <div style={{ display:"flex", flexDirection:"column", gap:2 }}>
                     <div style={{ display:"flex", alignItems:"center", gap:6 }}>
-                      <span style={{ fontSize:9, fontWeight:700, color:T.textMid, minWidth:26,
+                      <span style={{ fontSize:11, fontWeight:700, color:T.textMid, minWidth:26,
                         fontFamily:"'Barlow Condensed',sans-serif" }}>{g.away}</span>
                       {(isLive || isFinal) && (
-                        <span style={{ fontSize:13, fontWeight:700,
+                        <span style={{ fontSize:17, fontWeight:700,
                           color: isFinal ? T.textMid : T.text,
                           fontFamily:"'JetBrains Mono',monospace" }}>{g.awayScore}</span>
                       )}
                     </div>
                     <div style={{ display:"flex", alignItems:"center", gap:6 }}>
-                      <span style={{ fontSize:9, fontWeight:700, color:T.textMid, minWidth:26,
+                      <span style={{ fontSize:11, fontWeight:700, color:T.textMid, minWidth:26,
                         fontFamily:"'Barlow Condensed',sans-serif" }}>{g.home}</span>
                       {(isLive || isFinal) && (
-                        <span style={{ fontSize:13, fontWeight:700,
+                        <span style={{ fontSize:17, fontWeight:700,
                           color: isFinal ? T.textMid : T.text,
                           fontFamily:"'JetBrains Mono',monospace" }}>{g.homeScore}</span>
                       )}
@@ -1776,7 +1776,7 @@ export default function App() {
                       )}
                     </div>
                   </div>
-                  <span style={{ fontSize:7, fontWeight:700, color:statusColor,
+                  <span style={{ fontSize:9, fontWeight:700, color:statusColor,
                     letterSpacing:"0.06em", fontFamily:"'Barlow',sans-serif",
                     whiteSpace:"nowrap" }}>{statusText}</span>
                 </div>
@@ -1808,20 +1808,21 @@ export default function App() {
               <button key={item.value} onClick={() => setTab(item.value)} style={{
                 width:"100%", display:"flex", flexDirection:"column",
                 alignItems:"center", justifyContent:"center",
-                padding:"8px 4px", gap:3, cursor:"pointer",
+                padding:"10px 6px", gap:3, cursor:"pointer",
                 background: active ? T.surfaceHi : "transparent",
-                border:"none",
+                border: "none",
+                outline: "none",
                 borderLeft: active ? `2px solid ${T.blue}` : "2px solid transparent",
                 color: active ? T.text : T.textDim,
                 transition:"all 0.15s",
               }}>
-                <span style={{ fontSize:10, fontFamily:"'JetBrains Mono',monospace",
+                <span style={{ fontSize:13, fontFamily:"'JetBrains Mono',monospace",
                   color: active ? T.blue : T.textDim }}>{item.icon}</span>
-                <span style={{ fontSize:7.5, fontWeight:600, letterSpacing:"0.04em",
+                <span style={{ fontSize:9.5, fontWeight:600, letterSpacing:"0.04em",
                   fontFamily:"'Barlow',system-ui,sans-serif", textAlign:"center",
                   lineHeight:1.2 }}>{item.label}</span>
                 {item.countKey === "all" && totalPlays > 0 && (
-                  <span style={{ fontSize:7, padding:"1px 5px", borderRadius:8,
+                  <span style={{ fontSize:9, padding:"1px 5px", borderRadius:8,
                     background:`${T.blue}18`, color:T.blue,
                     fontFamily:"'JetBrains Mono',monospace" }}>{totalPlays}</span>
                 )}
@@ -1831,7 +1832,7 @@ export default function App() {
         </div>
 
         <div style={{ padding:"8px 0", flex:1 }}>
-          <div style={{ fontSize:6, color:T.textDeep, letterSpacing:"0.14em",
+          <div style={{ fontSize:8, color:T.textDeep, letterSpacing:"0.14em",
             padding:"4px 8px 6px", fontFamily:"'Barlow',sans-serif" }}>BOOKS</div>
           {[{ id:"all", label:"All" }, ...ALL_BOOKS.slice(0,6)].map(bk => {
             const active = bk.id === "all" ? selectedBooks.has("all") : selectedBooks.has(bk.id);
@@ -1839,13 +1840,15 @@ export default function App() {
             return (
               <button key={bk.id} onClick={() => toggleBook(bk.id)} style={{
                 width:"100%", display:"flex", flexDirection:"column",
-                alignItems:"center", padding:"5px 4px", gap:2,
+                alignItems:"center", padding:"7px 6px", gap:2,
                 background: active ? T.surfaceHi : "transparent",
-                border:"none", cursor:"pointer",
+                border: "none",
+                outline: "none",
+                cursor:"pointer",
                 borderLeft: active ? `2px solid ${T.green}` : "2px solid transparent",
                 transition:"all 0.15s",
               }}>
-                <span style={{ fontSize:8, fontWeight:700,
+                <span style={{ fontSize:10, fontWeight:700,
                   color: active ? (meta?.color || T.green) : T.textDim,
                   fontFamily:"'Barlow',system-ui,sans-serif" }}>
                   {meta?.short || bk.label}
@@ -1858,6 +1861,9 @@ export default function App() {
     );
   };
   const renderFilterBar = () => {
+    if (!["All","Moneyline","Spread","Game Total"].includes(tab)) {
+      return <div style={{ height:1, background:T.border, flexShrink:0 }} />;
+    }
     const chips = [
       { icon:"⚡", label:"Auto-Bet Only",   state:autoBetFilter,        set:setAutoBetFilter },
       { icon:"🤖", label:"ML Engine",       state:mlEngineFilter,       set:setMlEngineFilter },
@@ -1867,30 +1873,30 @@ export default function App() {
     return (
       <div style={{
         background: T.surface, borderBottom:`1px solid ${T.border}`,
-        padding:"7px 12px", display:"flex", alignItems:"center",
+        padding:"10px 16px", display:"flex", alignItems:"center",
         gap:6, flexWrap:"wrap", flexShrink:0,
       }}>
         {chips.map(chip => (
           <button key={chip.label} onClick={() => chip.set(v => !v)} style={{
             display:"flex", alignItems:"center", gap:5,
-            padding:"4px 8px", borderRadius:6, cursor:"pointer",
+            padding:"6px 12px", borderRadius:6, cursor:"pointer",
             background: chip.state ? T.blueDim : "transparent",
             border: chip.state ? `1px solid ${T.blue}44` : `1px solid ${T.border}`,
             color: chip.state ? T.blue : T.textDim,
-            transition:"all 0.15s", fontSize:9,
+            transition:"all 0.15s", fontSize:11,
             fontFamily:"'Barlow',system-ui,sans-serif", fontWeight:600,
           }}>
             <span>{chip.icon}</span>
             <span className="filter-chip-label">{chip.label}</span>
             <span style={{
-              width:18, height:10, borderRadius:5, position:"relative",
+              width:24, height:14, borderRadius:7, position:"relative",
               background: chip.state ? T.blue : T.border, transition:"background 0.15s",
               flexShrink:0, display:"inline-block",
             }}>
               <span style={{
-                position:"absolute", top:2,
-                left: chip.state ? 10 : 2,
-                width:6, height:6, borderRadius:"50%",
+                position:"absolute", top:3,
+                left: chip.state ? 14 : 3,
+                width:8, height:8, borderRadius:"50%",
                 background:"#fff", transition:"left 0.15s",
               }} />
             </span>
@@ -1904,13 +1910,13 @@ export default function App() {
           style={{
             flex:1, minWidth:80, background:"transparent",
             border:`1px solid ${T.border}`, borderRadius:6,
-            padding:"4px 8px", fontSize:10, color:T.text,
+            padding:"8px 12px", fontSize:12, color:T.text,
             fontFamily:"'Barlow',system-ui,sans-serif",
             outline:"none",
           }}
         />
 
-        <span style={{ fontSize:9, color:T.textDim, whiteSpace:"nowrap",
+        <span style={{ fontSize:11, color:T.textDim, whiteSpace:"nowrap",
           fontFamily:"'JetBrains Mono',monospace" }}>Sort: Score ↓</span>
       </div>
     );
@@ -1922,9 +1928,9 @@ export default function App() {
 
     const colTemplate = "1.9fr 0.36fr 0.3fr 0.58fr 0.42fr 0.42fr 0.48fr";
     const thStyle = () => ({
-      fontSize:7, fontWeight:700, letterSpacing:"0.12em", color:T.textDeep,
+      fontSize:9, fontWeight:700, letterSpacing:"0.12em", color:T.textDeep,
       textTransform:"uppercase", fontFamily:"'Barlow',system-ui,sans-serif",
-      padding:"7px 8px",
+      padding:"10px 14px",
     });
 
     const renderGroupSection = (plays, bucket) => {
@@ -1938,11 +1944,11 @@ export default function App() {
       return (
         <div key={bucket}>
           <div style={{
-            padding:"6px 12px", background:T.bg,
+            padding:"8px 16px", background:T.bg,
             borderBottom:`1px solid ${T.border}`,
             display:"flex", alignItems:"center", gap:8,
           }}>
-            <span style={{ fontSize:9, fontWeight:700, color:cfg.accent,
+            <span style={{ fontSize:11, fontWeight:700, color:cfg.accent,
               fontFamily:"'Barlow',system-ui,sans-serif", letterSpacing:"0.08em" }}>
               {cfg.label}
             </span>
@@ -1972,7 +1978,7 @@ export default function App() {
                   onClick={() => setExpandedId(isExpanded ? null : play.id)}
                   style={{
                     display:"grid", gridTemplateColumns:colTemplate,
-                    alignItems:"center", padding:"8px 12px",
+                    alignItems:"center", padding:"12px 16px",
                     borderBottom:`1px solid ${T.border}`,
                     borderLeft: rowBorderLeft,
                     background: cfg.rowBg,
@@ -1980,12 +1986,12 @@ export default function App() {
                   }}
                 >
                   <div style={{ minWidth:0 }}>
-                    <div style={{ fontSize:9.5, fontWeight:700, color:T.text, overflow:"hidden",
+                    <div style={{ fontSize:13, fontWeight:700, color:T.text, overflow:"hidden",
                       textOverflow:"ellipsis", whiteSpace:"nowrap",
                       fontFamily:"'Barlow',system-ui,sans-serif" }}>
                       {play.selection?.replace(/ ML$/i,"")}
                     </div>
-                    <div style={{ fontSize:6.5, color:T.textMid, overflow:"hidden",
+                    <div style={{ fontSize:10, color:T.textMid, overflow:"hidden",
                       textOverflow:"ellipsis", whiteSpace:"nowrap",
                       fontFamily:"'Barlow',system-ui,sans-serif" }}>
                       {play.game}
@@ -1993,39 +1999,39 @@ export default function App() {
                   </div>
                   <div style={{ textAlign:"center" }}>
                     <span style={{
-                      fontSize:15, fontWeight:700, fontFamily:"'Courier New',monospace",
+                      fontSize:20, fontWeight:700, fontFamily:"'Courier New',monospace",
                       color: play.convictionScore >= 70 ? T.green
                         : play.convictionScore >= 55 ? T.amber : T.red,
                     }}>{play.convictionScore}</span>
                   </div>
                   <div className="td-type" style={{ textAlign:"center" }}>
-                    <span style={{ fontSize:7, fontWeight:700, color:T.blue,
+                    <span style={{ fontSize:10, fontWeight:700, color:T.blue,
                       fontFamily:"'Barlow',system-ui,sans-serif", letterSpacing:"0.06em" }}>
                       {betTypeLabel}
                     </span>
                   </div>
                   <div style={{ textAlign:"center" }}>
-                    <span style={{ fontSize:9, fontWeight:600, color:oddsColor,
+                    <span style={{ fontSize:13, fontWeight:600, color:oddsColor,
                       fontFamily:"'JetBrains Mono',monospace" }}>
                       {fmtOdds(play.bestOdds)}
                     </span>
                   </div>
                   <div className="td-book" style={{ textAlign:"center" }}>
-                    <span style={{ fontSize:6.5, color:T.green,
+                    <span style={{ fontSize:10, color:T.green,
                       fontFamily:"'Barlow',system-ui,sans-serif" }}>
                       {BOOK_META[play.bestBook]?.short || play.bestBook || "—"}
                       {play.bestBook ? " ★" : ""}
                     </span>
                   </div>
                   <div className="td-ev" style={{ textAlign:"center" }}>
-                    <span style={{ fontSize:8.5, fontFamily:"'Courier New',monospace",
+                    <span style={{ fontSize:11, fontFamily:"'Courier New',monospace",
                       color: (play.ev || 0) > 0 ? T.green : T.textDim }}>
                       {play.ev != null ? `+${play.ev.toFixed(1)}` : "—"}
                     </span>
                   </div>
                   <div style={{ textAlign:"center" }}>
                     <span style={{
-                      fontSize:7, fontWeight:700, padding:"2px 5px", borderRadius:3,
+                      fontSize:10, fontWeight:700, padding:"3px 9px", borderRadius:3,
                       fontFamily:"'Barlow',system-ui,sans-serif", letterSpacing:"0.04em",
                       ...tierStyle,
                     }}>{tierLabel}</span>
@@ -2057,7 +2063,7 @@ export default function App() {
         <div style={{
           position:"sticky", top:0, zIndex:10,
           background: T.bg, borderBottom:`2px solid ${T.border}`,
-          display:"grid", gridTemplateColumns:colTemplate, padding:"0 12px",
+          display:"grid", gridTemplateColumns:colTemplate, padding:"0 16px",
         }}>
           <div style={thStyle()}>PLAY</div>
           <div style={{ ...thStyle(), textAlign:"center" }}>SCORE</div>
@@ -2070,9 +2076,9 @@ export default function App() {
 
         {tablePlays.length === 0 ? (
           <div style={{ padding:"40px 24px", textAlign:"center", color:T.textDim }}>
-            <div style={{ fontSize:28, marginBottom:12 }}>📊</div>
-            <div style={{ fontSize:13, color:T.textMid, fontWeight:600 }}>No plays match current filters</div>
-            <div style={{ fontSize:10, marginTop:6, fontFamily:"'Barlow',sans-serif" }}>
+            <div style={{ fontSize:40, marginBottom:12 }}>📊</div>
+            <div style={{ fontSize:16, color:T.textMid, fontWeight:600 }}>No plays match current filters</div>
+            <div style={{ fontSize:12, marginTop:6, fontFamily:"'Barlow',sans-serif" }}>
               Engine next runs at {getNextRunTime()}
             </div>
           </div>
@@ -2088,7 +2094,7 @@ export default function App() {
   };
 
   const renderPropsTab = () => <div style={{ padding:20 }}>{renderLegacyPropsContent()}</div>;
-  const renderHistoryTab = () => <div style={{ padding:20 }}>{renderLegacyHistoryContent()}</div>;
+  const renderHistoryTab = () => renderLegacyHistoryContent();
   const renderInfoTab = () => <div style={{ padding:20 }}>{renderLegacyInfoContent()}</div>;
   const renderLegacyPropsContent = () => {
     if (tab !== "Props") return null;
@@ -2135,15 +2141,103 @@ export default function App() {
   };
   const renderLegacyHistoryContent = () => {
     if (tab !== "History") return null;
+    const resolved = (data?.history || []).filter(h => h.status === "won" || h.status === "lost");
+    const wins = resolved.filter(h => h.status === "won").length;
+    const losses = resolved.filter(h => h.status === "lost").length;
+    const totalPnl = resolved.reduce((s, h) =>
+      s + (h.status === "won" ? (h.potentialPayout || 0) : -(h.wagerAmt || 0)), 0);
+    const winRate = resolved.length > 0 ? ((wins / resolved.length) * 100).toFixed(0) : 0;
+
+    const displayData = chartData.map(d => ({
+      ...d,
+      dateLabel: d.date === "Start" ? "Start" : new Date(d.date).toLocaleDateString("en-US", {month:"short", day:"numeric"}),
+    }));
+
     return (
-      <div>
+      <div style={{ padding:"16px 20px" }}>
+        {/* Stats row */}
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:10, marginBottom:20 }}>
+          {[
+            { label:"Bankroll",  value:`$${(data?.bankroll||100).toFixed(2)}`, color:T.green  },
+            { label:"Win Rate",  value:`${winRate}%`,                          color:T.blue   },
+            { label:"P&L",       value:`${totalPnl >= 0 ? "+" : ""}$${totalPnl.toFixed(2)}`, color: totalPnl >= 0 ? T.green : T.red },
+            { label:"Record",    value:`${wins}W – ${losses}L`,                color:T.textMid},
+          ].map(stat => (
+            <div key={stat.label} style={{
+              background:T.surface, borderRadius:8, padding:"12px 16px",
+              border:`1px solid ${T.border}`,
+            }}>
+              <div style={{ fontSize:10, color:T.textDim, letterSpacing:"0.1em",
+                fontFamily:"'Barlow',sans-serif", marginBottom:4 }}>{stat.label.toUpperCase()}</div>
+              <div style={{ fontSize:18, fontWeight:700, color:stat.color,
+                fontFamily:"'JetBrains Mono',monospace" }}>{stat.value}</div>
+            </div>
+          ))}
+        </div>
+
+        {/* Bankroll chart */}
+        {displayData.length > 1 && (
+          <div style={{
+            background:T.surface, borderRadius:10, padding:"16px",
+            border:`1px solid ${T.border}`, marginBottom:20,
+          }}>
+            <div style={{ fontSize:10, color:T.textDim, letterSpacing:"0.1em",
+              fontFamily:"'Barlow',sans-serif", marginBottom:12 }}>BANKROLL TRAJECTORY</div>
+            <ResponsiveContainer width="100%" height={200}>
+              <AreaChart data={displayData} margin={{ top:4, right:8, left:0, bottom:4 }}>
+                <defs>
+                  <linearGradient id="bankrollGrad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#22c55e" stopOpacity={0.25}/>
+                    <stop offset="95%" stopColor="#22c55e" stopOpacity={0}/>
+                  </linearGradient>
+                </defs>
+                <XAxis dataKey="dateLabel" tick={{ fontSize:9, fill:T.textDim, fontFamily:"'Barlow',sans-serif" }}
+                  axisLine={false} tickLine={false} interval="preserveStartEnd" />
+                <YAxis tick={{ fontSize:9, fill:T.textDim, fontFamily:"'JetBrains Mono',monospace" }}
+                  axisLine={false} tickLine={false} tickFormatter={v => `$${v}`} width={48} />
+                <Tooltip
+                  contentStyle={{ background:T.surfaceHi, border:`1px solid ${T.border}`, borderRadius:6,
+                    fontSize:11, fontFamily:"'JetBrains Mono',monospace", color:T.text }}
+                  formatter={(v) => [`$${Number(v).toFixed(2)}`, "Bankroll"]}
+                  labelStyle={{ color:T.textMid, fontSize:10 }}
+                />
+                <ReferenceLine y={100} stroke={T.border} strokeDasharray="4 2" />
+                <Area type="monotone" dataKey="bankroll"
+                  stroke="#22c55e" strokeWidth={2}
+                  fill="url(#bankrollGrad)" dot={false} activeDot={{ r:4, fill:"#22c55e" }} />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+        )}
+
+        {/* Bet history rows */}
         {filteredHistory.length === 0 ? (
           <div style={{ textAlign:"center", padding:"40px 20px", color:T.textDim }}>
-            <div style={{ fontSize:24, marginBottom:8 }}>📊</div>
-            <div style={{ fontSize:12, color:T.textMid }}>No bet history yet</div>
+            <div style={{ fontSize:32, marginBottom:12 }}>📊</div>
+            <div style={{ fontSize:14, color:T.textMid }}>No bet history yet</div>
+            <div style={{ fontSize:11, marginTop:6 }}>Placed bets will appear here after games complete</div>
           </div>
         ) : (
-          <div>
+          <div style={{ background:T.surface, border:`1px solid ${T.border}`, borderRadius:10, overflow:"hidden" }}>
+            {/* Blotter header */}
+            <div style={{
+              display:"grid",
+              gridTemplateColumns:"48px 80px 1fr 52px 70px 80px 72px 80px",
+              gap:8, padding:"10px 18px",
+              borderBottom:`1px solid ${T.border}`,
+              background:T.bg,
+              fontSize:9, color:T.textDim, fontWeight:700, letterSpacing:"0.1em",
+              fontFamily:"'Barlow',sans-serif",
+            }}>
+              <div>STATUS</div>
+              <div>DATE</div>
+              <div>SELECTION</div>
+              <div style={{ textAlign:"center" }}>TYPE</div>
+              <div style={{ textAlign:"right" }}>ODDS</div>
+              <div style={{ textAlign:"right" }}>BOOK</div>
+              <div style={{ textAlign:"right" }}>WAGERED</div>
+              <div style={{ textAlign:"right" }}>P&L</div>
+            </div>
             {filteredHistory.map((h, i) => (
               <HistoryRow key={h.id || i} h={h} rowIndex={i} />
             ))}
@@ -2186,8 +2280,8 @@ export default function App() {
         color: tab === item.value ? T.blue : T.textDim,
         padding:"6px 0",
       }}>
-        <span style={{ fontSize:16 }}>{item.icon}</span>
-        <span style={{ fontSize:7, fontWeight:600, fontFamily:"'Barlow',sans-serif",
+        <span style={{ fontSize:22 }}>{item.icon}</span>
+        <span style={{ fontSize:10, fontWeight:600, fontFamily:"'Barlow',sans-serif",
           letterSpacing:"0.04em",
           color: tab === item.value ? T.blue : T.textDim }}>
           {item.label}
@@ -2237,6 +2331,8 @@ export default function App() {
         ::-webkit-scrollbar-track { background: transparent; }
         ::-webkit-scrollbar-thumb { background: ${T.border}; border-radius: 2px; }
         ::selection { background: rgba(29,108,245,0.3); color: ${T.text}; }
+        input::placeholder { color: #475569; }
+        input:focus { border-color: #1d6cf5 !important; }
       `}</style>
 
       {renderHeader()}
@@ -2244,7 +2340,7 @@ export default function App() {
 
       <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
         <div className="sidebar-desktop" style={{
-          width: 88, flexShrink: 0,
+          width: 112, flexShrink: 0,
           background: T.surface, borderRight: `1px solid ${T.border}`,
           display: "flex", flexDirection: "column",
           overflowY: "auto",
@@ -2264,7 +2360,7 @@ export default function App() {
         background: T.surface, borderTop: `1px solid ${T.border}`,
         display: "none",
         justifyContent: "space-around", alignItems: "center",
-        height: 56, flexShrink: 0,
+        height: 64, flexShrink: 0,
       }}>
         {renderBottomNav()}
       </nav>
