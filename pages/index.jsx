@@ -876,14 +876,42 @@ function HistoryRow({ h, rowIndex }) {
 }
 
 // ── Props Table ───────────────────────────────────────────────────────────────
+// Player headshot with fallback initials circle
+function PlayerAvatar({ espnId, name, size = 32 }) {
+  const [err, setErr] = useState(false);
+  const initials = (name || "?").split(" ").map(w => w[0]).slice(0, 2).join("").toUpperCase();
+  return (
+    <div style={{
+      width: size, height: size, borderRadius: "50%", flexShrink: 0,
+      overflow: "hidden", border: `1px solid rgba(255,255,255,0.07)`,
+      background: "#0f172a", position: "relative",
+    }}>
+      {espnId && !err ? (
+        <img
+          src={`https://a.espncdn.com/i/headshots/nba/players/full/${espnId}.png`}
+          alt={name}
+          onError={() => setErr(true)}
+          style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: "top center" }}
+        />
+      ) : (
+        <div style={{
+          width: "100%", height: "100%", display: "flex", alignItems: "center",
+          justifyContent: "center", fontSize: size * 0.36, fontWeight: 700,
+          color: "#64748b", fontFamily: "'Barlow',sans-serif",
+        }}>{initials}</div>
+      )}
+    </div>
+  );
+}
+
 // Grid-based data-dense layout — Bloomberg terminal aesthetic
 // UI/UX: 36px row height, semantic color per value, overflow-x-auto on mobile
 function PropsTable({ props, ppMap, isMobile }) {
   if (!props.length) return null;
 
   const cols = isMobile
-    ? "1fr 60px 90px 72px"
-    : "1fr 72px 88px 88px 68px 68px 72px 80px";
+    ? "44px 1fr 60px 80px 64px"
+    : "44px 1fr 72px 88px 88px 68px 68px 72px 80px";
 
   const hdr = {
     fontSize:9, color:T.textDim, fontWeight:700, letterSpacing:"0.12em",
@@ -893,13 +921,14 @@ function PropsTable({ props, ppMap, isMobile }) {
   return (
     <div style={{ background:T.surface, border:`1px solid ${T.border}`, borderRadius:14, overflow:"hidden" }}>
       <div style={{ overflowX:"auto", WebkitOverflowScrolling:"touch" }}>
-        <div style={{ minWidth: isMobile ? 340 : 680 }}>
+        <div style={{ minWidth: isMobile ? 370 : 740 }}>
           {/* Header row */}
           <div style={{
             display:"grid", gridTemplateColumns:cols,
-            padding:"9px 18px", borderBottom:`1px solid ${T.border}`,
+            padding:"9px 14px", borderBottom:`1px solid ${T.border}`,
             background:T.bg,
           }}>
+            <div />
             <div style={{ ...hdr, textAlign:"left" }}>Player</div>
             <div style={hdr}>Line</div>
             {!isMobile && <div style={hdr}>Over</div>}
@@ -926,13 +955,18 @@ function PropsTable({ props, ppMap, isMobile }) {
             return (
               <div key={prop.id} style={{
                 display:"grid", gridTemplateColumns:cols,
-                padding:"13px 18px",
+                padding:"10px 14px",
                 borderBottom: i < props.length-1 ? `1px solid ${T.border}` : "none",
                 alignItems:"center",
                 borderLeft:`3px solid ${isAutobet ? T.purple : "transparent"}`,
                 background: isAutobet ? `${T.purple}05` : "transparent",
                 transition:"background 0.15s",
               }}>
+
+                {/* Avatar */}
+                <div style={{ display:"flex", alignItems:"center", justifyContent:"center" }}>
+                  <PlayerAvatar espnId={prop.espnPlayerId} name={prop.player} size={isMobile ? 28 : 32} />
+                </div>
 
                 {/* Player column */}
                 <div style={{ minWidth:0 }}>
@@ -958,7 +992,7 @@ function PropsTable({ props, ppMap, isMobile }) {
                       </span>
                     )}
                   </div>
-                  <div style={{ fontSize:10, color:T.textMid }}>
+                  <div className="props-meta-line" style={{ fontSize:10, color:T.textMid }}>
                     {prop.marketLabel}
                     {prop.game && ` · ${prop.game.split("@")[1]?.trim() || prop.game}`}
                   </div>
@@ -1661,6 +1695,8 @@ export default function App() {
       return {
         away: away?.team?.abbreviation || "",
         home: home?.team?.abbreviation || "",
+        awayLogo: away?.team?.logo || `https://a.espncdn.com/i/teamlogos/nba/500/${(away?.team?.abbreviation||"").toLowerCase()}.png`,
+        homeLogo: home?.team?.logo || `https://a.espncdn.com/i/teamlogos/nba/500/${(home?.team?.abbreviation||"").toLowerCase()}.png`,
         awayScore: away?.score ?? "",
         homeScore: home?.score ?? "",
         tipTime: ev.date ? new Date(ev.date).toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit"}) : "",
@@ -1926,37 +1962,51 @@ export default function App() {
                 : isFinal ? "FINAL" : (g.tipTime || "");
               return (
                 <div key={i} style={{
-                  flexShrink:0, display:"flex", alignItems:"center", gap:6,
-                  padding:"0 18px", borderRight:`1px solid ${T.border}`,
-                  opacity: isFinal ? 0.4 : 1,
+                  flexShrink:0, display:"flex", alignItems:"center", gap:8,
+                  padding:"0 16px", borderRight:`1px solid ${T.border}`,
+                  opacity: isFinal ? 0.45 : 1,
                 }}>
+                  {/* Team logos column */}
+                  <div style={{ display:"flex", flexDirection:"column", gap:3, alignItems:"center" }}>
+                    {g.awayLogo
+                      ? <img src={g.awayLogo} alt={g.away} style={{ width:20, height:20, objectFit:"contain" }} onError={e=>e.target.style.display="none"} />
+                      : <div style={{ width:20, height:20 }} />}
+                    {g.homeLogo
+                      ? <img src={g.homeLogo} alt={g.home} style={{ width:20, height:20, objectFit:"contain" }} onError={e=>e.target.style.display="none"} />
+                      : <div style={{ width:20, height:20 }} />}
+                  </div>
+                  {/* Team abbrev + scores */}
                   <div style={{ display:"flex", flexDirection:"column", gap:2 }}>
                     <div style={{ display:"flex", alignItems:"center", gap:6 }}>
-                      <span style={{ fontSize:11, fontWeight:700, color:T.textMid, minWidth:26,
+                      <span style={{ fontSize:11, fontWeight:700, color:T.textMid, minWidth:28,
                         fontFamily:"'Barlow Condensed',sans-serif" }}>{g.away}</span>
                       {(isLive || isFinal) && (
-                        <span style={{ fontSize:17, fontWeight:700,
+                        <span style={{ fontSize:16, fontWeight:800,
                           color: isFinal ? T.textMid : T.text,
                           fontFamily:"'JetBrains Mono',monospace" }}>{g.awayScore}</span>
                       )}
                     </div>
                     <div style={{ display:"flex", alignItems:"center", gap:6 }}>
-                      <span style={{ fontSize:11, fontWeight:700, color:T.textMid, minWidth:26,
+                      <span style={{ fontSize:11, fontWeight:700, color:T.textMid, minWidth:28,
                         fontFamily:"'Barlow Condensed',sans-serif" }}>{g.home}</span>
                       {(isLive || isFinal) && (
-                        <span style={{ fontSize:17, fontWeight:700,
+                        <span style={{ fontSize:16, fontWeight:800,
                           color: isFinal ? T.textMid : T.text,
                           fontFamily:"'JetBrains Mono',monospace" }}>{g.homeScore}</span>
                       )}
                       {!isLive && !isFinal && g.tipTime && (
-                        <span style={{ fontSize:9, fontWeight:600, color:"#1d4ed8",
+                        <span style={{ fontSize:9, fontWeight:600, color:"#3b82f6",
                           fontFamily:"'JetBrains Mono',monospace" }}>{g.tipTime}</span>
                       )}
                     </div>
                   </div>
-                  <span style={{ fontSize:9, fontWeight:700, color:statusColor,
-                    letterSpacing:"0.06em", fontFamily:"'Barlow',sans-serif",
-                    whiteSpace:"nowrap" }}>{statusText}</span>
+                  {/* Live/status badge */}
+                  <div style={{ display:"flex", flexDirection:"column", alignItems:"flex-end", gap:1 }}>
+                    {isLive && <div style={{ width:6, height:6, borderRadius:"50%", background:T.orange, animation:"pulse 1.4s ease-in-out infinite" }} />}
+                    <span style={{ fontSize:8, fontWeight:700, color:statusColor,
+                      letterSpacing:"0.06em", fontFamily:"'Barlow',sans-serif",
+                      whiteSpace:"nowrap" }}>{statusText}</span>
+                  </div>
                 </div>
               );
             })}
@@ -2577,20 +2627,27 @@ export default function App() {
           0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(34,197,94,0.6); }
           50%       { opacity: 0.8; box-shadow: 0 0 0 5px rgba(34,197,94,0); }
         }
-        .ticker-track { animation: scrollTicker 24s linear infinite; display: flex; width: max-content; }
+        .ticker-track { animation: scrollTicker 36s linear infinite; display: flex; width: max-content; }
         .ticker-track:hover { animation-play-state: paused; }
         .play-row:hover { background: rgba(255,255,255,0.03) !important; transition: background 120ms; }
         @media (max-width: 640px) {
-          .th-type, .td-type   { display: none !important; }
-          .th-book, .td-book   { display: none !important; }
-          .th-ev,   .td-ev     { display: none !important; }
-          .sidebar-desktop     { display: none !important; }
-          .bottom-nav          { display: flex !important; }
-          .header-stats-extra  { display: none !important; }
-          .header-actions-extra { display: none !important; }
-          .filter-chip-label   { display: none !important; }
+          .th-type, .td-type     { display: none !important; }
+          .th-book, .td-book     { display: none !important; }
+          .th-ev,   .td-ev       { display: none !important; }
+          .sidebar-desktop       { display: none !important; }
+          .bottom-nav            { display: flex !important; }
+          .header-stats-extra    { display: none !important; }
+          .header-actions-extra  { display: none !important; }
+          .filter-chip-label     { display: none !important; }
+          .props-meta-line       { display: none !important; }
+        }
+        @media (max-width: 400px) {
+          .ticker-track          { animation-duration: 28s; }
         }
         @media (min-width: 641px) { .bottom-nav { display: none !important; } }
+        @media (min-width: 1280px) {
+          .ticker-track          { animation-duration: 44s; }
+        }
         ::-webkit-scrollbar { width: 3px; height: 3px; }
         ::-webkit-scrollbar-track { background: transparent; }
         ::-webkit-scrollbar-thumb { background: ${T.border}; border-radius: 2px; }
