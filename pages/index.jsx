@@ -134,6 +134,36 @@ const T = {
 };
 
 
+const LIGHT_THEME = {
+  bg:        "#f0f4f8",
+  bgAlt:     "#e8edf4",
+  surface:   "#ffffff",
+  surfaceHi: "#f1f5f9",
+  border:    "#d0dae6",
+  borderHi:  "#b8c9d9",
+  text:      "#0d1b2e",
+  textMid:   "#2a4a6b",
+  textDim:   "#5a7a99",
+  textDeep:  "#8da5bd",
+  label:     "#c5dff5",
+  blue:      "#1a5fd1",
+  blueDim:   "rgba(26,95,209,0.08)",
+  green:     "#15803d",
+  greenDim:  "rgba(21,128,61,0.06)",
+  amber:     "#b45309",
+  amberDim:  "rgba(180,83,9,0.1)",
+  red:       "#dc2626",
+  indigo:    "#4f46e5",
+  orange:    "#ea580c",
+  gold:      "#b45309",
+  goldDim:   "rgba(180,83,9,0.1)",
+  live:      "#15803d",
+  purple:    "#6d28d9",
+  purpleDim: "rgba(109,40,217,0.08)",
+  espn:      "#dc2626",
+  discord:   "#5865f2",
+};
+
 // ── Badge ─────────────────────────────────────────────────────────────────────
 const badge = (c, text) => (
   <span style={{
@@ -836,10 +866,10 @@ function HistoryRow({ h, rowIndex }) {
 
         {/* Book */}
         <div style={{ textAlign:"right" }}>
-          {h.bestBook && (
-            <span style={{ fontSize:9, color: BOOK_META[h.bestBook]?.color || T.textMid,
+          {h.bestBook && h.bestBook !== "estimated" && BOOK_META[h.bestBook] && (
+            <span style={{ fontSize:9, color: BOOK_META[h.bestBook].color,
               fontFamily:"'Barlow',system-ui,sans-serif" }}>
-              {BOOK_META[h.bestBook]?.short || h.bestBook}
+              {BOOK_META[h.bestBook].short}
             </span>
           )}
         </div>
@@ -1722,6 +1752,51 @@ export default function App() {
   const [liveBook, setLiveBook]           = useState(null);
   const [livePropCat, setLivePropCat]     = useState("All");
   const [liveRefreshTs, setLiveRefreshTs] = useState(null);
+  const [isDaytime, setIsDaytime]         = useState(false);
+
+  // Day/night theme — switches at local sunrise/sunset
+  useEffect(() => {
+    const applyTheme = (day) => {
+      Object.assign(T, day ? LIGHT_THEME : {
+        bg:"#060a14", bgAlt:"#070d1c", surface:"#070e1d", surfaceHi:"#0a1628",
+        border:"#0e1c33", borderHi:"#1a3355", text:"#f1f5f9", textMid:"#94a3b8",
+        textDim:"#475569", textDeep:"#334155", label:"#1e3a5f",
+        blue:"#1d6cf5", blueDim:"rgba(29,108,245,0.08)",
+        green:"#22c55e", greenDim:"rgba(34,197,94,0.05)",
+        amber:"#f59e0b", amberDim:"rgba(245,158,11,0.1)",
+        red:"#ef4444", indigo:"#5865f2", orange:"#f97316",
+        gold:"#f59e0b", goldDim:"rgba(245,158,11,0.1)", live:"#22c55e",
+        purple:"#6366f1", purpleDim:"rgba(99,102,241,0.08)",
+        espn:"#ef4444", discord:"#5865f2",
+      });
+      setIsDaytime(day);
+    };
+
+    const detect = async () => {
+      try {
+        const pos = await new Promise((res, rej) =>
+          navigator.geolocation.getCurrentPosition(res, rej, { timeout: 6000 })
+        );
+        const { latitude: lat, longitude: lng } = pos.coords;
+        const r = await fetch(
+          `https://api.sunrise-sunset.org/json?lat=${lat}&lng=${lng}&formatted=0`
+        );
+        const d = await r.json();
+        const now = Date.now();
+        const rise = new Date(d.results.sunrise).getTime();
+        const set  = new Date(d.results.sunset).getTime();
+        applyTheme(now >= rise && now <= set);
+      } catch {
+        // Fallback: daytime = 6am–8pm local time
+        const h = new Date().getHours();
+        applyTheme(h >= 6 && h < 20);
+      }
+    };
+
+    detect();
+    const id = setInterval(detect, 20 * 60 * 1000); // re-check every 20 min
+    return () => clearInterval(id);
+  }, []);
 
   // Sportsbook filter
   const [selectedBooks, setSelectedBooks] = useState(() => {
@@ -3169,8 +3244,8 @@ export default function App() {
               <div style={{ textAlign:"center" }}>TYPE</div>
               <div style={{ textAlign:"right" }}>ODDS</div>
               <div style={{ textAlign:"right" }}>BOOK</div>
-              <div style={{ textAlign:"right" }}>KELLY</div>
               <div style={{ textAlign:"right" }}>WAGERED</div>
+              <div style={{ textAlign:"right" }}>KELLY</div>
               <div style={{ textAlign:"right" }}>P&L</div>
             </div>
             {filteredHistory.slice().sort((a, b) => new Date(b.date) - new Date(a.date)).map((h, i) => (
@@ -3288,12 +3363,12 @@ export default function App() {
 
   const renderBottomNav = () => {
     const navItems = [
-      { icon:"⚡", label:"Plays",    value:"All" },
-      { icon:"🏀", label:"Lines",    value:"Moneyline" },
-      { icon:"🔴", label:"Live",      value:"Live" },
-      { icon:"📊", label:"History",  value:"History" },
-      { icon:"🎯", label:"Props",    value:"Props" },
-      { icon:"⚙️", label:"Settings", value:"Info" },
+      { icon:"⚡", label:"Conviction", value:"All" },
+      { icon:"📈", label:"EV Plays",   value:"Moneyline" },
+      { icon:"🎯", label:"Props",      value:"Props" },
+      { icon:"🔴", label:"Live",       value:"Live" },
+      { icon:"📊", label:"History",    value:"History" },
+      { icon:"ℹ️", label:"Info",       value:"Info" },
     ];
     return navItems.map(item => (
       <button key={item.value} onClick={() => setTab(item.value)} style={{
