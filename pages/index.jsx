@@ -1776,8 +1776,11 @@ export default function App() {
     setProjectionsLoading(true);
     fetch("/api/player-projections")
       .then(r => r.ok ? r.json() : { projections: [] })
-      .then(d => setProjections(d.projections || []))
-      .catch(() => setProjections([]))
+      .then(d => {
+        if (d.step) console.warn("[Projections] stopped at step:", d.step, d);
+        setProjections(d.projections || []);
+      })
+      .catch(e => { console.error("[Projections] fetch error:", e); setProjections([]); })
       .finally(() => setProjectionsLoading(false));
   }, [tab]); // eslint-disable-line react-hooks/exhaustive-deps
 

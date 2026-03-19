@@ -1,6 +1,6 @@
 // pages/api/player-projections.js
 // Stat projections for all players in today's NBA games.
-// ESPN scoreboard + rosters (player names/IDs) + BDL season averages (stat data).
+// ESPN rosters (parallel) + BDL per-team player lists (parallel) + BDL season averages (batched).
 
 export const config = { maxDuration: 25 };
 
@@ -19,23 +19,18 @@ async function bdlFetch(path) {
     }
     return res.json();
   } catch (e) {
-    console.warn(`[Projections] BDL fetch error: ${e.message}`);
+    console.warn(`[Projections] BDL error: ${e.message}`);
     return null;
   }
 }
 
-// Known abbreviation mismatches between ESPN and BDL
-const ESPN_ABBR_TO_BDL = {
-  "GS":   "GSW",
-  "NO":   "NOP",
-  "UTAH": "UTA",
-  "SA":   "SAS",
-  "NY":   "NYK",
-  "WSH":  "WAS",
-  "PHX":  "PHO",
+// ESPN abbreviation → BDL abbreviation for known mismatches
+const ESPN_TO_BDL = {
+  GS: "GSW", NO: "NOP", UTAH: "UTA",
+  SA: "SAS", NY: "NYK", WSH: "WAS",
 };
 
-function normStr(s) {
+function norm(s) {
   return (s || "").toLowerCase().replace(/[^a-z]/g, " ").replace(/\s+/g, " ").trim();
 }
 
@@ -43,18 +38,17 @@ export default async function handler(req, res) {
   res.setHeader("Cache-Control", "s-maxage=300, stale-while-revalidate=600");
 
   try {
-    // 1. ESPN scoreboard — all of today's games (started or not)
-    const espnRes = await fetch(
+    // ── 1. ESPN scoreboard ────────────────────────────────────────────────────
+    const sbRes = await fetch(
       "https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard",
       { cache: "no-store" }
     );
-    if (!espnRes.ok) return res.status(200).json({ projections: [], error: "ESPN scoreboard failed" });
-    const espnData = await espnRes.json();
-    const events = espnData.events || [];
-    if (!events.length) return res.status(200).json({ projections: [], noGames: true });
+    if (!sbRes.ok) return res.status(200).json({ projections: [], step: "scoreboard_fail" });
+    const sbData = await sbRes.json();
+    const events = sbData.events || [];
+    if (!events.length) return res.status(200).json({ projections: [], step: "no_games" });
 
-    // Collect teams + game labels
-    const teamsMap = {}; // espnTeamId → { id, displayName, abbreviation, gameLabel }
+    const teamsMap = {};
     for (const ev of events) {
       const comps = ev.competitions?.[0]?.competitors || [];
       const away = comps.find(c => c.homeAway === "away");
@@ -74,10 +68,9 @@ export default async function handler(req, res) {
       }
     }
     const espnTeams = Object.values(teamsMap);
-    console.log(`[Projections] ${events.length} games, ${espnTeams.length} teams`);
 
-    // 2. ESPN rosters — parallel, gives us player names + ESPN IDs for headshots
-    const espnPlayerMap = {}; // normName → { espnId, name, teamName, abbreviation, gameLabel }
+    // ── 2. ESPN rosters (parallel) ────────────────────────────────────────────
+    const espnPlayerMap = {};
     await Promise.all(espnTeams.map(async (team) => {
       try {
         const r = await fetch(
@@ -87,124 +80,111 @@ export default async function handler(req, res) {
         const d = await r.json();
         for (const a of (d.athletes || [])) {
           const name = (a.displayName || a.fullName || "").trim();
-          if (!name || !a.id) continue;
-          espnPlayerMap[normStr(name)] = {
-            espnId: a.id,
-            name,
-            teamName: team.displayName,
-            abbreviation: team.abbreviation,
-            gameLabel: team.gameLabel,
-          };
+          if (name && a.id) {
+            espnPlayerMap[norm(name)] = {
+              espnId: a.id, name,
+              teamName: team.displayName,
+              abbreviation: team.abbreviation,
+              gameLabel: team.gameLabel,
+            };
+          }
         }
       } catch {}
     }));
-    console.log(`[Projections] ${Object.keys(espnPlayerMap).length} ESPN players loaded`);
+    console.log(`[Projections] ${Object.keys(espnPlayerMap).length} ESPN players, ${espnTeams.length} teams`);
 
     if (!process.env.BALLDONTLIE_API_KEY) {
-      return res.status(200).json({ projections: [], error: "No BDL key configured" });
+      return res.status(200).json({ projections: [], step: "no_bdl_key" });
     }
 
-    // 3. BDL teams — single call, build lookup by full name + abbreviation
+    // ── 3. BDL teams — build lookup ───────────────────────────────────────────
     const bdlTeamsData = await bdlFetch("/teams?per_page=30");
     if (!bdlTeamsData?.data?.length) {
-      return res.status(200).json({ projections: [], error: "BDL teams fetch failed" });
+      return res.status(200).json({ projections: [], step: "bdl_teams_fail" });
     }
 
     const bdlTeamById = {};
-    const bdlTeamLookup = {}; // various normalized forms → bdlTeamId
+    const byNormName = {}, byAbbr = {};
     for (const t of bdlTeamsData.data) {
       bdlTeamById[t.id] = t;
-      // Full name (most reliable)
-      const fullNorm = normStr(`${t.city} ${t.name}`);
-      if (fullNorm) bdlTeamLookup[fullNorm] = t.id;
-      // BDL abbreviation
-      const bdlAbbr = (t.abbreviation || "").toLowerCase();
-      if (bdlAbbr) bdlTeamLookup[bdlAbbr] = t.id;
+      byNormName[norm(`${t.city} ${t.name}`)] = t.id;
+      if (t.abbreviation) byAbbr[t.abbreviation.toLowerCase()] = t.id;
     }
 
-    // Map ESPN teams to BDL team IDs
-    const bdlTeamIds = [];
-    const bdlTeamToEspn = {}; // bdlTeamId → espnTeam
+    // Map each ESPN team to a BDL team ID
+    const espnToBdl = {}; // espnTeamId → bdlTeamId
     for (const team of espnTeams) {
-      // Try full display name first (most reliable)
-      const fullNorm = normStr(team.displayName);
-      let bdlId = bdlTeamLookup[fullNorm];
-
-      // Fallback: translate ESPN abbreviation to BDL abbreviation
+      // 1) Full display name (most reliable)
+      let bdlId = byNormName[norm(team.displayName)];
+      // 2) ESPN abbr → known BDL abbr
       if (!bdlId) {
-        const bdlAbbr = (ESPN_ABBR_TO_BDL[team.abbreviation] || team.abbreviation || "").toLowerCase();
-        bdlId = bdlTeamLookup[bdlAbbr];
+        const mapped = (ESPN_TO_BDL[team.abbreviation] || team.abbreviation || "").toLowerCase();
+        bdlId = byAbbr[mapped];
       }
-
-      // Fallback: try city name alone
+      // 3) Any word in display name > 4 chars
       if (!bdlId) {
-        const words = fullNorm.split(" ");
-        for (const w of words) {
-          if (w.length >= 4 && bdlTeamLookup[w]) { bdlId = bdlTeamLookup[w]; break; }
+        for (const w of norm(team.displayName).split(" ")) {
+          if (w.length >= 4 && byNormName[w]) { bdlId = byNormName[w]; break; }
         }
       }
-
-      if (bdlId && !bdlTeamIds.includes(bdlId)) {
-        bdlTeamIds.push(bdlId);
-        bdlTeamToEspn[bdlId] = team;
-      } else if (!bdlId) {
-        console.warn(`[Projections] No BDL match for ESPN team: ${team.displayName} (${team.abbreviation})`);
-      }
-    }
-    console.log(`[Projections] Matched ${bdlTeamIds.length}/${espnTeams.length} teams to BDL`);
-
-    if (!bdlTeamIds.length) {
-      return res.status(200).json({ projections: [], error: "No BDL teams matched" });
+      if (bdlId) espnToBdl[team.id] = bdlId;
+      else console.warn(`[Projections] No BDL match for ${team.displayName} (${team.abbreviation})`);
     }
 
-    // 4. BDL players — paginate with per_page=100 (BDL max)
-    const teamIdsQS = bdlTeamIds.map(id => `team_ids[]=${id}`).join("&");
-    const bdlPlayers = {};
+    const uniqueBdlIds = [...new Set(Object.values(espnToBdl))];
+    console.log(`[Projections] Matched ${uniqueBdlIds.length}/${espnTeams.length} teams to BDL`);
 
-    const page1 = await bdlFetch(`/players?${teamIdsQS}&per_page=100&page=1`);
-    for (const p of (page1?.data || [])) {
-      bdlPlayers[p.id] = { ...p, bdlTeamId: p.team?.id };
+    if (!uniqueBdlIds.length) {
+      return res.status(200).json({ projections: [], step: "no_team_match" });
     }
-    // If we got a full page, fetch page 2 (handles slates with 100+ active players)
-    if ((page1?.data || []).length === 100) {
-      const page2 = await bdlFetch(`/players?${teamIdsQS}&per_page=100&page=2`);
-      for (const p of (page2?.data || [])) {
+
+    // ── 4. BDL players — one request per team (parallel, definitely supported) ──
+    const playerResults = await Promise.all(
+      uniqueBdlIds.map(bdlTeamId =>
+        bdlFetch(`/players?team_ids[]=${bdlTeamId}&per_page=100`)
+      )
+    );
+
+    const bdlPlayers = {}; // bdlPlayerId → player object
+    for (const result of playerResults) {
+      for (const p of (result?.data || [])) {
         bdlPlayers[p.id] = { ...p, bdlTeamId: p.team?.id };
       }
     }
     console.log(`[Projections] ${Object.keys(bdlPlayers).length} BDL players`);
 
-    const allBdlIds = Object.keys(bdlPlayers).map(Number);
-    if (!allBdlIds.length) {
-      return res.status(200).json({ projections: [], error: "BDL returned no players" });
+    if (!Object.keys(bdlPlayers).length) {
+      return res.status(200).json({ projections: [], step: "no_bdl_players", teamsMatched: uniqueBdlIds.length });
     }
 
-    // 5. BDL season averages — parallel chunks of 50
-    const now = new Date();
-    const seasonYear = now.getMonth() >= 9 ? now.getFullYear() : now.getFullYear() - 1;
+    // ── 5. BDL season averages (parallel chunks of 50) ───────────────────────
+    const allBdlPlayerIds = Object.keys(bdlPlayers).map(Number);
+    const seasonYear = (() => {
+      const d = new Date();
+      return d.getMonth() >= 9 ? d.getFullYear() : d.getFullYear() - 1;
+    })();
 
     const chunks = [];
-    for (let i = 0; i < allBdlIds.length; i += 50) chunks.push(allBdlIds.slice(i, i + 50));
+    for (let i = 0; i < allBdlPlayerIds.length; i += 50) chunks.push(allBdlPlayerIds.slice(i, i + 50));
 
-    const avgResults = await Promise.all(
-      chunks.map(chunk => {
-        const qs = chunk.map(id => `player_ids[]=${id}`).join("&");
-        return bdlFetch(`/season_averages?season=${seasonYear}&${qs}`);
-      })
+    const avgData = await Promise.all(
+      chunks.map(chunk => bdlFetch(`/season_averages?season=${seasonYear}&${chunk.map(id => `player_ids[]=${id}`).join("&")}`))
     );
 
-    const seasonAverages = {};
-    for (const result of avgResults) {
-      for (const avg of (result?.data || [])) {
-        seasonAverages[avg.player_id] = avg;
-      }
+    const seasonAvg = {};
+    for (const d of avgData) {
+      for (const a of (d?.data || [])) seasonAvg[a.player_id] = a;
     }
-    console.log(`[Projections] ${Object.keys(seasonAverages).length} season avg records`);
+    console.log(`[Projections] ${Object.keys(seasonAvg).length} season avg records (season=${seasonYear})`);
 
-    // 6. Build projections
+    if (!Object.keys(seasonAvg).length) {
+      return res.status(200).json({ projections: [], step: "no_season_avgs", season: seasonYear, players: allBdlPlayerIds.length });
+    }
+
+    // ── 6. Build projection rows ──────────────────────────────────────────────
     const projections = [];
-    for (const [bdlIdStr, p] of Object.entries(bdlPlayers)) {
-      const avg = seasonAverages[parseInt(bdlIdStr)];
+    for (const [idStr, p] of Object.entries(bdlPlayers)) {
+      const avg = seasonAvg[parseInt(idStr)];
       if (!avg) continue;
 
       const pts = +(parseFloat(avg.pts)  || 0).toFixed(1);
@@ -214,50 +194,35 @@ export default async function handler(req, res) {
       const min = +(parseFloat(avg.min)  || 0).toFixed(1);
       const pra = +(pts + reb + ast).toFixed(1);
 
-      if (pts < 1 && reb < 0.5 && ast < 0.3) continue; // skip bench/DNP
+      if (pts < 1 && reb < 0.5 && ast < 0.3) continue;
       if (min < 5) continue;
 
-      const bdlFullName = `${p.first_name} ${p.last_name}`;
-      const normBdl = normStr(bdlFullName);
-      let espnInfo = espnPlayerMap[normBdl];
-      if (!espnInfo) {
-        // fuzzy: last name + first initial
-        const lastNorm = normStr(p.last_name);
-        const firstInit = (p.first_name || "")[0]?.toLowerCase();
-        const match = Object.entries(espnPlayerMap).find(([k]) =>
-          k.includes(lastNorm) && (firstInit ? k.startsWith(firstInit) : true)
-        );
-        espnInfo = match?.[1];
+      const bdlName = `${p.first_name} ${p.last_name}`;
+      let espn = espnPlayerMap[norm(bdlName)];
+      if (!espn) {
+        const last = norm(p.last_name), fi = (p.first_name || "")[0]?.toLowerCase();
+        espn = Object.entries(espnPlayerMap)
+          .find(([k]) => k.includes(last) && (fi ? k.startsWith(fi) : true))?.[1];
       }
 
       const bdlTeam = bdlTeamById[p.bdlTeamId];
-      const espnTeam = bdlTeamToEspn[p.bdlTeamId];
-      const teamName = bdlTeam ? `${bdlTeam.city} ${bdlTeam.name}` : (espnTeam?.displayName || "");
-      const abbreviation = bdlTeam?.abbreviation || espnTeam?.abbreviation || espnInfo?.abbreviation || "";
-      const gameLabel = espnInfo?.gameLabel || espnTeam?.gameLabel || "";
-
       projections.push({
-        player: espnInfo?.name || bdlFullName,
-        team: teamName,
-        abbreviation,
-        espnPlayerId: espnInfo?.espnId || null,
-        gameLabel,
-        projPts: pts,
-        projReb: reb,
-        projAst: ast,
-        projTpm: tpm,
-        projPra: pra,
-        min,
-        gp: avg.games_played || 0,
+        player: espn?.name || bdlName,
+        team: bdlTeam ? `${bdlTeam.city} ${bdlTeam.name}` : (espn?.teamName || ""),
+        abbreviation: bdlTeam?.abbreviation || espn?.abbreviation || "",
+        espnPlayerId: espn?.espnId || null,
+        gameLabel: espn?.gameLabel || "",
+        projPts: pts, projReb: reb, projAst: ast, projTpm: tpm, projPra: pra,
+        min, gp: avg.games_played || 0,
       });
     }
 
     projections.sort((a, b) => b.projPra - a.projPra);
     console.log(`[Projections] Returning ${projections.length} projections`);
 
-    return res.status(200).json({ projections, gamesCount: events.length });
+    return res.status(200).json({ projections, gamesCount: events.length, season: seasonYear });
   } catch (e) {
-    console.error("[PlayerProjections] fatal error:", e);
+    console.error("[PlayerProjections] fatal:", e);
     return res.status(500).json({ error: e.message, projections: [] });
   }
 }
