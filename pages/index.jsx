@@ -904,6 +904,99 @@ function PlayerAvatar({ espnId, name, size = 32 }) {
   );
 }
 
+// Projection table — all players in today's games ranked by season averages
+function ProjectionsTable({ projections, propCat, isMobile }) {
+  if (!projections.length) return null;
+
+  const SORT_KEY = {
+    "All":      "projPra",
+    "Points":   "projPts",
+    "Rebounds": "projReb",
+    "Assists":  "projAst",
+    "3PM":      "projTpm",
+    "PRA":      "projPra",
+  };
+  const sortKey = SORT_KEY[propCat] || "projPra";
+  const sorted = [...projections].sort((a, b) => (b[sortKey] || 0) - (a[sortKey] || 0));
+
+  const hdr = {
+    fontSize: 9, color: T.textDim, fontWeight: 700,
+    letterSpacing: "0.12em", textTransform: "uppercase", textAlign: "center",
+  };
+
+  const cols = isMobile
+    ? "44px 1fr 52px 52px 52px"
+    : "44px 1fr 64px 64px 64px 64px 72px";
+
+  const statCell = (val, isHighlight) => ({
+    fontSize: 12, fontWeight: 700,
+    fontFamily: "'JetBrains Mono',monospace",
+    color: isHighlight ? T.blue : T.textMid,
+    textAlign: "center",
+  });
+
+  return (
+    <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 14, overflow: "hidden" }}>
+      <div style={{ overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
+        <div style={{ minWidth: isMobile ? 360 : 620 }}>
+          {/* Header */}
+          <div style={{
+            display: "grid", gridTemplateColumns: cols,
+            padding: "9px 14px", borderBottom: `1px solid ${T.border}`,
+            background: T.bg,
+          }}>
+            <div />
+            <div style={{ ...hdr, textAlign: "left" }}>Player</div>
+            <div style={{ ...hdr, color: sortKey === "projPts" ? T.blue : T.textDim }}>PTS</div>
+            <div style={{ ...hdr, color: sortKey === "projReb" ? T.blue : T.textDim }}>REB</div>
+            <div style={{ ...hdr, color: sortKey === "projAst" ? T.blue : T.textDim }}>AST</div>
+            {!isMobile && <div style={{ ...hdr, color: sortKey === "projTpm" ? T.blue : T.textDim }}>3PM</div>}
+            <div style={{ ...hdr, color: sortKey === "projPra" ? T.blue : T.textDim }}>PRA</div>
+          </div>
+
+          {/* Rows */}
+          {sorted.map((p, i) => (
+            <div key={`${p.player}-${i}`} style={{
+              display: "grid", gridTemplateColumns: cols,
+              padding: "10px 14px",
+              borderBottom: i < sorted.length - 1 ? `1px solid ${T.border}` : "none",
+              alignItems: "center",
+            }}>
+              {/* Avatar */}
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "center" }}>
+                <PlayerAvatar espnId={p.espnPlayerId} name={p.player} size={isMobile ? 28 : 32} />
+              </div>
+
+              {/* Player / team / game */}
+              <div style={{ minWidth: 0 }}>
+                <div style={{
+                  fontSize: 13, fontWeight: 700, color: T.text,
+                  overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                }}>{p.player}</div>
+                <div className="props-meta-line" style={{ fontSize: 10, color: T.textMid, marginTop: 1 }}>
+                  {p.abbreviation || p.team.split(" ").slice(-1)[0]}
+                  {p.gameLabel ? ` · ${p.gameLabel}` : ""}
+                </div>
+              </div>
+
+              {/* Stats */}
+              <div style={statCell(p.projPts, sortKey === "projPts")}>{p.projPts}</div>
+              <div style={statCell(p.projReb, sortKey === "projReb")}>{p.projReb}</div>
+              <div style={statCell(p.projAst, sortKey === "projAst")}>{p.projAst}</div>
+              {!isMobile && <div style={statCell(p.projTpm, sortKey === "projTpm")}>{p.projTpm}</div>}
+              <div style={{
+                ...statCell(p.projPra, sortKey === "projPra"),
+                fontWeight: 800,
+                color: sortKey === "projPra" ? T.blue : T.text,
+              }}>{p.projPra}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // Grid-based data-dense layout — Bloomberg terminal aesthetic
 // UI/UX: 36px row height, semantic color per value, overflow-x-auto on mobile
 function PropsTable({ props, ppMap, isMobile }) {
@@ -1612,6 +1705,8 @@ export default function App() {
   const [propMarketFilter, setPropMarketFilter] = useState("all");
   const [propSort, setPropSort] = useState("conviction");
   const [scoresData, setScoresData] = useState([]);
+  const [projections, setProjections] = useState([]);
+  const projectionsRef = useRef(false);
 
   // New UI state for redesign
   const [expandedId, setExpandedId] = useState(null);
@@ -1674,6 +1769,16 @@ export default function App() {
     const id = setInterval(fetchPortfolio, 60000);
     return () => clearInterval(id);
   }, [fetchPortfolio]);
+
+  // Fetch player projections once on mount (5-min cached by API)
+  useEffect(() => {
+    if (projectionsRef.current) return;
+    projectionsRef.current = true;
+    fetch("/api/player-projections")
+      .then(r => r.ok ? r.json() : { projections: [] })
+      .then(d => setProjections(d.projections || []))
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     const parseScores = (d) => (d.events || []).map(ev => {
@@ -2333,6 +2438,12 @@ export default function App() {
   const renderLegacyPropsContent = () => {
     if (tab !== "Props") return null;
     const displayProps = allPropsDisplay;
+    const useProjections = displayProps.length === 0 && projections.length > 0;
+    const displayCount = useProjections ? projections.length : displayProps.length;
+    const subtitle = useProjections
+      ? `${displayCount} players · season avg projections`
+      : `${displayCount} player${displayCount !== 1 ? "s" : ""} · ranked by hit likelihood`;
+
     return (
       <div>
         {/* Prop category filter */}
@@ -2346,20 +2457,22 @@ export default function App() {
               fontFamily:"'Barlow',sans-serif",
             }}>{cat}</button>
           ))}
-          {displayProps.length > 0 && (
+          {displayCount > 0 && (
             <span style={{ marginLeft:"auto", fontSize:10, color:T.textDim,
               fontFamily:"'Barlow',sans-serif" }}>
-              {displayProps.length} player{displayProps.length !== 1 ? "s" : ""} · ranked by hit likelihood
+              {subtitle}
             </span>
           )}
         </div>
         {displayProps.length > 0 ? (
           <PropsTable props={displayProps} ppMap={prizePicksMap} isMobile={isMobile} />
+        ) : useProjections ? (
+          <ProjectionsTable projections={projections} propCat={propCat} isMobile={isMobile} />
         ) : (
           <div style={{ textAlign:"center", padding:"40px 20px", color:T.textDim }}>
             <div style={{ fontSize:24, marginBottom:8 }}>🎯</div>
             <div style={{ fontSize:12, color:T.textMid }}>
-              {data ? "No prop lines available yet — engine runs every 5 min" : "Loading…"}
+              {data ? "Loading player projections…" : "Loading…"}
             </div>
           </div>
         )}
