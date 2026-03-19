@@ -815,7 +815,7 @@ function HistoryRow({ h, rowIndex }) {
         display:"grid",
         gridTemplateColumns:"48px 80px 1fr 52px 70px 80px 60px 72px 80px",
         gap:8, padding:"10px 18px", alignItems:"center",
-        fontSize:11,
+        fontSize:11, minWidth:680,
       }}>
         {/* Status dot + label */}
         <div style={{ display:"flex", alignItems:"center", gap:4 }}>
@@ -884,7 +884,7 @@ function HistoryRow({ h, rowIndex }) {
         <div style={{ textAlign:"right" }}>
           {h.kellyPct != null ? (
             <span style={{ fontSize:10, color:T.amber, fontFamily:"'JetBrains Mono',monospace" }}>
-              {(h.kellyPct * 100).toFixed(1)}%
+              {h.kellyPct.toFixed(1)}%
             </span>
           ) : <span style={{ color:T.textDim }}>—</span>}
         </div>
@@ -2359,7 +2359,28 @@ export default function App() {
       </div>
     );
   };
+  const renderEVPlaysContent = () => {
+    const evBets = (data?.currentBets || []).filter(bookVisible).sort((a, b) => (b.edge || 0) - (a.edge || 0));
+    if (!evBets.length) return (
+      <div style={{ padding:"40px 24px", textAlign:"center", color:T.textDim }}>
+        <div style={{ fontSize:40, marginBottom:12 }}>📈</div>
+        <div style={{ fontSize:16, color:T.textMid, fontWeight:600 }}>No EV plays right now</div>
+        <div style={{ fontSize:12, marginTop:6 }}>Engine next runs at {getNextRunTime()}</div>
+      </div>
+    );
+    return (
+      <div style={{ padding:"12px 16px", display:"flex", flexDirection:"column", gap:10 }}>
+        {evBets.map((bet, i) => (
+          <EVBetCard key={bet.id || i} bet={bet}
+            expanded={expandedEvRows[i]}
+            onExpand={() => setExpandedEvRows(p => ({ ...p, [i]: !p[i] }))} />
+        ))}
+      </div>
+    );
+  };
+
   const renderContent = () => {
+    if (tab === "Moneyline") return renderEVPlaysContent();
     if (tab === "Props")   return renderPropsTab();
     if (tab === "History") return renderHistoryTab();
     if (tab === "Info")    return renderInfoTab();
@@ -3228,29 +3249,32 @@ export default function App() {
           </div>
         ) : (
           <div style={{ background:T.surface, border:`1px solid ${T.border}`, borderRadius:10, overflow:"hidden" }}>
-            {/* Blotter header */}
-            <div style={{
-              display:"grid",
-              gridTemplateColumns:"48px 80px 1fr 52px 70px 80px 60px 72px 80px",
-              gap:8, padding:"10px 18px",
-              borderBottom:`1px solid ${T.border}`,
-              background:T.bg,
-              fontSize:9, color:T.textDim, fontWeight:700, letterSpacing:"0.1em",
-              fontFamily:"'Barlow',sans-serif",
-            }}>
-              <div>STATUS</div>
-              <div>DATE</div>
-              <div>SELECTION</div>
-              <div style={{ textAlign:"center" }}>TYPE</div>
-              <div style={{ textAlign:"right" }}>ODDS</div>
-              <div style={{ textAlign:"right" }}>BOOK</div>
-              <div style={{ textAlign:"right" }}>WAGERED</div>
-              <div style={{ textAlign:"right" }}>KELLY</div>
-              <div style={{ textAlign:"right" }}>P&L</div>
+            <div style={{ overflowX:"auto" }}>
+              {/* Blotter header */}
+              <div style={{
+                display:"grid",
+                gridTemplateColumns:"48px 80px 1fr 52px 70px 80px 60px 72px 80px",
+                gap:8, padding:"10px 18px",
+                borderBottom:`1px solid ${T.border}`,
+                background:T.bg,
+                fontSize:9, color:T.textDim, fontWeight:700, letterSpacing:"0.1em",
+                fontFamily:"'Barlow',sans-serif",
+                minWidth:680,
+              }}>
+                <div>STATUS</div>
+                <div>DATE</div>
+                <div>SELECTION</div>
+                <div style={{ textAlign:"center" }}>TYPE</div>
+                <div style={{ textAlign:"right" }}>ODDS</div>
+                <div style={{ textAlign:"right" }}>BOOK</div>
+                <div style={{ textAlign:"right" }}>WAGERED</div>
+                <div style={{ textAlign:"right" }}>KELLY</div>
+                <div style={{ textAlign:"right" }}>P&L</div>
+              </div>
+              {filteredHistory.slice().sort((a, b) => new Date(b.date) - new Date(a.date)).map((h, i) => (
+                <HistoryRow key={h.id || i} h={h} rowIndex={i} />
+              ))}
             </div>
-            {filteredHistory.slice().sort((a, b) => new Date(b.date) - new Date(a.date)).map((h, i) => (
-              <HistoryRow key={h.id || i} h={h} rowIndex={i} />
-            ))}
           </div>
         )}
       </div>
