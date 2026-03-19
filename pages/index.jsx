@@ -1717,6 +1717,11 @@ export default function App() {
   const [evPlusFilter, setEvPlusFilter] = useState(false);
   const [crossConfirmedFilter, setCrossConfirmedFilter] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const [liveData, setLiveData]           = useState(null);
+  const [liveLoading, setLiveLoading]     = useState(false);
+  const [liveBook, setLiveBook]           = useState(null);
+  const [livePropCat, setLivePropCat]     = useState("All");
+  const [liveRefreshTs, setLiveRefreshTs] = useState(null);
 
   // Sportsbook filter
   const [selectedBooks, setSelectedBooks] = useState(() => {
@@ -1782,6 +1787,26 @@ export default function App() {
       })
       .catch(e => { console.error("[Projections] fetch error:", e); setProjections([]); })
       .finally(() => setProjectionsLoading(false));
+  }, [tab]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (tab !== "Live") return;
+    let cancelled = false;
+    const fetchLive = () => {
+      fetch("/api/live-games")
+        .then(r => r.ok ? r.json() : { games: [], books: [] })
+        .then(d => {
+          if (cancelled) return;
+          setLiveData(d);
+          setLiveRefreshTs(new Date());
+          setLiveLoading(false);
+        })
+        .catch(() => { if (!cancelled) setLiveLoading(false); });
+    };
+    setLiveLoading(true);
+    fetchLive();
+    const id = setInterval(fetchLive, 30000);
+    return () => { cancelled = true; clearInterval(id); };
   }, [tab]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
@@ -2131,6 +2156,7 @@ export default function App() {
       { label:"Spread",    value:"Spread",     icon:"SPR" },
       { label:"Total",     value:"Game Total", icon:"TOT" },
       { label:"Props",     value:"Props",      icon:"🎯" },
+      { label:"Live",      value:"Live",       icon:"🔴" },
       { label:"History",   value:"History",    icon:"📊" },
       { label:"Info",      value:"Info",       icon:"ℹ" },
     ];
@@ -2436,6 +2462,398 @@ export default function App() {
     );
   };
 
+  const renderLiveTab = () => {
+  if (tab !== "Live") return null;
+
+  const games = liveData?.games || [];
+  const books = liveData?.books || [];
+  const activeBook = liveBook || books[0] || null;
+
+  const CAT_SORT = {
+    All: "pra", Points: "pts", Rebounds: "reb",
+    Assists: "ast", "3PM": "tpm", PRA: "pra",
+  };
+
+  const allPlayers = games.flatMap(g =>
+    (g.players || []).map(p => ({ ...p, gameStatus: g.status, gameLabel: `${g.away.abbr} @ ${g.home.abbr}` }))
+  );
+  const sortKey = CAT_SORT[livePropCat] || "pra";
+  const sortedPlayers = [...allPlayers].sort((a, b) => {
+    const av = a.proj?.[sortKey] ?? a.live?.[sortKey === "pra" ? "pts" : sortKey] ?? 0;
+    const bv = b.proj?.[sortKey] ?? b.live?.[sortKey === "pra" ? "pts" : sortKey] ?? 0;
+    return bv - av;
+  });
+
+  const edgeColor = (pct) => {
+    if (pct == null) return T.textDim;
+    if (pct >= 5) return "#22c55e";
+    if (pct >= 2) return "#84cc16";
+    if (pct <= -2) return "#ef4444";
+    return "#6b7280";
+  };
+
+  return (
+    <div style={{ flex: 1, overflowY: "auto", padding: "16px" }}>
+
+      {books.length > 0 && (
+        <div style={{ display:"flex", alignItems:"center", gap:6, marginBottom:14, flexWrap:"wrap" }}>
+          <span style={{ fontSize:9, fontWeight:700, color:T.textDeep, letterSpacing:"0.1em",
+            textTransform:"uppercase", fontFamily:"'Barlow',sans-serif" }}>Book</span>
+          {books.map(bk => {
+            const meta = BOOK_META[bk] || { short: bk.slice(0,3).toUpperCase(), color: T.textDim };
+            const active = bk === activeBook;
+            return (
+              <button key={bk} onClick={() => setLiveBook(bk)} style={{
+                padding:"4px 10px", borderRadius:4,
+                fontSize:11, fontWeight:600,
+                background: active ? `${meta.color}18` : T.surface,
+                border: `1px solid ${active ? meta.color : T.border}`,
+                color: active ? meta.color : T.textDim,
+                cursor:"pointer", transition:"all 0.12s",
+                fontFamily:"'Barlow',sans-serif",
+              }}>{meta.short || meta.label}</button>
+            );
+          })}
+        </div>
+      )}
+
+      {liveLoading && !liveData && (
+        <div style={{ textAlign:"center", padding:"40px 0", color:T.textDim, fontSize:13 }}>
+          Loading live games…
+        </div>
+      )}
+      {!liveLoading && games.length === 0 && (
+        <div style={{ textAlign:"center", padding:"40px 0" }}>
+          <div style={{ fontSize:13, color:T.textDim, marginBottom:6 }}>No games today</div>
+          <div style={{ fontSize:11, color:T.textDeep }}>Check back on a game day</div>
+        </div>
+      )}
+
+      {games.length > 0 && (
+        <>
+          <div style={{ fontSize:9, fontWeight:700, color:T.textDeep, letterSpacing:"0.12em",
+            textTransform:"uppercase", display:"flex", alignItems:"center", gap:8,
+            marginBottom:10, fontFamily:"'Barlow',sans-serif" }}>
+            Games
+            <div style={{ flex:1, height:1, background:T.border }} />
+            {liveRefreshTs && (
+              <span style={{ fontSize:9, color:T.textDeep, fontFamily:"'JetBrains Mono',monospace", fontWeight:400 }}>
+                ⟳ {Math.round((Date.now() - liveRefreshTs) / 1000)}s ago
+              </span>
+            )}
+          </div>
+
+          {games.map(game => {
+            const bkLines = activeBook ? game.lines?.[activeBook] : null;
+            const algo = game.algo;
+            const edge = game.edge;
+            const liveGame = game.status.live;
+            const finalGame = game.status.final;
+            let totalEdgePts = null;
+            if (algo?.predictedTotal && bkLines?.total) {
+              totalEdgePts = +(algo.predictedTotal - bkLines.total).toFixed(1);
+            }
+
+            return (
+              <div key={game.id} style={{
+                background: T.surface,
+                border: `1px solid ${liveGame ? "#22c55e22" : T.border}`,
+                borderRadius:10, marginBottom:12, overflow:"hidden",
+              }}>
+                <div style={{ padding:"12px 14px 10px" }}>
+                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:10 }}>
+                    {liveGame ? (
+                      <span style={{ background:"#7f1d1d", color:"#fca5a5", fontSize:9, fontWeight:700,
+                        padding:"2px 7px", borderRadius:3, letterSpacing:"0.06em",
+                        display:"inline-block" }}>
+                        ● LIVE{game.status.period ? ` Q${game.status.period}` : ""}
+                        {game.status.displayClock ? ` ${game.status.displayClock}` : ""}
+                      </span>
+                    ) : finalGame ? (
+                      <span style={{ background:T.surfaceHi, color:T.textDim, fontSize:9,
+                        fontWeight:700, padding:"2px 7px", borderRadius:3 }}>FINAL</span>
+                    ) : (
+                      <span style={{ background:"#1a2540", color:"#60a5fa", fontSize:9,
+                        fontWeight:700, padding:"2px 7px", borderRadius:3 }}>
+                        {game.date ? new Date(game.date).toLocaleTimeString("en-US",
+                          { hour:"numeric", minute:"2-digit", timeZoneName:"short" }) : "Upcoming"}
+                      </span>
+                    )}
+                  </div>
+
+                  <div style={{ display:"flex", alignItems:"center" }}>
+                    <div style={{ flex:1 }}>
+                      <div style={{ fontSize:16, fontWeight:800, color:T.text, letterSpacing:"0.04em",
+                        fontFamily:"'Barlow',sans-serif" }}>{game.away.abbr}</div>
+                      {game.away.score != null && (
+                        <div style={{ fontSize:26, fontWeight:900, color:"#fff",
+                          fontFamily:"'JetBrains Mono',monospace", lineHeight:1 }}>{game.away.score}</div>
+                      )}
+                      <div style={{ fontSize:9, color:T.textDeep, marginTop:2 }}>
+                        {game.away.record} · Away
+                      </div>
+                    </div>
+                    <div style={{ color:T.border, fontSize:13, padding:"0 12px" }}>@</div>
+                    <div style={{ flex:1, textAlign:"right" }}>
+                      <div style={{ fontSize:16, fontWeight:800, color:T.text, letterSpacing:"0.04em",
+                        fontFamily:"'Barlow',sans-serif" }}>{game.home.abbr}</div>
+                      {game.home.score != null && (
+                        <div style={{ fontSize:26, fontWeight:900, color:"#fff",
+                          fontFamily:"'JetBrains Mono',monospace", lineHeight:1 }}>{game.home.score}</div>
+                      )}
+                      <div style={{ fontSize:9, color:T.textDeep, marginTop:2 }}>
+                        Away · {game.home.record}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {(bkLines || algo) && (
+                  <div style={{ background:T.bg, borderTop:`1px solid ${T.border}`, padding:"10px 14px 12px" }}>
+                    <div style={{ display:"grid", gridTemplateColumns:"1fr auto 1fr", marginBottom:8 }}>
+                      <div style={{ fontSize:9, fontWeight:700, color:T.textDeep, letterSpacing:"0.08em",
+                        textTransform:"uppercase", fontFamily:"'Barlow',sans-serif" }}>
+                        {activeBook ? (BOOK_META[activeBook]?.label || activeBook) : "Book"} Lines
+                      </div>
+                      <div style={{ fontSize:9, fontWeight:700, color:"#ca8a04", letterSpacing:"0.08em",
+                        textTransform:"uppercase", fontFamily:"'Barlow',sans-serif",
+                        padding:"0 20px", textAlign:"center" }}>Edge</div>
+                      <div style={{ fontSize:9, fontWeight:700, color:"#a78bfa", letterSpacing:"0.08em",
+                        textTransform:"uppercase", fontFamily:"'Barlow',sans-serif", textAlign:"right" }}>
+                        Algo Prediction
+                      </div>
+                    </div>
+
+                    <div style={{ display:"grid", gridTemplateColumns:"1fr auto 1fr", gap:0, alignItems:"start" }}>
+                      {/* Book lines */}
+                      <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+                        <div>
+                          <div style={{ fontSize:9, color:T.textDeep, textTransform:"uppercase",
+                            letterSpacing:"0.06em", marginBottom:2 }}>Moneyline</div>
+                          {bkLines?.ml != null ? (
+                            <>
+                              <div style={{ fontSize:13, fontWeight:700, color:T.text,
+                                fontFamily:"'JetBrains Mono',monospace" }}>
+                                {bkLines.ml > 0 ? `+${bkLines.ml}` : bkLines.ml}
+                              </div>
+                              <div style={{ fontSize:10, color:T.textDim, fontFamily:"'JetBrains Mono',monospace" }}>
+                                {game.home.abbr}
+                              </div>
+                            </>
+                          ) : <div style={{ fontSize:11, color:T.textDeep }}>—</div>}
+                        </div>
+                        {bkLines?.spread != null && (
+                          <div>
+                            <div style={{ fontSize:9, color:T.textDeep, textTransform:"uppercase",
+                              letterSpacing:"0.06em", marginBottom:2 }}>Spread</div>
+                            <div style={{ fontSize:13, fontWeight:700, color:T.text,
+                              fontFamily:"'JetBrains Mono',monospace" }}>
+                              {bkLines.spread > 0 ? `+${bkLines.spread}` : bkLines.spread}
+                            </div>
+                            <div style={{ fontSize:10, color:T.textDim, fontFamily:"'JetBrains Mono',monospace" }}>
+                              {game.home.abbr}
+                            </div>
+                          </div>
+                        )}
+                        {bkLines?.total != null && (
+                          <div>
+                            <div style={{ fontSize:9, color:T.textDeep, textTransform:"uppercase",
+                              letterSpacing:"0.06em", marginBottom:2 }}>Over/Under</div>
+                            <div style={{ fontSize:13, fontWeight:700, color:T.text,
+                              fontFamily:"'JetBrains Mono',monospace" }}>{bkLines.total}</div>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Edge */}
+                      <div style={{ display:"flex", flexDirection:"column", gap:8, alignItems:"center",
+                        padding:"0 12px", borderLeft:`1px solid ${T.border}`, borderRight:`1px solid ${T.border}`,
+                        margin:"0 8px", minWidth:68 }}>
+                        <div style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:2 }}>
+                          <div style={{ fontSize:8, fontWeight:700, color:T.textDeep,
+                            letterSpacing:"0.08em", textTransform:"uppercase" }}>ML</div>
+                          {edge?.ml?.pct != null ? (
+                            <>
+                              <div style={{ fontSize:15, fontWeight:900, fontFamily:"'JetBrains Mono',monospace",
+                                color: edgeColor(edge.ml.pct), lineHeight:1 }}>
+                                {edge.ml.pct > 0 ? "+" : ""}{edge.ml.pct.toFixed(1)}%
+                              </div>
+                              <div style={{ fontSize:9, fontWeight:700, padding:"1px 5px", borderRadius:3,
+                                background: edge.ml.pct >= 2 ? "#14532d" : edge.ml.pct <= -2 ? "#450a0a" : T.surfaceHi,
+                                color: edge.ml.pct >= 2 ? "#4ade80" : edge.ml.pct <= -2 ? "#f87171" : T.textDim }}>
+                                {edge.ml.label}
+                              </div>
+                            </>
+                          ) : <div style={{ fontSize:11, color:T.textDeep }}>—</div>}
+                        </div>
+
+                        {algo?.predictedSpread != null && bkLines?.spread != null && (
+                          <div style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:2 }}>
+                            <div style={{ fontSize:8, fontWeight:700, color:T.textDeep,
+                              letterSpacing:"0.08em", textTransform:"uppercase" }}>SPR</div>
+                            <div style={{ fontSize:15, fontWeight:900, fontFamily:"'JetBrains Mono',monospace",
+                              color: edgeColor((algo.predictedSpread - bkLines.spread) * -5), lineHeight:1 }}>
+                              {(algo.predictedSpread - bkLines.spread) > 0 ? "+" : ""}
+                              {(algo.predictedSpread - bkLines.spread).toFixed(1)}
+                            </div>
+                            <div style={{ fontSize:9, fontWeight:700, padding:"1px 5px", borderRadius:3,
+                              background: algo.predictedSpread < bkLines.spread ? "#14532d"
+                                : algo.predictedSpread > bkLines.spread ? "#450a0a" : T.surfaceHi,
+                              color: algo.predictedSpread < bkLines.spread ? "#4ade80"
+                                : algo.predictedSpread > bkLines.spread ? "#f87171" : T.textDim }}>
+                              {algo.predictedSpread < bkLines.spread ? "COVER"
+                                : algo.predictedSpread > bkLines.spread ? "AVOID" : "PUSH"}
+                            </div>
+                          </div>
+                        )}
+
+                        {totalEdgePts != null && (
+                          <div style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:2 }}>
+                            <div style={{ fontSize:8, fontWeight:700, color:T.textDeep,
+                              letterSpacing:"0.08em", textTransform:"uppercase" }}>TOT</div>
+                            <div style={{ fontSize:15, fontWeight:900, fontFamily:"'JetBrains Mono',monospace",
+                              color: edgeColor(totalEdgePts * 2), lineHeight:1 }}>
+                              {totalEdgePts > 0 ? "+" : ""}{totalEdgePts}
+                            </div>
+                            <div style={{ fontSize:9, fontWeight:700, padding:"1px 5px", borderRadius:3,
+                              background: totalEdgePts > 1 ? "#14532d" : totalEdgePts < -1 ? "#450a0a" : T.surfaceHi,
+                              color: totalEdgePts > 1 ? "#4ade80" : totalEdgePts < -1 ? "#f87171" : T.textDim }}>
+                              {totalEdgePts > 1 ? "OVER" : totalEdgePts < -1 ? "UNDER" : "PUSH"}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Algo predictions */}
+                      <div style={{ display:"flex", flexDirection:"column", gap:8, alignItems:"flex-end" }}>
+                        <div style={{ textAlign:"right" }}>
+                          <div style={{ fontSize:9, color:T.textDeep, textTransform:"uppercase",
+                            letterSpacing:"0.06em", marginBottom:2 }}>Predicted ML</div>
+                          {algo?.predictedHomeML ? (
+                            <>
+                              <div style={{ fontSize:13, fontWeight:700, color:"#a78bfa",
+                                fontFamily:"'JetBrains Mono',monospace" }}>
+                                {algo.predictedHomeML > 0 ? `+${algo.predictedHomeML}` : algo.predictedHomeML}
+                              </div>
+                              <div style={{ fontSize:10, color:T.textDim, fontFamily:"'JetBrains Mono',monospace" }}>
+                                {algo.homeWinProb?.toFixed(1)}% win prob
+                              </div>
+                            </>
+                          ) : <div style={{ fontSize:11, color:T.textDeep }}>—</div>}
+                        </div>
+                        {algo?.predictedSpread != null && (
+                          <div style={{ textAlign:"right" }}>
+                            <div style={{ fontSize:9, color:T.textDeep, textTransform:"uppercase",
+                              letterSpacing:"0.06em", marginBottom:2 }}>Predicted Spread</div>
+                            <div style={{ fontSize:13, fontWeight:700, color:"#a78bfa",
+                              fontFamily:"'JetBrains Mono',monospace" }}>
+                              {algo.predictedSpread > 0 ? `+${algo.predictedSpread}` : algo.predictedSpread}
+                            </div>
+                            <div style={{ fontSize:10, color:T.textDim, fontFamily:"'JetBrains Mono',monospace" }}>
+                              {game.home.abbr} avg margin
+                            </div>
+                          </div>
+                        )}
+                        {algo?.predictedTotal && (
+                          <div style={{ textAlign:"right" }}>
+                            <div style={{ fontSize:9, color:T.textDeep, textTransform:"uppercase",
+                              letterSpacing:"0.06em", marginBottom:2 }}>Predicted Total</div>
+                            <div style={{ fontSize:13, fontWeight:700, color:"#a78bfa",
+                              fontFamily:"'JetBrains Mono',monospace" }}>{algo.predictedTotal}</div>
+                            <div style={{ fontSize:10, color:T.textDim, fontFamily:"'JetBrains Mono',monospace" }}>
+                              pace-adjusted
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+
+          <div style={{ fontSize:9, fontWeight:700, color:T.textDeep, letterSpacing:"0.12em",
+            textTransform:"uppercase", display:"flex", alignItems:"center", gap:8,
+            marginBottom:10, marginTop:16, fontFamily:"'Barlow',sans-serif" }}>
+            Player Projections · Live
+            <div style={{ flex:1, height:1, background:T.border }} />
+          </div>
+
+          <div style={{ display:"flex", gap:4, marginBottom:10, flexWrap:"wrap" }}>
+            {["All","Points","Rebounds","Assists","3PM","PRA"].map(cat => (
+              <button key={cat} onClick={() => setLivePropCat(cat)} style={{
+                padding:"4px 10px", borderRadius:4, fontSize:10, fontWeight:600, cursor:"pointer",
+                background: cat === livePropCat ? `${T.blue}20` : T.surface,
+                border: `1px solid ${cat === livePropCat ? T.blue : T.border}`,
+                color: cat === livePropCat ? T.blue : T.textDim,
+                fontFamily:"'Barlow',sans-serif", transition:"all 0.12s",
+              }}>{cat}</button>
+            ))}
+          </div>
+
+          {sortedPlayers.length === 0 ? (
+            <div style={{ textAlign:"center", padding:"24px 0", color:T.textDim, fontSize:12 }}>
+              {games.some(g => g.status.live) ? "Loading player stats…" : "Player stats available once games start"}
+            </div>
+          ) : (
+            <div style={{ background:T.surface, border:`1px solid ${T.border}`, borderRadius:8, overflow:"hidden" }}>
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 44px 44px 44px 44px 52px",
+                gap:4, padding:"7px 12px", background:T.bg, borderBottom:`1px solid ${T.border}` }}>
+                {["Player","PTS","REB","AST","3PM"].map(h => (
+                  <div key={h} style={{ fontSize:9, fontWeight:700, color:T.textDeep,
+                    letterSpacing:"0.08em", textTransform:"uppercase", fontFamily:"'Barlow',sans-serif",
+                    textAlign: h === "Player" ? "left" : "right" }}>{h}</div>
+                ))}
+                <div style={{ fontSize:9, fontWeight:700, color:T.blue, letterSpacing:"0.08em",
+                  textTransform:"uppercase", fontFamily:"'Barlow',sans-serif", textAlign:"right" }}>PRA ▾</div>
+              </div>
+              {sortedPlayers.slice(0, 30).map((p, i) => (
+                <div key={`${p.name}-${i}`} style={{
+                  display:"grid", gridTemplateColumns:"1fr 44px 44px 44px 44px 52px",
+                  gap:4, padding:"8px 12px",
+                  borderBottom: i < Math.min(sortedPlayers.length, 30) - 1 ? `1px solid ${T.border}20` : "none",
+                  alignItems:"center",
+                }}>
+                  <div>
+                    <div style={{ fontSize:12, color:T.text, fontWeight:600, fontFamily:"'Barlow',sans-serif" }}>
+                      {p.name}
+                    </div>
+                    <div style={{ fontSize:10, color:T.textDim }}>
+                      {p.teamAbbr}
+                      {p.gameStatus.live && (
+                        <span style={{ color:"#22c55e", marginLeft:4, fontSize:9 }}>● LIVE</span>
+                      )}
+                    </div>
+                  </div>
+                  {["pts","reb","ast","tpm"].map(stat => (
+                    <div key={stat} style={{ textAlign:"right" }}>
+                      <div style={{ fontSize:12, color:T.text, fontFamily:"'JetBrains Mono',monospace" }}>
+                        {p.live[stat] ?? "—"}
+                      </div>
+                      {p.proj?.[stat] != null && (
+                        <div style={{ fontSize:9, color:"#16a34a", fontFamily:"'JetBrains Mono',monospace" }}>
+                          →{p.proj[stat]}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                  <div style={{ textAlign:"right", fontSize:13, fontWeight:700, color:T.blue,
+                    fontFamily:"'JetBrains Mono',monospace" }}>
+                    {(p.proj?.pra ?? ((p.live.pts || 0) + (p.live.reb || 0) + (p.live.ast || 0))) || "—"}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+
+      <style>{`@keyframes livePulse { 0%,100%{opacity:1} 50%{opacity:0.55} }`}</style>
+    </div>
+  );
+};
+
   const renderPropsTab = () => <div style={{ padding:20 }}>{renderLegacyPropsContent()}</div>;
   const renderHistoryTab = () => renderLegacyHistoryContent();
   const renderInfoTab = () => <div style={{ padding:20 }}>{renderLegacyInfoContent()}</div>;
@@ -2699,6 +3117,7 @@ export default function App() {
     const navItems = [
       { icon:"⚡", label:"Plays",    value:"All" },
       { icon:"🏀", label:"Lines",    value:"Moneyline" },
+      { icon:"🔴", label:"Live",      value:"Live" },
       { icon:"📊", label:"History",  value:"History" },
       { icon:"🎯", label:"Props",    value:"Props" },
       { icon:"⚙️", label:"Settings", value:"Info" },
