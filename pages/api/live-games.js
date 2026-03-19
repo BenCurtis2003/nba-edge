@@ -1,7 +1,7 @@
 // pages/api/live-games.js
 export const config = { maxDuration: 25 };
 
-import { getConvictionPlays, getCurrentBets } from "../../lib/store";
+import { getConvictionPlays, getCurrentBets, getAllProps } from "../../lib/store";
 
 const BDL_BASE = "https://api.balldontlie.io/v1";
 
@@ -235,10 +235,29 @@ export default async function handler(req, res) {
   res.setHeader("Cache-Control", "s-maxage=25, stale-while-revalidate=30");
 
   try {
-    const [games, algoMap] = await Promise.all([
+    const [games, algoMap, allPropsKv] = await Promise.all([
       fetchScoreboard(),
       buildAlgoMap(),
+      getAllProps(),
     ]);
+
+    // Build prop lines lookup: normName → statKey → { line, side }
+    const MARKET_TO_STAT = {
+      player_points: "pts", player_rebounds: "reb", player_assists: "ast",
+      player_threes: "tpm", player_points_rebounds_assists: "pra",
+    };
+    const propLinesMap = {};
+    for (const prop of (allPropsKv || [])) {
+      const k = norm(prop.player || "");
+      if (!propLinesMap[k]) propLinesMap[k] = {};
+      const statKey = MARKET_TO_STAT[prop.market];
+      if (statKey && prop.line != null) {
+        // prefer Over side; don't overwrite if same stat already stored
+        if (!propLinesMap[k][statKey] || prop.side === "Over") {
+          propLinesMap[k][statKey] = { line: prop.line, side: prop.side };
+        }
+      }
+    }
 
     if (!games.length) {
       return res.status(200).json({ games: [], books: [], lastUpdated: new Date().toISOString() });
@@ -343,6 +362,7 @@ export default async function handler(req, res) {
           const pra = proj
             ? +((proj.pts || 0) + (proj.reb || 0) + (proj.ast || 0)).toFixed(1)
             : null;
+          const propLines = propLinesMap[norm(ep.name)] || {};
           return {
             name: ep.name,
             espnId: ep.espnId,
@@ -350,6 +370,7 @@ export default async function handler(req, res) {
             live: ep.live,
             season: avg || null,
             proj: proj ? { ...proj, pra } : null,
+            propLines,
           };
         })
         .filter(p => p.live.min > 0 || p.live.pts > 0)

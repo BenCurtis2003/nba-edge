@@ -2851,6 +2851,93 @@ export default function App() {
                     )}
                   </div>
                 )}
+
+                {/* Player Props vs Algo — per-game 3-column comparison */}
+                {(() => {
+                  const propStatKey = { All:"pts", Points:"pts", Rebounds:"reb", Assists:"ast", "3PM":"tpm", PRA:"pra" }[livePropCat] || "pts";
+                  const propLabel = { pts:"PTS", reb:"REB", ast:"AST", tpm:"3PM", pra:"PRA" }[propStatKey];
+                  const playersWithProps = (game.players || [])
+                    .filter(p => p.propLines?.[propStatKey] != null && p.proj?.[propStatKey] != null)
+                    .slice(0, isMobile ? 5 : 7);
+                  if (!playersWithProps.length) return null;
+                  return (
+                    <div style={{ background:T.bg, borderTop:`1px solid ${T.border}`,
+                      padding: isMobile ? "8px 12px 10px" : "10px 14px 12px" }}>
+                      {/* Column headers */}
+                      <div style={{ display:"grid", gridTemplateColumns: isMobile ? "1fr auto 60px" : "1fr auto 1fr",
+                        marginBottom:6 }}>
+                        <div style={{ fontSize:9, fontWeight:700, color:T.textDeep, letterSpacing:"0.08em",
+                          textTransform:"uppercase", fontFamily:"'Barlow',sans-serif" }}>
+                          Player · Book {propLabel}
+                        </div>
+                        <div style={{ fontSize:9, fontWeight:700, color:"#ca8a04", letterSpacing:"0.08em",
+                          textTransform:"uppercase", fontFamily:"'Barlow',sans-serif",
+                          padding:"0 10px", textAlign:"center" }}>Edge</div>
+                        <div style={{ fontSize:9, fontWeight:700, color:"#a78bfa", letterSpacing:"0.08em",
+                          textTransform:"uppercase", fontFamily:"'Barlow',sans-serif", textAlign:"right" }}>Algo</div>
+                      </div>
+                      {playersWithProps.map((p, i) => {
+                        const propLine = p.propLines[propStatKey];
+                        const algoVal = p.proj[propStatKey];
+                        const edgePts = algoVal != null ? +(algoVal - propLine.line).toFixed(1) : null;
+                        const isOver = edgePts != null && edgePts >= 0.5;
+                        const isUnder = edgePts != null && edgePts <= -0.5;
+                        const dispName = isMobile
+                          ? p.name.split(" ").map((w,wi) => wi === 0 ? w[0]+"." : w).join(" ")
+                          : p.name;
+                        return (
+                          <div key={p.name} style={{ display:"grid",
+                            gridTemplateColumns: isMobile ? "1fr auto 60px" : "1fr auto 1fr",
+                            gap:0, alignItems:"center",
+                            padding: isMobile ? "6px 0" : "7px 0",
+                            borderTop: i > 0 ? `1px solid ${T.border}20` : "none" }}>
+                            <div>
+                              <div style={{ fontSize: isMobile ? 11 : 12, fontWeight:600, color:T.text,
+                                fontFamily:"'Barlow',sans-serif",
+                                whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>
+                                {dispName}
+                              </div>
+                              <div style={{ fontSize: isMobile ? 12 : 13, fontWeight:700, color:T.text,
+                                fontFamily:"'JetBrains Mono',monospace" }}>
+                                {propLine.line}
+                                <span style={{ color:T.textDim, fontSize:10, marginLeft:3 }}>
+                                  {propLine.side === "Over" ? "O" : "U"}
+                                </span>
+                              </div>
+                            </div>
+                            <div style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:2,
+                              padding:"0 8px", borderLeft:`1px solid ${T.border}`,
+                              borderRight:`1px solid ${T.border}`, margin:"0 6px", minWidth:52 }}>
+                              {edgePts != null ? (
+                                <>
+                                  <div style={{ fontSize: isMobile ? 13 : 15, fontWeight:900,
+                                    fontFamily:"'JetBrains Mono',monospace",
+                                    color: edgeColor(edgePts * 3), lineHeight:1 }}>
+                                    {edgePts > 0 ? "+" : ""}{edgePts}
+                                  </div>
+                                  <div style={{ fontSize:8, fontWeight:700, padding:"1px 4px", borderRadius:3,
+                                    background: isOver ? "#14532d" : isUnder ? "#450a0a" : T.surfaceHi,
+                                    color: isOver ? "#4ade80" : isUnder ? "#f87171" : T.textDim }}>
+                                    {isOver ? "OVER" : isUnder ? "UNDER" : "PUSH"}
+                                  </div>
+                                </>
+                              ) : <div style={{ fontSize:11, color:T.textDeep }}>—</div>}
+                            </div>
+                            <div style={{ textAlign:"right" }}>
+                              <div style={{ fontSize: isMobile ? 13 : 14, fontWeight:700, color:"#a78bfa",
+                                fontFamily:"'JetBrains Mono',monospace" }}>
+                                {algoVal ?? "—"}
+                              </div>
+                              <div style={{ fontSize:9, color:T.textDim, fontFamily:"'JetBrains Mono',monospace" }}>
+                                proj
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })()}
               </div>
             );
           })}
