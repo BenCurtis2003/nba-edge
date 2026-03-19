@@ -138,15 +138,10 @@ export default async function handler(req, res) {
       return res.status(200).json({ projections: [], step: "no_team_match" });
     }
 
-    // ── 4. BDL players — one request per team (parallel, definitely supported) ──
-    const playerResults = await Promise.all(
-      uniqueBdlIds.map(bdlTeamId =>
-        bdlFetch(`/players?team_ids[]=${bdlTeamId}&per_page=100`)
-      )
-    );
-
-    const bdlPlayers = {}; // bdlPlayerId → player object
-    for (const result of playerResults) {
+    // ── 4. BDL players — one request per team, sequential to respect rate limit ──
+    const bdlPlayers = {};
+    for (const bdlTeamId of uniqueBdlIds) {
+      const result = await bdlFetch(`/players?team_ids[]=${bdlTeamId}&per_page=100`);
       for (const p of (result?.data || [])) {
         bdlPlayers[p.id] = { ...p, bdlTeamId: p.team?.id };
       }
@@ -157,23 +152,24 @@ export default async function handler(req, res) {
       return res.status(200).json({ projections: [], step: "no_bdl_players", teamsMatched: uniqueBdlIds.length });
     }
 
-    // ── 5. BDL season averages (parallel chunks of 50) ───────────────────────
+    // ── 5. BDL season averages — one player_id per request (proven pattern),  ──
+    //       parallel batches of 8 to stay well within 60 req/min               ──
     const allBdlPlayerIds = Object.keys(bdlPlayers).map(Number);
     const seasonYear = (() => {
       const d = new Date();
       return d.getMonth() >= 9 ? d.getFullYear() : d.getFullYear() - 1;
     })();
 
-    const chunks = [];
-    for (let i = 0; i < allBdlPlayerIds.length; i += 50) chunks.push(allBdlPlayerIds.slice(i, i + 50));
-
-    const avgData = await Promise.all(
-      chunks.map(chunk => bdlFetch(`/season_averages?season=${seasonYear}&${chunk.map(id => `player_ids[]=${id}`).join("&")}`))
-    );
-
     const seasonAvg = {};
-    for (const d of avgData) {
-      for (const a of (d?.data || [])) seasonAvg[a.player_id] = a;
+    const BATCH = 8;
+    for (let i = 0; i < allBdlPlayerIds.length; i += BATCH) {
+      const batch = allBdlPlayerIds.slice(i, i + BATCH);
+      const results = await Promise.all(
+        batch.map(id => bdlFetch(`/season_averages?season=${seasonYear}&player_ids[]=${id}`))
+      );
+      for (const r of results) {
+        for (const a of (r?.data || [])) seasonAvg[a.player_id] = a;
+      }
     }
     console.log(`[Projections] ${Object.keys(seasonAvg).length} season avg records (season=${seasonYear})`);
 
