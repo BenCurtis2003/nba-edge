@@ -1706,7 +1706,7 @@ export default function App() {
   const [propSort, setPropSort] = useState("conviction");
   const [scoresData, setScoresData] = useState([]);
   const [projections, setProjections] = useState([]);
-  const projectionsRef = useRef(false);
+  const [projectionsLoading, setProjectionsLoading] = useState(false);
 
   // New UI state for redesign
   const [expandedId, setExpandedId] = useState(null);
@@ -1770,15 +1770,16 @@ export default function App() {
     return () => clearInterval(id);
   }, [fetchPortfolio]);
 
-  // Fetch player projections once on mount (5-min cached by API)
+  // Fetch player projections when Props tab becomes active (API is 5-min cached)
   useEffect(() => {
-    if (projectionsRef.current) return;
-    projectionsRef.current = true;
+    if (tab !== "Props" || projections.length > 0 || projectionsLoading) return;
+    setProjectionsLoading(true);
     fetch("/api/player-projections")
       .then(r => r.ok ? r.json() : { projections: [] })
       .then(d => setProjections(d.projections || []))
-      .catch(() => {});
-  }, []);
+      .catch(() => setProjections([]))
+      .finally(() => setProjectionsLoading(false));
+  }, [tab]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     const parseScores = (d) => (d.events || []).map(ev => {
@@ -2472,7 +2473,7 @@ export default function App() {
           <div style={{ textAlign:"center", padding:"40px 20px", color:T.textDim }}>
             <div style={{ fontSize:24, marginBottom:8 }}>🎯</div>
             <div style={{ fontSize:12, color:T.textMid }}>
-              {data ? "Loading player projections…" : "Loading…"}
+              {projectionsLoading ? "Fetching player projections…" : "No projections available"}
             </div>
           </div>
         )}
