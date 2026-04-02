@@ -3084,7 +3084,7 @@ export default function App() {
     if (bkLines?.ml != null || algo?.predictedHomeML) {
       const mPct = edge?.ml?.pct ?? null;
       const mAbsPct = mPct != null ? Math.abs(mPct) : null;
-      const mTeam = mPct == null ? null : mPct < 0 ? game.home.abbr : mPct > 0 ? game.away.abbr : null;
+      const mTeam = mPct == null ? null : mPct > 0 ? game.home.abbr : mPct < 0 ? game.away.abbr : null;
       rows.push({ label:"ML", bookVal: fmtOddsLive(bkLines?.ml), bookSub: game.home.abbr,
         edgePct: mAbsPct,
         edgeLabel: mTeam ? `${mTeam} EDGE` : mPct === 0 ? "NO EDGE" : null,
@@ -3213,17 +3213,31 @@ export default function App() {
               totalEdgePts = +(algo.predictedTotal - bkLines.total).toFixed(1);
             }
 
-            // ML edge: negative pct = home team advantage; positive pct = away team advantage
+            // ML edge: positive pct = home team advantage; negative pct = away team advantage
+            // Formula: (algo_homeWinProb/100 - book_impliedHomeProb) * 100
             const mlEdgePct = edge?.ml?.pct ?? null;
             const mlEdgeAbsPct = mlEdgePct != null ? Math.abs(mlEdgePct) : null;
             const mlEdgeTeam = mlEdgePct == null ? null
-              : mlEdgePct < 0 ? game.home.abbr
-              : mlEdgePct > 0 ? game.away.abbr
+              : mlEdgePct > 0 ? game.home.abbr
+              : mlEdgePct < 0 ? game.away.abbr
               : null; // 0 = no edge
             const mlEdgeWinProb = mlEdgePct == null ? null
-              : mlEdgePct < 0 ? algo?.homeWinProb
-              : mlEdgePct > 0 && algo?.homeWinProb != null ? (100 - algo.homeWinProb)
+              : mlEdgePct > 0 ? algo?.homeWinProb
+              : mlEdgePct < 0 && algo?.homeWinProb != null ? (100 - algo.homeWinProb)
               : null;
+            // Book ML for the edge team; away ML derived from home ML (approx)
+            const _homeML = bkLines?.ml ?? null;
+            let _awayML = null;
+            if (_homeML != null) {
+              const hp = _homeML > 0 ? 100/(_homeML+100) : (-_homeML)/(-_homeML+100);
+              const ap = 1 - hp;
+              _awayML = ap >= 0.5 ? Math.round(-(ap/(1-ap))*100) : Math.round(((1-ap)/ap)*100);
+            }
+            const betML = mlEdgeTeam == null ? null : mlEdgePct > 0 ? _homeML : _awayML;
+            // "Take at or better" = algo fair value ML for the edge team
+            const takeAtML = mlEdgeTeam == null ? null
+              : mlEdgePct > 0 ? (algo?.predictedHomeML ?? null)
+              : (algo?.predictedAwayML ?? null);
 
             return (
               <div key={game.id} style={{
@@ -3370,28 +3384,35 @@ export default function App() {
                           </div>
                           <div style={{ display:"flex", flexDirection:"column", gap:8, alignItems:"center",
                             padding:"0 12px", borderLeft:`1px solid ${T.border}`, borderRight:`1px solid ${T.border}`,
-                            margin:"0 8px", minWidth:68 }}>
-                            <div style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:2 }}>
+                            margin:"0 8px", minWidth:160 }}>
+                            <div style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:2, width:"100%" }}>
                               <div style={{ fontSize:8, fontWeight:700, color:T.textDeep,
                                 letterSpacing:"0.08em", textTransform:"uppercase" }}>ML</div>
                               {mlEdgePct != null ? (
                                 mlEdgeTeam ? (
-                                  <>
-                                    <div style={{ fontSize:15, fontWeight:900, fontFamily:"'JetBrains Mono',monospace",
-                                      color:"#22c55e", lineHeight:1 }}>
-                                      +{mlEdgeAbsPct.toFixed(1)}%
+                                  <div style={{
+                                    marginTop:4, padding:"10px 14px", borderRadius:8,
+                                    background:"rgba(0,214,143,0.04)",
+                                    border:"1px solid rgba(0,214,143,0.15)",
+                                    borderLeft:"3px solid #22c55e",
+                                    display:"flex", flexDirection:"column", alignItems:"center", gap:5,
+                                    textAlign:"center", width:"100%",
+                                  }}>
+                                    <div style={{ fontSize:16, fontWeight:800, color:"#22c55e",
+                                      fontFamily:"'JetBrains Mono',monospace", lineHeight:1, whiteSpace:"nowrap" }}>
+                                      <span style={{ fontSize:18, color:"#4ade80" }}>✓</span>{" "}BET {mlEdgeTeam} ML{betML != null ? ` ${fmtOddsLive(betML)}` : ""}
                                     </div>
-                                    <div style={{ fontSize:9, fontWeight:700, padding:"1px 5px", borderRadius:3,
-                                      background:"#14532d", color:"#4ade80" }}>
-                                      {mlEdgeTeam} EDGE
+                                    <div style={{ fontSize:11, color:T.textMid, fontFamily:"'JetBrains Mono',monospace",
+                                      whiteSpace:"nowrap" }}>
+                                      Edge: +{mlEdgeAbsPct.toFixed(1)}%{mlEdgeWinProb != null ? `  ·  Win Prob: ${mlEdgeWinProb.toFixed(1)}%` : ""}
                                     </div>
-                                    {mlEdgeWinProb != null && (
-                                      <div style={{ fontSize:11, color:T.textMid, fontFamily:"'JetBrains Mono',monospace",
-                                        marginTop:2, whiteSpace:"nowrap" }}>
-                                        {mlEdgeTeam} {mlEdgeWinProb.toFixed(1)}% win prob
+                                    {takeAtML != null && (
+                                      <div style={{ fontSize:11, color:"#f5a623", fontFamily:"'JetBrains Mono',monospace",
+                                        whiteSpace:"nowrap" }}>
+                                        Take at {fmtOddsLive(takeAtML)} or better
                                       </div>
                                     )}
-                                  </>
+                                  </div>
                                 ) : (
                                   <div style={{ fontSize:9, fontWeight:700, padding:"1px 5px", borderRadius:3,
                                     background:T.surfaceHi, color:T.textDim }}>NO EDGE</div>
