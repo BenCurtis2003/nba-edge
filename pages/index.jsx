@@ -111,8 +111,8 @@ const T = {
   borderHi:  "#1a3355",
   text:      "#f1f5f9",
   textMid:   "#94a3b8",
-  textDim:   "#475569",
-  textDeep:  "#334155",
+  textDim:   "#8aafd4",
+  textDeep:  "#7a9bbd",
   label:     "#1e3a5f",
   blue:      "#1d6cf5",
   blueDim:   "rgba(29,108,245,0.08)",
@@ -306,6 +306,86 @@ function GetAtOrBetter({ value, color = T.gold }) {
   );
 }
 
+// ── Get At Or Better Block — type-aware ───────────────────────────────────────
+function GetAtOrBetterBlock({ play, accentColor }) {
+  const bt = play.betType || play.type || "Moneyline";
+  const accent = accentColor || T.gold;
+
+  const parseSpread = () => {
+    const m = (play.selection || "").match(/([+-]?\d+\.?\d*)\s*$/);
+    return m ? parseFloat(m[1]) : null;
+  };
+  const parseTotal = () => {
+    const m = (play.selection || "").match(/(\d+\.?\d*)/);
+    const side = /under/i.test(play.selection || "") ? "Under" : "Over";
+    return m ? { line: parseFloat(m[1]), side } : null;
+  };
+
+  let label, value, sublabel, threshold = null;
+
+  if (bt === "Moneyline") {
+    if (play.getAtOrBetter == null) return null;
+    label = "GET AT OR BETTER";
+    value = fmtOdds(play.getAtOrBetter);
+    sublabel = "Minimum payout — walk away if odds are worse than this";
+  } else if (bt === "Spread") {
+    const sp = parseSpread();
+    if (sp == null) return null;
+    const spFmt = `${sp > 0 ? "+" : ""}${sp}`;
+    const better = sp < 0 ? `${(sp + 0.5).toFixed(1)}` : `+${(sp + 0.5).toFixed(1)}`;
+    label = "GET AT OR BETTER";
+    value = spFmt;
+    sublabel = sp < 0
+      ? `Max coverage — avoid more than ${spFmt} pts. Shop for ${better} or closer to 0.`
+      : `Min cushion — avoid less than ${spFmt} pts. Shop for ${better} or more.`;
+    threshold = play.getAtOrBetter;
+  } else if (bt === "Game Total") {
+    const tot = parseTotal();
+    if (!tot) return null;
+    const betterVal = tot.side === "Over"
+      ? `${(tot.line - 0.5).toFixed(1)}`
+      : `${(tot.line + 0.5).toFixed(1)}`;
+    label = tot.side === "Over" ? "GET AT OR LOWER (OVER)" : "GET AT OR HIGHER (UNDER)";
+    value = `${tot.line}`;
+    sublabel = tot.side === "Over"
+      ? `Lower total = easier to hit. Shop for ${betterVal} or lower.`
+      : `Higher total = easier to hit. Shop for ${betterVal} or higher.`;
+    threshold = play.getAtOrBetter;
+  } else if (bt === "Player Prop" || bt === "Props" || play.isProp) {
+    const propLine = play.line;
+    const side = play.side || (/under/i.test(play.selection || "") ? "Under" : "Over");
+    if (propLine == null) return null;
+    label = side === "Over" ? "MAX LINE (GET AT OR LOWER)" : "MIN LINE (GET AT OR HIGHER)";
+    value = `${propLine}`;
+    sublabel = side === "Over"
+      ? `Don't take this prop if the line is higher than ${propLine}.`
+      : `Don't take this prop if the line is lower than ${propLine}.`;
+    threshold = play.getAtOrBetter;
+  } else {
+    return null;
+  }
+
+  return (
+    <div style={{ padding:"8px 10px", borderRadius:6, marginBottom:8,
+      background:`${accent}08`, border:`1px solid ${accent}22` }}>
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:3 }}>
+        <span style={{ fontSize:8, color:T.textDim, fontWeight:700, letterSpacing:"0.1em",
+          fontFamily:"'Barlow',system-ui,sans-serif" }}>{label}</span>
+        <span style={{ fontSize:14, fontWeight:700, color:accent,
+          fontFamily:"'JetBrains Mono',monospace" }}>{value}</span>
+      </div>
+      <div style={{ fontSize:9, color:T.textDeep, fontFamily:"'Barlow',sans-serif" }}>
+        {sublabel}
+      </div>
+      {threshold != null && bt !== "Moneyline" && (
+        <div style={{ fontSize:9, color:T.textDeep, fontFamily:"'Barlow',sans-serif", marginTop:2 }}>
+          Juice threshold: {fmtOdds(threshold)} or better
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Value Quality Signal ──────────────────────────────────────────────────────
 function ValueQualityTag({ bestOdds, getAtOrBetter }) {
   if (bestOdds == null || getAtOrBetter == null) return null;
@@ -461,17 +541,7 @@ function ConvictionCard({ play, expanded, onExpand }) {
           </div>
         )}
 
-        {/* Get At Or Better — compact single line */}
-        {play.getAtOrBetter != null && (
-          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center",
-            padding:"6px 10px", borderRadius:6, marginBottom:8,
-            background:`${T.gold}08`, border:`1px solid ${T.gold}22` }}>
-            <span style={{ fontSize:8, color:T.textDim, fontWeight:700, letterSpacing:"0.1em",
-              fontFamily:"'Barlow',system-ui,sans-serif" }}>GET AT OR BETTER</span>
-            <span style={{ fontSize:14, fontWeight:700, color:T.gold,
-              fontFamily:"'JetBrains Mono',monospace" }}>{fmtOdds(play.getAtOrBetter)}</span>
-          </div>
-        )}
+        <GetAtOrBetterBlock play={play} accentColor={T.gold} />
 
         {/* Expanded: full book table + signals */}
         {expanded && play.signals && (
@@ -580,17 +650,7 @@ function EVBetCard({ bet, expanded, onExpand }) {
           </div>
         )}
 
-        {/* Get At Or Better — compact */}
-        {bet.getAtOrBetter != null && (
-          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center",
-            padding:"6px 10px", borderRadius:6, marginBottom:8,
-            background:`${T.green}08`, border:`1px solid ${T.green}22` }}>
-            <span style={{ fontSize:8, color:T.textDim, fontWeight:700, letterSpacing:"0.1em",
-              fontFamily:"'Barlow',system-ui,sans-serif" }}>GET AT OR BETTER</span>
-            <span style={{ fontSize:14, fontWeight:700, color:T.green,
-              fontFamily:"'JetBrains Mono',monospace" }}>{fmtOdds(bet.getAtOrBetter)}</span>
-          </div>
-        )}
+        <GetAtOrBetterBlock play={bet} accentColor={T.green} />
 
         {/* Expanded */}
         {expanded && (
@@ -793,15 +853,82 @@ function BDLContextPanel({ context, play }) {
 }
 
 // ── History Row — trading blotter style ──────────────────────────────────────
-function HistoryRow({ h, rowIndex }) {
+function HistoryRow({ h, rowIndex, isMobile }) {
   const isWon = h.status === "won";
   const isLost = h.status === "lost";
   const isPending = h.status === "pending";
   const pnl = isWon ? h.potentialPayout : isLost ? -h.wagerAmt : null;
   const accent = isWon ? T.green : isLost ? T.red : isPending ? T.gold : T.textDim;
-  const btype = h.betType || h.type || "";
   const statusLabel = isWon ? (h.estimatedResult ? "WIN~" : "WIN") : isLost ? (h.estimatedResult ? "LOSS~" : "LOSS") : isPending ? "PEND" : "VOID";
 
+  // ── Mobile card layout ───────────────────────────────────────────────────────
+  if (isMobile) {
+    return (
+      <div style={{
+        borderBottom:`1px solid ${T.border}`,
+        background: (rowIndex % 2 === 0) ? T.surface : T.bg,
+        padding:"11px 16px",
+      }}>
+        {/* Line 1: status dot + status label + selection name + type badge */}
+        <div style={{ display:"flex", alignItems:"center", gap:6, marginBottom:3 }}>
+          <div style={{ width:5, height:5, borderRadius:"50%", background:accent, flexShrink:0 }}/>
+          <span style={{ fontSize:8, fontWeight:800, color:accent, letterSpacing:"0.06em",
+            fontFamily:"'Barlow',sans-serif", flexShrink:0 }}>{statusLabel}</span>
+          <span style={{ fontSize:12, fontWeight:700, color:T.text, flex:1,
+            overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap",
+            fontFamily:"'Barlow',sans-serif" }}>
+            {h.selection?.replace(/ ML$/i,"")?.replace(/ Moneyline$/i,"")}
+          </span>
+          <span style={{ fontSize:8, fontWeight:700, padding:"1px 5px", borderRadius:3, flexShrink:0,
+            color: h.isConviction ? T.purple : T.green,
+            background: h.isConviction ? `${T.purple}12` : `${T.green}12`,
+            border:`1px solid ${h.isConviction ? T.purple : T.green}33`,
+            fontFamily:"'Barlow',sans-serif" }}>
+            {h.isConviction ? "CONV" : "+EV"}
+          </span>
+        </div>
+        {/* Line 2: date + game */}
+        <div style={{ fontSize:9, color:T.textDim, marginBottom:6,
+          fontFamily:"'JetBrains Mono',monospace",
+          overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
+          {new Date(h.date).toLocaleDateString("en-US",{month:"short",day:"numeric"})}
+          {h.game ? ` · ${h.game}` : ""}
+        </div>
+        {/* Line 3: odds / book / wagered / kelly on left, P&L on right */}
+        <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+          <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+            {h.bestOdds ? (
+              <span style={{ fontSize:11, fontWeight:700,
+                color: h.bestOdds < 0 ? T.blue : T.gold,
+                fontFamily:"'JetBrains Mono',monospace" }}>{fmtOdds(h.bestOdds)}</span>
+            ) : null}
+            {(() => {
+              const bk = (h.bestBook && h.bestBook !== "estimated" && BOOK_META[h.bestBook]) ? h.bestBook : "draftkings";
+              const est = bk === "draftkings" && (!h.bestBook || h.bestBook === "estimated" || !BOOK_META[h.bestBook]);
+              return <span style={{ fontSize:9, color: est ? T.textMid : BOOK_META[bk].color,
+                fontFamily:"'Barlow',sans-serif" }}>{BOOK_META[bk].short}</span>;
+            })()}
+            <span style={{ fontSize:9, color:T.textMid,
+              fontFamily:"'JetBrains Mono',monospace" }}>{fmt$(h.wagerAmt)}</span>
+            {h.kellyPct != null && (
+              <span style={{ fontSize:9, color:T.amber,
+                fontFamily:"'JetBrains Mono',monospace" }}>{h.kellyPct.toFixed(1)}%</span>
+            )}
+          </div>
+          {pnl !== null ? (
+            <span style={{ fontSize:13, fontWeight:800, color:accent,
+              fontFamily:"'JetBrains Mono',monospace" }}>
+              {pnl > 0 ? "+" : ""}{fmt$(pnl)}
+            </span>
+          ) : (
+            <span style={{ fontSize:10, color:T.textDim }}>—</span>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // ── Desktop table row ────────────────────────────────────────────────────────
   return (
     <div style={{
       borderBottom:`1px solid ${T.border}`,
@@ -866,12 +993,12 @@ function HistoryRow({ h, rowIndex }) {
 
         {/* Book */}
         <div style={{ textAlign:"right" }}>
-          {h.bestBook && h.bestBook !== "estimated" && BOOK_META[h.bestBook] && (
-            <span style={{ fontSize:9, color: BOOK_META[h.bestBook].color,
-              fontFamily:"'Barlow',system-ui,sans-serif" }}>
-              {BOOK_META[h.bestBook].short}
-            </span>
-          )}
+          {(() => {
+            const bk = (h.bestBook && h.bestBook !== "estimated" && BOOK_META[h.bestBook]) ? h.bestBook : "draftkings";
+            const est = bk === "draftkings" && (!h.bestBook || h.bestBook === "estimated" || !BOOK_META[h.bestBook]);
+            return <span style={{ fontSize:9, color: est ? T.textMid : BOOK_META[bk].color,
+              fontFamily:"'Barlow',system-ui,sans-serif" }}>{BOOK_META[bk].short}</span>;
+          })()}
         </div>
 
         {/* Wagered */}
@@ -935,8 +1062,10 @@ function PlayerAvatar({ espnId, name, size = 32 }) {
 }
 
 // Projection table — all players in today's games ranked by season averages
-function ProjectionsTable({ projections, propCat, isMobile }) {
+function ProjectionsTable({ projections, propCat, isMobile, propLinesMap }) {
   if (!projections.length) return null;
+
+  const normStr = s => (s || "").toLowerCase().replace(/[^a-z]/g, " ").replace(/\s+/g, " ").trim();
 
   const SORT_KEY = {
     "All":      "projPra",
@@ -946,7 +1075,17 @@ function ProjectionsTable({ projections, propCat, isMobile }) {
     "3PM":      "projTpm",
     "PRA":      "projPra",
   };
+  // Which prop stat key to compare against for line/edge
+  const STAT_KEY = { "All":"pra", "Points":"pts", "Rebounds":"reb", "Assists":"ast", "3PM":"tpm", "PRA":"pra" };
+  const PROJ_FIELD = { pts:"projPts", reb:"projReb", ast:"projAst", tpm:"projTpm", pra:"projPra" };
+
   const sortKey = SORT_KEY[propCat] || "projPra";
+  const statKey = STAT_KEY[propCat] || "pra";
+  const projField = PROJ_FIELD[statKey];
+
+  const getLine = p => propLinesMap?.[normStr(p.player)]?.[statKey] || null;
+  const hasLines = projections.some(p => getLine(p) != null);
+
   const sorted = [...projections].sort((a, b) => (b[sortKey] || 0) - (a[sortKey] || 0));
 
   const hdr = {
@@ -954,9 +1093,10 @@ function ProjectionsTable({ projections, propCat, isMobile }) {
     letterSpacing: "0.12em", textTransform: "uppercase", textAlign: "center",
   };
 
+  const edgeCols = hasLines ? (isMobile ? " 44px 56px" : " 52px 68px") : "";
   const cols = isMobile
-    ? "44px 1fr 52px 52px 52px"
-    : "44px 1fr 64px 64px 64px 64px 72px";
+    ? `44px 1fr 52px 52px 52px${edgeCols}`
+    : `44px 1fr 64px 64px 64px 64px 72px${edgeCols}`;
 
   const statCell = (val, isHighlight) => ({
     fontSize: 12, fontWeight: 700,
@@ -968,7 +1108,7 @@ function ProjectionsTable({ projections, propCat, isMobile }) {
   return (
     <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 14, overflow: "hidden" }}>
       <div style={{ overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
-        <div style={{ minWidth: isMobile ? 360 : 620 }}>
+        <div style={{ minWidth: isMobile ? (hasLines ? 430 : 360) : (hasLines ? 740 : 620) }}>
           {/* Header */}
           <div style={{
             display: "grid", gridTemplateColumns: cols,
@@ -982,45 +1122,80 @@ function ProjectionsTable({ projections, propCat, isMobile }) {
             <div style={{ ...hdr, color: sortKey === "projAst" ? T.blue : T.textDim }}>AST</div>
             {!isMobile && <div style={{ ...hdr, color: sortKey === "projTpm" ? T.blue : T.textDim }}>3PM</div>}
             <div style={{ ...hdr, color: sortKey === "projPra" ? T.blue : T.textDim }}>PRA</div>
+            {hasLines && <div style={{ ...hdr, color: T.textDim }}>LINE</div>}
+            {hasLines && <div style={{ ...hdr, color: T.green }}>EDGE</div>}
           </div>
 
           {/* Rows */}
-          {sorted.map((p, i) => (
-            <div key={`${p.player}-${i}`} style={{
-              display: "grid", gridTemplateColumns: cols,
-              padding: "10px 14px",
-              borderBottom: i < sorted.length - 1 ? `1px solid ${T.border}` : "none",
-              alignItems: "center",
-            }}>
-              {/* Avatar */}
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "center" }}>
-                <PlayerAvatar espnId={p.espnPlayerId} name={p.player} size={isMobile ? 28 : 32} />
-              </div>
+          {sorted.map((p, i) => {
+            const lineData = getLine(p);
+            const projVal = p[projField];
+            const edge = (lineData && projVal != null) ? +(projVal - lineData.line).toFixed(1) : null;
+            const edgeColor = edge == null ? T.textDim : edge > 0.4 ? T.green : edge < -0.4 ? T.red : T.textMid;
+            const edgeLabel = edge == null ? "–" : edge > 0 ? `+${edge}` : `${edge}`;
+            const edgeSide = edge == null ? "" : edge > 0.4 ? "OVR" : edge < -0.4 ? "UND" : "–";
 
-              {/* Player / team / game */}
-              <div style={{ minWidth: 0 }}>
-                <div style={{
-                  fontSize: 13, fontWeight: 700, color: T.text,
-                  overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-                }}>{p.player}</div>
-                <div className="props-meta-line" style={{ fontSize: 10, color: T.textMid, marginTop: 1 }}>
-                  {p.abbreviation || p.team.split(" ").slice(-1)[0]}
-                  {p.gameLabel ? ` · ${p.gameLabel}` : ""}
+            return (
+              <div key={`${p.player}-${i}`} style={{
+                display: "grid", gridTemplateColumns: cols,
+                padding: "10px 14px",
+                borderBottom: i < sorted.length - 1 ? `1px solid ${T.border}` : "none",
+                alignItems: "center",
+              }}>
+                {/* Avatar */}
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "center" }}>
+                  <PlayerAvatar espnId={p.espnPlayerId} name={p.player} size={isMobile ? 28 : 32} />
                 </div>
-              </div>
 
-              {/* Stats */}
-              <div style={statCell(p.projPts, sortKey === "projPts")}>{p.projPts}</div>
-              <div style={statCell(p.projReb, sortKey === "projReb")}>{p.projReb}</div>
-              <div style={statCell(p.projAst, sortKey === "projAst")}>{p.projAst}</div>
-              {!isMobile && <div style={statCell(p.projTpm, sortKey === "projTpm")}>{p.projTpm}</div>}
-              <div style={{
-                ...statCell(p.projPra, sortKey === "projPra"),
-                fontWeight: 800,
-                color: sortKey === "projPra" ? T.blue : T.text,
-              }}>{p.projPra}</div>
-            </div>
-          ))}
+                {/* Player / team / game */}
+                <div style={{ minWidth: 0 }}>
+                  <div style={{
+                    fontSize: 13, fontWeight: 700, color: T.text,
+                    overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                  }}>{p.player}</div>
+                  <div className="props-meta-line" style={{ fontSize: 10, color: T.textMid, marginTop: 1 }}>
+                    {p.abbreviation || p.team.split(" ").slice(-1)[0]}
+                    {p.gameLabel ? ` · ${p.gameLabel}` : ""}
+                  </div>
+                </div>
+
+                {/* Stats */}
+                <div style={statCell(p.projPts, sortKey === "projPts")}>{p.projPts}</div>
+                <div style={statCell(p.projReb, sortKey === "projReb")}>{p.projReb}</div>
+                <div style={statCell(p.projAst, sortKey === "projAst")}>{p.projAst}</div>
+                {!isMobile && <div style={statCell(p.projTpm, sortKey === "projTpm")}>{p.projTpm}</div>}
+                <div style={{
+                  ...statCell(p.projPra, sortKey === "projPra"),
+                  fontWeight: 800,
+                  color: sortKey === "projPra" ? T.blue : T.text,
+                }}>{p.projPra}</div>
+
+                {/* Line */}
+                {hasLines && (
+                  <div style={{ fontSize: 12, fontWeight: 700, textAlign: "center",
+                    fontFamily: "'JetBrains Mono',monospace", color: lineData ? T.textMid : T.textDeep }}>
+                    {lineData ? lineData.line : "–"}
+                  </div>
+                )}
+
+                {/* Edge */}
+                {hasLines && (
+                  <div style={{ textAlign: "center" }}>
+                    <div style={{ fontSize: 11, fontWeight: 800,
+                      fontFamily: "'JetBrains Mono',monospace", color: edgeColor, lineHeight: 1 }}>
+                      {edgeLabel}
+                    </div>
+                    {edgeSide !== "–" && edge != null && (
+                      <div style={{ fontSize: 8, fontWeight: 700, color: edgeColor,
+                        letterSpacing: "0.08em", fontFamily: "'Barlow',sans-serif", marginTop: 2 }}>
+                        {edgeSide}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
       </div>
     </div>
@@ -1753,6 +1928,8 @@ export default function App() {
   const [livePropCat, setLivePropCat]     = useState("All");
   const [liveRefreshTs, setLiveRefreshTs] = useState(null);
   const [isDaytime, setIsDaytime]         = useState(false);
+  const [todayGames, setTodayGames]       = useState(null);
+  const [todayGamesLoading, setTodayGamesLoading] = useState(false);
 
   // Day/night theme — switches at local sunrise/sunset
   useEffect(() => {
@@ -1760,7 +1937,7 @@ export default function App() {
       Object.assign(T, day ? LIGHT_THEME : {
         bg:"#060a14", bgAlt:"#070d1c", surface:"#070e1d", surfaceHi:"#0a1628",
         border:"#0e1c33", borderHi:"#1a3355", text:"#f1f5f9", textMid:"#94a3b8",
-        textDim:"#475569", textDeep:"#334155", label:"#1e3a5f",
+        textDim:"#8aafd4", textDeep:"#7a9bbd", label:"#1e3a5f",
         blue:"#1d6cf5", blueDim:"rgba(29,108,245,0.08)",
         green:"#22c55e", greenDim:"rgba(34,197,94,0.05)",
         amber:"#f59e0b", amberDim:"rgba(245,158,11,0.1)",
@@ -1862,6 +2039,18 @@ export default function App() {
       })
       .catch(e => { console.error("[Projections] fetch error:", e); setProjections([]); })
       .finally(() => setProjectionsLoading(false));
+  }, [tab]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Fetch today's games with full odds when ML/Spread/Total tabs are active
+  useEffect(() => {
+    const oddsTab = tab === "Moneyline" || tab === "Spread" || tab === "Game Total" || tab === "All";
+    if (!oddsTab || todayGames || todayGamesLoading) return;
+    setTodayGamesLoading(true);
+    fetch("/api/today-games")
+      .then(r => r.ok ? r.json() : { games: [] })
+      .then(d => setTodayGames(d.games || []))
+      .catch(() => setTodayGames([]))
+      .finally(() => setTodayGamesLoading(false));
   }, [tab]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
@@ -2072,7 +2261,9 @@ export default function App() {
   const renderHeader = () => {
     const bankroll   = data?.bankroll   || 100;
     const winRate    = data?.winRate    != null ? `${Number(data.winRate).toFixed(0)}%` : "—";
-    const roi        = data?.roi        != null ? `${Number(data.roi).toFixed(1)}%`     : "—";
+    const roiRaw     = data?.roi        != null ? Number(data.roi) : null;
+    const roi        = roiRaw            != null ? `${roiRaw.toFixed(1)}%`                 : "—";
+    const roiColor   = roiRaw            == null ? T.textMid : roiRaw >= 0 ? T.green : T.red;
     const playsCount = (data?.convictionPlays || []).length;
 
     return (
@@ -2095,7 +2286,7 @@ export default function App() {
           {[
             { value: `$${Number(bankroll).toFixed(0)}`, label:"BANKROLL", color:T.green },
             { value: winRate,                            label:"WIN RATE",  color:T.blue },
-            { value: roi,                                label:"ROI",       color:T.red,     extraClass:"header-stats-extra" },
+            { value: roi,                                label:"ROI",       color:roiColor, extraClass:"header-stats-extra" },
             { value: `${playsCount}`,                    label:"PLAYS",     color:T.textMid, extraClass:"header-stats-extra" },
           ].map(({ value, label, color, extraClass }, i) => (
             <div key={label} className={extraClass} style={{
@@ -2165,7 +2356,7 @@ export default function App() {
             {doubled.map((g, i) => {
               const isLive = g.live;
               const isFinal = g.final;
-              const statusColor = isLive ? T.orange : isFinal ? T.textDeep : "#1d4ed8";
+              const statusColor = isLive ? T.orange : isFinal ? T.textDeep : "#60a5fa";
               const statusText = isLive
                 ? (g.status.replace(/^LIVE · /, "") || "LIVE")
                 : isFinal ? "FINAL" : (g.tipTime || "");
@@ -2187,25 +2378,21 @@ export default function App() {
                   {/* Team abbrev + scores */}
                   <div style={{ display:"flex", flexDirection:"column", gap:2 }}>
                     <div style={{ display:"flex", alignItems:"center", gap:6 }}>
-                      <span style={{ fontSize:11, fontWeight:700, color:T.textMid, minWidth:28,
+                      <span style={{ fontSize:11, fontWeight:700, color:"#ffffff", minWidth:28,
                         fontFamily:"'Barlow Condensed',sans-serif" }}>{g.away}</span>
                       {(isLive || isFinal) && (
                         <span style={{ fontSize:16, fontWeight:800,
-                          color: isFinal ? T.textMid : T.text,
+                          color: isFinal ? "#94a3b8" : "#ffffff",
                           fontFamily:"'JetBrains Mono',monospace" }}>{g.awayScore}</span>
                       )}
                     </div>
                     <div style={{ display:"flex", alignItems:"center", gap:6 }}>
-                      <span style={{ fontSize:11, fontWeight:700, color:T.textMid, minWidth:28,
+                      <span style={{ fontSize:11, fontWeight:700, color:"#ffffff", minWidth:28,
                         fontFamily:"'Barlow Condensed',sans-serif" }}>{g.home}</span>
                       {(isLive || isFinal) && (
                         <span style={{ fontSize:16, fontWeight:800,
-                          color: isFinal ? T.textMid : T.text,
+                          color: isFinal ? "#94a3b8" : "#ffffff",
                           fontFamily:"'JetBrains Mono',monospace" }}>{g.homeScore}</span>
-                      )}
-                      {!isLive && !isFinal && g.tipTime && (
-                        <span style={{ fontSize:9, fontWeight:600, color:"#3b82f6",
-                          fontFamily:"'JetBrains Mono',monospace" }}>{g.tipTime}</span>
                       )}
                     </div>
                   </div>
@@ -2379,13 +2566,307 @@ export default function App() {
     );
   };
 
-  const renderContent = () => {
-    if (tab === "Moneyline") return renderEVPlaysContent();
-    if (tab === "Props")   return renderPropsTab();
-    if (tab === "History") return renderHistoryTab();
-    if (tab === "Info")    return renderInfoTab();
+  // ── Today's Games (ML / Spread / Total tabs) ─────────────────────────────────
+  const fmtML = (v) => {
+    if (v == null) return "—";
+    return v > 0 ? `+${v}` : `${v}`;
+  };
+  const fmtSpread = (v) => {
+    if (v == null) return "—";
+    return v > 0 ? `+${v}` : `${v}`;
+  };
 
-    const colTemplate = "1.9fr 0.36fr 0.3fr 0.58fr 0.42fr 0.42fr 0.48fr";
+  const renderTodayGamesTab = () => {
+    const market = tab === "Spread" ? "spread" : tab === "Game Total" ? "total" : "ml";
+    const games = todayGames || [];
+
+    if (todayGamesLoading) return (
+      <div style={{ display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center",
+        padding:"60px 24px", gap:16 }}>
+        <div style={{ width:36, height:36, border:`3px solid ${T.border}`,
+          borderTopColor:T.blue, borderRadius:"50%",
+          animation:"spin 0.8s linear infinite" }} />
+        <div style={{ fontSize:13, color:T.textDim, fontFamily:"'Barlow',sans-serif" }}>
+          Loading today&apos;s lines…
+        </div>
+      </div>
+    );
+
+    if (!games.length) return (
+      <div style={{ padding:"48px 24px", textAlign:"center" }}>
+        <div style={{ fontSize:36, marginBottom:12 }}>🏀</div>
+        <div style={{ fontSize:16, color:T.textMid, fontWeight:600,
+          fontFamily:"'Barlow',sans-serif" }}>No games found today</div>
+        <div style={{ fontSize:12, color:T.textDim, marginTop:6 }}>
+          Check back when the schedule is posted
+        </div>
+      </div>
+    );
+
+    const PRIORITY_BOOKS = ["draftkings","fanduel","betmgm","caesars","betrivers","pointsbet_us","lowvig","betonlineag","mybookieag","pinnacle","fliff"];
+
+    return (
+      <div style={{ padding:"0 0 24px" }}>
+        {/* Market legend */}
+        <div style={{ display:"flex", alignItems:"center", gap:12, padding:"10px 16px",
+          borderBottom:`1px solid ${T.border}`, background:T.bg }}>
+          <span style={{ fontSize:9, fontWeight:700, letterSpacing:"0.1em",
+            color:T.textDeep, textTransform:"uppercase",
+            fontFamily:"'Barlow',sans-serif" }}>
+            {market === "ml" ? "Moneyline — best odds highlighted" :
+             market === "spread" ? "Spread — tightest line highlighted" :
+             "Total (Over/Under) — consensus line"}
+          </span>
+          <div style={{ flex:1, height:1, background:T.border }} />
+          <span style={{ fontSize:9, color:T.textDeep, fontFamily:"'JetBrains Mono',monospace" }}>
+            {games.length} GAME{games.length !== 1 ? "S" : ""}
+          </span>
+        </div>
+
+        <div style={{ display:"flex", flexDirection:"column", gap:0 }}>
+          {games.map((game, gi) => {
+            const bkEntries = PRIORITY_BOOKS
+              .filter(k => game.byBook[k])
+              .map(k => ({ key: k, ...game.byBook[k] }));
+
+            // Compute best values per column for highlighting
+            let bestAwayML = null, bestHomeML = null, bestAwaySpread = null, bestHomeSpread = null, bestTotal = null;
+            for (const bk of bkEntries) {
+              if (market === "ml") {
+                if (bk.awayML != null && (bestAwayML == null || bk.awayML > bestAwayML)) bestAwayML = bk.awayML;
+                if (bk.homeML != null && (bestHomeML == null || bk.homeML > bestHomeML)) bestHomeML = bk.homeML;
+              } else if (market === "spread") {
+                if (bk.awaySpread != null && (bestAwaySpread == null || bk.awaySpread < bestAwaySpread)) bestAwaySpread = bk.awaySpread;
+                if (bk.homeSpread != null && (bestHomeSpread == null || bk.homeSpread < bestHomeSpread)) bestHomeSpread = bk.homeSpread;
+              } else {
+                if (bk.over != null && (bestTotal == null || bk.over < bestTotal)) bestTotal = bk.over;
+              }
+            }
+
+            const gameTime = new Date(game.commenceTime);
+            const timeStr = gameTime.toLocaleTimeString("en-US", { hour:"numeric", minute:"2-digit", hour12:true });
+
+            return (
+              <div key={game.id || gi} style={{
+                borderBottom:`1px solid ${T.border}`,
+                background: gi % 2 === 0 ? T.bg : T.bgAlt,
+              }}>
+                {/* Game header */}
+                <div style={{ display:"flex", alignItems:"center", gap:10,
+                  padding:"12px 16px 10px", borderBottom:`1px solid ${T.border}` }}>
+                  {/* Away team */}
+                  <div style={{ display:"flex", alignItems:"center", gap:7, minWidth:0, flex:1 }}>
+                    {game.awayLogo && (
+                      <img src={game.awayLogo} alt={game.awayAbbr}
+                        style={{ width:24, height:24, objectFit:"contain",
+                          filter:"drop-shadow(0 1px 2px rgba(0,0,0,0.5))" }} />
+                    )}
+                    <div style={{ minWidth:0 }}>
+                      <div style={{ fontSize:14, fontWeight:700, color:T.text,
+                        fontFamily:"'Barlow',sans-serif", lineHeight:1.2 }}>
+                        {game.awayAbbr}
+                      </div>
+                      {game.awayRecord && (
+                        <div style={{ fontSize:10, color:T.textDim,
+                          fontFamily:"'JetBrains Mono',monospace" }}>{game.awayRecord}</div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* VS / time */}
+                  <div style={{ textAlign:"center", minWidth:54 }}>
+                    <div style={{ fontSize:9, color:T.textDeep,
+                      fontFamily:"'Barlow',sans-serif", letterSpacing:"0.08em",
+                      textTransform:"uppercase" }}>vs</div>
+                    <div style={{ fontSize:11, fontWeight:600, color:T.blue,
+                      fontFamily:"'JetBrains Mono',monospace", marginTop:1 }}>{timeStr}</div>
+                  </div>
+
+                  {/* Home team */}
+                  <div style={{ display:"flex", alignItems:"center", gap:7,
+                    minWidth:0, flex:1, justifyContent:"flex-end" }}>
+                    <div style={{ textAlign:"right", minWidth:0 }}>
+                      <div style={{ fontSize:14, fontWeight:700, color:T.text,
+                        fontFamily:"'Barlow',sans-serif", lineHeight:1.2 }}>
+                        {game.homeAbbr}
+                      </div>
+                      {game.homeRecord && (
+                        <div style={{ fontSize:10, color:T.textDim,
+                          fontFamily:"'JetBrains Mono',monospace" }}>{game.homeRecord}</div>
+                      )}
+                    </div>
+                    {game.homeLogo && (
+                      <img src={game.homeLogo} alt={game.homeAbbr}
+                        style={{ width:24, height:24, objectFit:"contain",
+                          filter:"drop-shadow(0 1px 2px rgba(0,0,0,0.5))" }} />
+                    )}
+                  </div>
+                </div>
+
+                {/* Odds grid */}
+                <div style={{ overflowX:"auto" }}>
+                  <table style={{ width:"100%", borderCollapse:"collapse",
+                    fontFamily:"'JetBrains Mono',monospace", fontSize:11 }}>
+                    <thead>
+                      <tr style={{ background:T.surfaceHi }}>
+                        <th style={{ padding:"5px 12px", textAlign:"left",
+                          fontSize:8, fontWeight:700, letterSpacing:"0.12em",
+                          color:T.textDeep, textTransform:"uppercase",
+                          fontFamily:"'Barlow',sans-serif", whiteSpace:"nowrap" }}>BOOK</th>
+                        {market === "ml" && <>
+                          <th style={{ padding:"5px 12px", textAlign:"center",
+                            fontSize:8, fontWeight:700, letterSpacing:"0.12em",
+                            color:T.textDeep, textTransform:"uppercase",
+                            fontFamily:"'Barlow',sans-serif" }}>{game.awayAbbr}</th>
+                          <th style={{ padding:"5px 12px", textAlign:"center",
+                            fontSize:8, fontWeight:700, letterSpacing:"0.12em",
+                            color:T.textDeep, textTransform:"uppercase",
+                            fontFamily:"'Barlow',sans-serif" }}>{game.homeAbbr}</th>
+                        </>}
+                        {market === "spread" && <>
+                          <th style={{ padding:"5px 12px", textAlign:"center",
+                            fontSize:8, fontWeight:700, letterSpacing:"0.12em",
+                            color:T.textDeep, textTransform:"uppercase",
+                            fontFamily:"'Barlow',sans-serif" }}>{game.awayAbbr} SPR</th>
+                          <th style={{ padding:"5px 12px", textAlign:"center",
+                            fontSize:8, fontWeight:700, letterSpacing:"0.12em",
+                            color:T.textDeep, textTransform:"uppercase",
+                            fontFamily:"'Barlow',sans-serif" }}>{game.homeAbbr} SPR</th>
+                        </>}
+                        {market === "total" && <>
+                          <th style={{ padding:"5px 12px", textAlign:"center",
+                            fontSize:8, fontWeight:700, letterSpacing:"0.12em",
+                            color:T.textDeep, textTransform:"uppercase",
+                            fontFamily:"'Barlow',sans-serif" }}>OVER</th>
+                          <th style={{ padding:"5px 12px", textAlign:"center",
+                            fontSize:8, fontWeight:700, letterSpacing:"0.12em",
+                            color:T.textDeep, textTransform:"uppercase",
+                            fontFamily:"'Barlow',sans-serif" }}>UNDER</th>
+                        </>}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {/* Consensus row */}
+                      {game.consensus && (
+                        <tr style={{ background:"rgba(99,102,241,0.08)",
+                          borderBottom:`1px solid ${T.border}` }}>
+                          <td style={{ padding:"5px 12px", fontSize:9, fontWeight:700,
+                            color:"#818cf8", letterSpacing:"0.08em",
+                            fontFamily:"'Barlow',sans-serif", whiteSpace:"nowrap" }}>
+                            ALGO
+                          </td>
+                          {market === "ml" && <>
+                            <td style={{ padding:"5px 12px", textAlign:"center",
+                              fontWeight:700, color:"#a78bfa", fontSize:12 }}>
+                              {fmtML(game.consensus.awayML)}
+                            </td>
+                            <td style={{ padding:"5px 12px", textAlign:"center",
+                              fontWeight:700, color:"#a78bfa", fontSize:12 }}>
+                              {fmtML(game.consensus.homeML)}
+                            </td>
+                          </>}
+                          {market === "spread" && <>
+                            <td style={{ padding:"5px 12px", textAlign:"center",
+                              fontWeight:700, color:"#a78bfa", fontSize:12 }}>
+                              {game.consensus.homeSpread != null
+                                ? fmtSpread(-(game.consensus.homeSpread))
+                                : "—"}
+                            </td>
+                            <td style={{ padding:"5px 12px", textAlign:"center",
+                              fontWeight:700, color:"#a78bfa", fontSize:12 }}>
+                              {fmtSpread(game.consensus.homeSpread)}
+                            </td>
+                          </>}
+                          {market === "total" && <>
+                            <td style={{ padding:"5px 12px", textAlign:"center",
+                              fontWeight:700, color:"#a78bfa", fontSize:12 }}>
+                              {game.consensus.total ?? "—"}
+                            </td>
+                            <td style={{ padding:"5px 12px", textAlign:"center",
+                              fontWeight:700, color:"#a78bfa", fontSize:12 }}>
+                              {game.consensus.total ?? "—"}
+                            </td>
+                          </>}
+                        </tr>
+                      )}
+                      {bkEntries.map((bk, bi) => {
+                        const rowBg = bi % 2 === 0 ? "transparent" : `rgba(255,255,255,0.015)`;
+                        const isBestAway = market === "ml" ? bk.awayML === bestAwayML
+                          : market === "spread" ? bk.awaySpread === bestAwaySpread : false;
+                        const isBestHome = market === "ml" ? bk.homeML === bestHomeML
+                          : market === "spread" ? bk.homeSpread === bestHomeSpread : false;
+                        const isBestTotal = market === "total" && bk.over === bestTotal;
+
+                        const cellStyle = (isBest) => ({
+                          padding:"6px 12px", textAlign:"center",
+                          fontWeight: isBest ? 700 : 400,
+                          color: isBest ? "#4ade80" : T.textMid,
+                          fontSize: 12,
+                          background: isBest ? "rgba(34,197,94,0.08)" : "transparent",
+                        });
+
+                        return (
+                          <tr key={bk.key} style={{ background:rowBg,
+                            borderBottom:`1px solid rgba(255,255,255,0.03)` }}>
+                            <td style={{ padding:"6px 12px", fontSize:9, fontWeight:600,
+                              color:T.textDim, letterSpacing:"0.06em",
+                              fontFamily:"'Barlow',sans-serif", whiteSpace:"nowrap" }}>
+                              {bk.display}
+                            </td>
+                            {market === "ml" && <>
+                              <td style={cellStyle(isBestAway)}>{fmtML(bk.awayML)}</td>
+                              <td style={cellStyle(isBestHome)}>{fmtML(bk.homeML)}</td>
+                            </>}
+                            {market === "spread" && <>
+                              <td style={cellStyle(isBestAway)}>
+                                {bk.awaySpread != null ? `${fmtSpread(bk.awaySpread)} (${fmtML(bk.awaySpreadOdds)})` : "—"}
+                              </td>
+                              <td style={cellStyle(isBestHome)}>
+                                {bk.homeSpread != null ? `${fmtSpread(bk.homeSpread)} (${fmtML(bk.homeSpreadOdds)})` : "—"}
+                              </td>
+                            </>}
+                            {market === "total" && <>
+                              <td style={cellStyle(isBestTotal)}>
+                                {bk.over != null ? `${bk.over} (${fmtML(bk.overOdds)})` : "—"}
+                              </td>
+                              <td style={{ ...cellStyle(false) }}>
+                                {bk.under != null ? `${bk.under} (${fmtML(bk.underOdds)})` : "—"}
+                              </td>
+                            </>}
+                          </tr>
+                        );
+                      })}
+                      {bkEntries.length === 0 && (
+                        <tr>
+                          <td colSpan={3} style={{ padding:"14px 12px", textAlign:"center",
+                            fontSize:11, color:T.textDeep }}>
+                            No odds available for this game
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  };
+
+  const renderContent = () => {
+    if (tab === "Live")       return renderLiveTab();
+    if (tab === "Moneyline")  return renderTodayGamesTab();
+    if (tab === "Spread")     return renderTodayGamesTab();
+    if (tab === "Game Total") return renderTodayGamesTab();
+    if (tab === "Props")      return renderPropsTab();
+    if (tab === "History")    return renderHistoryTab();
+    if (tab === "Info")       return renderInfoTab();
+
+    const colTemplate = isMobile
+      ? "1fr 0.38fr 0.42fr 0.44fr"
+      : "1.9fr 0.36fr 0.3fr 0.58fr 0.42fr 0.42fr 0.48fr";
     const thStyle = () => ({
       fontSize:9, fontWeight:700, letterSpacing:"0.12em", color:T.textDeep,
       textTransform:"uppercase", fontFamily:"'Barlow',system-ui,sans-serif",
@@ -2467,31 +2948,37 @@ export default function App() {
                         : play.convictionScore >= 55 ? T.amber : T.red,
                     }}>{play.convictionScore}</span>
                   </div>
-                  <div className="td-type" style={{ textAlign:"center" }}>
-                    <span style={{ fontSize:10, fontWeight:700, color:T.blue,
-                      fontFamily:"'Barlow',system-ui,sans-serif", letterSpacing:"0.06em" }}>
-                      {betTypeLabel}
-                    </span>
-                  </div>
+                  {!isMobile && (
+                    <div style={{ textAlign:"center" }}>
+                      <span style={{ fontSize:10, fontWeight:700, color:T.blue,
+                        fontFamily:"'Barlow',system-ui,sans-serif", letterSpacing:"0.06em" }}>
+                        {betTypeLabel}
+                      </span>
+                    </div>
+                  )}
                   <div style={{ textAlign:"center" }}>
                     <span style={{ fontSize:13, fontWeight:600, color:oddsColor,
                       fontFamily:"'JetBrains Mono',monospace" }}>
                       {fmtOdds(play.bestOdds)}
                     </span>
                   </div>
-                  <div className="td-book" style={{ textAlign:"center" }}>
-                    <span style={{ fontSize:10, color:T.green,
-                      fontFamily:"'Barlow',system-ui,sans-serif" }}>
-                      {BOOK_META[play.bestBook]?.short || play.bestBook || "—"}
-                      {play.bestBook ? " ★" : ""}
-                    </span>
-                  </div>
-                  <div className="td-ev" style={{ textAlign:"center" }}>
-                    <span style={{ fontSize:11, fontFamily:"'Courier New',monospace",
-                      color: (play.ev || 0) > 0 ? T.green : T.textDim }}>
-                      {play.ev != null ? `+${play.ev.toFixed(1)}` : "—"}
-                    </span>
-                  </div>
+                  {!isMobile && (
+                    <div style={{ textAlign:"center" }}>
+                      <span style={{ fontSize:10, color:T.green,
+                        fontFamily:"'Barlow',system-ui,sans-serif" }}>
+                        {BOOK_META[play.bestBook]?.short || play.bestBook || "—"}
+                        {play.bestBook ? " ★" : ""}
+                      </span>
+                    </div>
+                  )}
+                  {!isMobile && (
+                    <div style={{ textAlign:"center" }}>
+                      <span style={{ fontSize:11, fontFamily:"'Courier New',monospace",
+                        color: (play.ev || 0) > 0 ? T.green : T.textDim }}>
+                        {play.ev != null ? `+${play.ev.toFixed(1)}` : "—"}
+                      </span>
+                    </div>
+                  )}
                   <div style={{ textAlign:"center" }}>
                     <span style={{
                       fontSize:10, fontWeight:700, padding:"3px 9px", borderRadius:3,
@@ -2532,10 +3019,10 @@ export default function App() {
         }}>
           <div style={thStyle()}>PLAY</div>
           <div style={{ ...thStyle(), textAlign:"center" }}>SCORE</div>
-          <div className="th-type" style={{ ...thStyle(), textAlign:"center" }}>TYPE</div>
+          {!isMobile && <div style={{ ...thStyle(), textAlign:"center" }}>TYPE</div>}
           <div style={{ ...thStyle(), textAlign:"center" }}>LINE</div>
-          <div className="th-book" style={{ ...thStyle(), textAlign:"center" }}>BOOK</div>
-          <div className="th-ev" style={{ ...thStyle(), textAlign:"center" }}>EV</div>
+          {!isMobile && <div style={{ ...thStyle(), textAlign:"center" }}>BOOK</div>}
+          {!isMobile && <div style={{ ...thStyle(), textAlign:"center" }}>EV</div>}
           <div style={{ ...thStyle(), textAlign:"center" }}>TIER</div>
         </div>
 
@@ -2595,10 +3082,14 @@ export default function App() {
     const rows = [];
     // ML
     if (bkLines?.ml != null || algo?.predictedHomeML) {
-      const mlEdge = edge?.ml?.pct;
+      const mPct = edge?.ml?.pct ?? null;
+      const mAbsPct = mPct != null ? Math.abs(mPct) : null;
+      const mTeam = mPct == null ? null : mPct < 0 ? game.home.abbr : mPct > 0 ? game.away.abbr : null;
       rows.push({ label:"ML", bookVal: fmtOddsLive(bkLines?.ml), bookSub: game.home.abbr,
-        edgePct: mlEdge, edgeLabel: edge?.ml?.label,
-        algoVal: fmtOddsLive(algo?.predictedHomeML), algoSub: algo?.homeWinProb != null ? `${algo.homeWinProb.toFixed(1)}%` : "" });
+        edgePct: mAbsPct,
+        edgeLabel: mTeam ? `${mTeam} EDGE` : mPct === 0 ? "NO EDGE" : null,
+        edgeAlwaysGreen: !!mTeam,
+        algoVal: fmtOddsLive(algo?.predictedHomeML), algoSub: "" });
     }
     // Spread
     if (bkLines?.spread != null || algo?.predictedSpread != null) {
@@ -2634,13 +3125,13 @@ export default function App() {
           {row.edgePct != null ? (
             <>
               <div style={{ fontSize:13, fontWeight:900, fontFamily:"'JetBrains Mono',monospace",
-                color: edgeColor(row.edgePct), lineHeight:1 }}>
+                color: row.edgeAlwaysGreen && row.edgePct > 0 ? "#22c55e" : edgeColor(row.edgePct), lineHeight:1 }}>
                 {row.edgePct > 0 ? "+" : ""}{row.edgePct.toFixed(1)}%
               </div>
               {row.edgeLabel && (
                 <div style={{ fontSize:8, fontWeight:700, padding:"1px 4px", borderRadius:3, whiteSpace:"nowrap",
-                  background: row.edgePct >= 2 ? "#14532d" : row.edgePct <= -2 ? "#450a0a" : T.surfaceHi,
-                  color: row.edgePct >= 2 ? "#4ade80" : row.edgePct <= -2 ? "#f87171" : T.textDim }}>
+                  background: row.edgeAlwaysGreen && row.edgePct > 0 ? "#14532d" : row.edgePct >= 2 ? "#14532d" : row.edgePct <= -2 ? "#450a0a" : T.surfaceHi,
+                  color: row.edgeAlwaysGreen && row.edgePct > 0 ? "#4ade80" : row.edgePct >= 2 ? "#4ade80" : row.edgePct <= -2 ? "#f87171" : T.textDim }}>
                   {row.edgeLabel}
                 </div>
               )}
@@ -2722,6 +3213,18 @@ export default function App() {
               totalEdgePts = +(algo.predictedTotal - bkLines.total).toFixed(1);
             }
 
+            // ML edge: negative pct = home team advantage; positive pct = away team advantage
+            const mlEdgePct = edge?.ml?.pct ?? null;
+            const mlEdgeAbsPct = mlEdgePct != null ? Math.abs(mlEdgePct) : null;
+            const mlEdgeTeam = mlEdgePct == null ? null
+              : mlEdgePct < 0 ? game.home.abbr
+              : mlEdgePct > 0 ? game.away.abbr
+              : null; // 0 = no edge
+            const mlEdgeWinProb = mlEdgePct == null ? null
+              : mlEdgePct < 0 ? algo?.homeWinProb
+              : mlEdgePct > 0 && algo?.homeWinProb != null ? (100 - algo.homeWinProb)
+              : null;
+
             return (
               <div key={game.id} style={{
                 background: T.surface,
@@ -2750,27 +3253,42 @@ export default function App() {
                   </div>
 
                   <div style={{ display:"flex", alignItems:"center" }}>
-                    <div style={{ flex:1 }}>
-                      <div style={{ fontSize: isMobile ? 15 : 16, fontWeight:800, color:T.text,
-                        letterSpacing:"0.04em", fontFamily:"'Barlow',sans-serif" }}>{game.away.abbr}</div>
-                      {game.away.score != null && (
-                        <div style={{ fontSize: isMobile ? 24 : 26, fontWeight:900, color:"#fff",
-                          fontFamily:"'JetBrains Mono',monospace", lineHeight:1 }}>{game.away.score}</div>
+                    <div style={{ flex:1, display:"flex", alignItems:"center", gap:10 }}>
+                      {game.away.logo && (
+                        <img src={game.away.logo} alt={game.away.abbr}
+                          style={{ width: isMobile ? 36 : 44, height: isMobile ? 36 : 44, objectFit:"contain",
+                            filter:"drop-shadow(0 1px 4px rgba(0,0,0,0.5))", flexShrink:0 }} />
                       )}
-                      {!isMobile && (
-                        <div style={{ fontSize:9, color:T.textDeep, marginTop:2 }}>{game.away.record} · Away</div>
-                      )}
+                      <div>
+                        <div style={{ fontSize: isMobile ? 15 : 16, fontWeight:800, color:T.text,
+                          letterSpacing:"0.04em", fontFamily:"'Barlow',sans-serif" }}>{game.away.abbr}</div>
+                        {game.away.score != null && (
+                          <div style={{ fontSize: isMobile ? 28 : 32, fontWeight:900, color:"#fff",
+                            fontFamily:"'JetBrains Mono',monospace", lineHeight:1 }}>{game.away.score}</div>
+                        )}
+                        {!isMobile && (
+                          <div style={{ fontSize:9, color:T.textDim, marginTop:2 }}>{game.away.record} · Away</div>
+                        )}
+                      </div>
                     </div>
-                    <div style={{ color:T.border, fontSize:12, padding:"0 10px" }}>@</div>
-                    <div style={{ flex:1, textAlign:"right" }}>
-                      <div style={{ fontSize: isMobile ? 15 : 16, fontWeight:800, color:T.text,
-                        letterSpacing:"0.04em", fontFamily:"'Barlow',sans-serif" }}>{game.home.abbr}</div>
-                      {game.home.score != null && (
-                        <div style={{ fontSize: isMobile ? 24 : 26, fontWeight:900, color:"#fff",
-                          fontFamily:"'JetBrains Mono',monospace", lineHeight:1 }}>{game.home.score}</div>
-                      )}
-                      {!isMobile && (
-                        <div style={{ fontSize:9, color:T.textDeep, marginTop:2 }}>Away · {game.home.record}</div>
+                    <div style={{ color:T.textDeep, fontSize:12, padding:"0 10px" }}>@</div>
+                    <div style={{ flex:1, textAlign:"right", display:"flex", alignItems:"center",
+                      justifyContent:"flex-end", gap:10 }}>
+                      <div>
+                        <div style={{ fontSize: isMobile ? 15 : 16, fontWeight:800, color:T.text,
+                          letterSpacing:"0.04em", fontFamily:"'Barlow',sans-serif" }}>{game.home.abbr}</div>
+                        {game.home.score != null && (
+                          <div style={{ fontSize: isMobile ? 28 : 32, fontWeight:900, color:"#fff",
+                            fontFamily:"'JetBrains Mono',monospace", lineHeight:1 }}>{game.home.score}</div>
+                        )}
+                        {!isMobile && (
+                          <div style={{ fontSize:9, color:T.textDim, marginTop:2 }}>{game.home.record} · Home</div>
+                        )}
+                      </div>
+                      {game.home.logo && (
+                        <img src={game.home.logo} alt={game.home.abbr}
+                          style={{ width: isMobile ? 36 : 44, height: isMobile ? 36 : 44, objectFit:"contain",
+                            filter:"drop-shadow(0 1px 4px rgba(0,0,0,0.5))", flexShrink:0 }} />
                       )}
                     </div>
                   </div>
@@ -2856,18 +3374,28 @@ export default function App() {
                             <div style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:2 }}>
                               <div style={{ fontSize:8, fontWeight:700, color:T.textDeep,
                                 letterSpacing:"0.08em", textTransform:"uppercase" }}>ML</div>
-                              {edge?.ml?.pct != null ? (
-                                <>
-                                  <div style={{ fontSize:15, fontWeight:900, fontFamily:"'JetBrains Mono',monospace",
-                                    color: edgeColor(edge.ml.pct), lineHeight:1 }}>
-                                    {edge.ml.pct > 0 ? "+" : ""}{edge.ml.pct.toFixed(1)}%
-                                  </div>
+                              {mlEdgePct != null ? (
+                                mlEdgeTeam ? (
+                                  <>
+                                    <div style={{ fontSize:15, fontWeight:900, fontFamily:"'JetBrains Mono',monospace",
+                                      color:"#22c55e", lineHeight:1 }}>
+                                      +{mlEdgeAbsPct.toFixed(1)}%
+                                    </div>
+                                    <div style={{ fontSize:9, fontWeight:700, padding:"1px 5px", borderRadius:3,
+                                      background:"#14532d", color:"#4ade80" }}>
+                                      {mlEdgeTeam} EDGE
+                                    </div>
+                                    {mlEdgeWinProb != null && (
+                                      <div style={{ fontSize:11, color:T.textMid, fontFamily:"'JetBrains Mono',monospace",
+                                        marginTop:2, whiteSpace:"nowrap" }}>
+                                        {mlEdgeTeam} {mlEdgeWinProb.toFixed(1)}% win prob
+                                      </div>
+                                    )}
+                                  </>
+                                ) : (
                                   <div style={{ fontSize:9, fontWeight:700, padding:"1px 5px", borderRadius:3,
-                                    background: edge.ml.pct >= 2 ? "#14532d" : edge.ml.pct <= -2 ? "#450a0a" : T.surfaceHi,
-                                    color: edge.ml.pct >= 2 ? "#4ade80" : edge.ml.pct <= -2 ? "#f87171" : T.textDim }}>
-                                    {edge.ml.label}
-                                  </div>
-                                </>
+                                    background:T.surfaceHi, color:T.textDim }}>NO EDGE</div>
+                                )
                               ) : <div style={{ fontSize:11, color:T.textDeep }}>—</div>}
                             </div>
                             {algo?.predictedSpread != null && bkLines?.spread != null && (
@@ -2908,13 +3436,27 @@ export default function App() {
                           <div style={{ display:"flex", flexDirection:"column", gap:8, alignItems:"flex-end" }}>
                             <div style={{ textAlign:"right" }}>
                               <div style={{ fontSize:9, color:T.textDeep, textTransform:"uppercase",
-                                letterSpacing:"0.06em", marginBottom:2 }}>Predicted ML</div>
+                                letterSpacing:"0.06em", marginBottom:4 }}>Predicted ML</div>
                               {algo?.predictedHomeML ? (
                                 <>
-                                  <div style={{ fontSize:13, fontWeight:700, color:"#a78bfa",
-                                    fontFamily:"'JetBrains Mono',monospace" }}>{fmtOddsLive(algo.predictedHomeML)}</div>
-                                  <div style={{ fontSize:10, color:T.textDim, fontFamily:"'JetBrains Mono',monospace" }}>
-                                    {algo.homeWinProb?.toFixed(1)}% win prob
+                                  <div style={{ display:"flex", justifyContent:"flex-end",
+                                    alignItems:"baseline", gap:8, marginBottom:3 }}>
+                                    <span style={{ display:"flex", alignItems:"baseline", gap:4 }}>
+                                      <span style={{ fontSize:10, color:T.textDim,
+                                        fontFamily:"'Barlow',sans-serif" }}>{game.away.abbr}</span>
+                                      <span style={{ fontSize:13, fontWeight:700, color:"#a78bfa",
+                                        fontFamily:"'JetBrains Mono',monospace" }}>
+                                        {fmtOddsLive(algo.predictedAwayML)}
+                                      </span>
+                                    </span>
+                                    <span style={{ display:"flex", alignItems:"baseline", gap:4 }}>
+                                      <span style={{ fontSize:10, color:T.textDim,
+                                        fontFamily:"'Barlow',sans-serif" }}>{game.home.abbr}</span>
+                                      <span style={{ fontSize:13, fontWeight:700, color:"#a78bfa",
+                                        fontFamily:"'JetBrains Mono',monospace" }}>
+                                        {fmtOddsLive(algo.predictedHomeML)}
+                                      </span>
+                                    </span>
                                   </div>
                                 </>
                               ) : <div style={{ fontSize:11, color:T.textDeep }}>—</div>}
@@ -2923,10 +3465,14 @@ export default function App() {
                               <div style={{ textAlign:"right" }}>
                                 <div style={{ fontSize:9, color:T.textDeep, textTransform:"uppercase",
                                   letterSpacing:"0.06em", marginBottom:2 }}>Predicted Spread</div>
-                                <div style={{ fontSize:13, fontWeight:700, color:"#a78bfa",
-                                  fontFamily:"'JetBrains Mono',monospace" }}>{fmtOddsLive(algo.predictedSpread)}</div>
-                                <div style={{ fontSize:10, color:T.textDim, fontFamily:"'JetBrains Mono',monospace" }}>
-                                  {game.home.abbr} avg margin
+                                <div style={{ display:"flex", justifyContent:"flex-end",
+                                  alignItems:"baseline", gap:6, marginBottom:2 }}>
+                                  <span style={{ fontSize:10, color:T.textDim,
+                                    fontFamily:"'Barlow',sans-serif" }}>{game.home.abbr}</span>
+                                  <span style={{ fontSize:13, fontWeight:700, color:"#a78bfa",
+                                    fontFamily:"'JetBrains Mono',monospace" }}>
+                                    {fmtOddsLive(algo.predictedSpread)}
+                                  </span>
                                 </div>
                               </div>
                             )}
@@ -3059,60 +3605,117 @@ export default function App() {
             ))}
           </div>
 
+          {/* Legend */}
+          <div style={{ display:"flex", gap:14, marginBottom:8, alignItems:"center",
+            fontSize:9, fontFamily:"'Barlow',sans-serif", fontWeight:600, flexWrap:"wrap" }}>
+            <span style={{ color:T.text }}>● LIVE</span>
+            <span style={{ color:"#a78bfa" }}>▸ ALGO PROJ</span>
+            <span style={{ color:T.amber }}>◆ BOOK LINE</span>
+            <span style={{ color:"#22c55e" }}>EDGE</span>
+          </div>
+
           {sortedPlayers.length === 0 ? (
             <div style={{ textAlign:"center", padding:"24px 0", color:T.textDim, fontSize:12 }}>
               {games.some(g => g.status.live) ? "Loading player stats…" : "Player stats available once games start"}
             </div>
           ) : (
             <div style={{ background:T.surface, border:`1px solid ${T.border}`, borderRadius:8, overflow:"hidden" }}>
+              {/* Column headers */}
               <div style={{ display:"grid", gridTemplateColumns: playerColTemplate,
                 gap:4, padding:"7px 12px", background:T.bg, borderBottom:`1px solid ${T.border}` }}>
                 {playerHeaders.map(h => (
                   <div key={h} style={{ fontSize:9, fontWeight:700,
-                    color: h === "PRA" ? T.blue : T.textDeep,
+                    color: h === "PRA" ? T.blue : T.textDim,
                     letterSpacing:"0.08em", textTransform:"uppercase", fontFamily:"'Barlow',sans-serif",
-                    textAlign: h === "Player" ? "left" : "right" }}>{h}{h === "PRA" ? " ▾" : ""}</div>
+                    textAlign: h === "Player" ? "left" : "right" }}>
+                    {h}{h === "PRA" ? " ▾" : ""}
+                  </div>
                 ))}
               </div>
-              {sortedPlayers.slice(0, 30).map((p, i) => (
-                <div key={`${p.name}-${i}`} style={{
-                  display:"grid", gridTemplateColumns: playerColTemplate,
-                  gap:4, padding: isMobile ? "7px 12px" : "8px 12px",
-                  borderBottom: i < Math.min(sortedPlayers.length, 30) - 1 ? `1px solid ${T.border}20` : "none",
-                  alignItems:"center",
-                }}>
-                  <div>
-                    <div style={{ fontSize: isMobile ? 11 : 12, color:T.text, fontWeight:600,
-                      fontFamily:"'Barlow',sans-serif",
-                      whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>
-                      {isMobile ? p.name.split(" ").map((w,wi) => wi === 0 ? w[0]+"." : w).join(" ") : p.name}
-                    </div>
-                    <div style={{ fontSize:9, color:T.textDim }}>
-                      {p.teamAbbr}
-                      {p.gameStatus.live && (
-                        <span style={{ color:"#22c55e", marginLeft:4, fontSize:9 }}>●</span>
+              {sortedPlayers.slice(0, 30).map((p, i) => {
+                const propLines = p.propLines || {};
+                return (
+                  <div key={`${p.name}-${i}`} style={{
+                    display:"grid", gridTemplateColumns: playerColTemplate,
+                    gap:4, padding: isMobile ? "7px 12px" : "9px 12px",
+                    borderBottom: i < Math.min(sortedPlayers.length, 30) - 1 ? `1px solid ${T.border}20` : "none",
+                    alignItems:"center",
+                  }}>
+                    {/* Player cell with headshot */}
+                    <div style={{ display:"flex", alignItems:"center", gap:8, minWidth:0 }}>
+                      {p.espnId && (
+                        <img
+                          src={`https://a.espncdn.com/i/headshots/nba/players/full/${p.espnId}.png`}
+                          alt={p.name}
+                          style={{ width: isMobile ? 28 : 34, height: isMobile ? 21 : 26,
+                            objectFit:"cover", objectPosition:"top center",
+                            borderRadius:4, flexShrink:0,
+                            background:T.surfaceHi }}
+                          onError={(e) => { e.currentTarget.style.display = "none"; }}
+                        />
                       )}
-                    </div>
-                  </div>
-                  {playerStats.map(stat => (
-                    <div key={stat} style={{ textAlign:"right" }}>
-                      <div style={{ fontSize: isMobile ? 11 : 12, color:T.text,
-                        fontFamily:"'JetBrains Mono',monospace" }}>
-                        {p.live[stat] ?? "—"}
+                      <div style={{ minWidth:0 }}>
+                        <div style={{ fontSize: isMobile ? 11 : 12, color:T.text, fontWeight:600,
+                          fontFamily:"'Barlow',sans-serif",
+                          whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>
+                          {isMobile ? p.name.split(" ").map((w,wi) => wi === 0 ? w[0]+"." : w).join(" ") : p.name}
+                        </div>
+                        <div style={{ fontSize:9, color:T.textDim, fontFamily:"'Barlow',sans-serif" }}>
+                          {p.teamAbbr}
+                          {p.gameStatus.live && (
+                            <span style={{ color:"#22c55e", marginLeft:4 }}>●</span>
+                          )}
+                        </div>
                       </div>
-                      {p.proj?.[stat] != null && (
-                        <div style={{ fontSize:9, color:"#16a34a", fontFamily:"'JetBrains Mono',monospace" }}>
-                          →{p.proj[stat]}
+                    </div>
+
+                    {/* Stat columns: live / algo proj / book line + edge */}
+                    {playerStats.map(stat => {
+                      const line = propLines[stat];
+                      const proj = p.proj?.[stat];
+                      const edge = proj != null && line ? +(proj - line.line).toFixed(1) : null;
+                      const edgeColor = edge == null ? null : edge >= 0.5 ? "#22c55e" : edge <= -0.5 ? "#ef4444" : T.textDim;
+                      return (
+                        <div key={stat} style={{ textAlign:"right" }}>
+                          <div style={{ fontSize: isMobile ? 12 : 13, fontWeight:700, color:T.text,
+                            fontFamily:"'JetBrains Mono',monospace", lineHeight:1.2 }}>
+                            {p.live[stat] ?? "—"}
+                          </div>
+                          {proj != null && (
+                            <div style={{ fontSize:9, color:"#a78bfa", fontFamily:"'JetBrains Mono',monospace" }}>
+                              ▸{proj}
+                            </div>
+                          )}
+                          {line && (
+                            <div style={{ fontSize:9, fontFamily:"'JetBrains Mono',monospace",
+                              color: edgeColor || T.amber }}>
+                              {edge != null
+                                ? `${edge > 0 ? "+" : ""}${edge}`
+                                : `L${line.line}`}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+
+                    {/* PRA column */}
+                    <div style={{ textAlign:"right" }}>
+                      <div style={{ fontSize: isMobile ? 13 : 14, fontWeight:700,
+                        color: T.blue, fontFamily:"'JetBrains Mono',monospace" }}>
+                        {(p.proj?.pra ?? ((p.live.pts||0)+(p.live.reb||0)+(p.live.ast||0))) || "—"}
+                      </div>
+                      {propLines.pra && p.proj?.pra != null && (
+                        <div style={{ fontSize:9, fontFamily:"'JetBrains Mono',monospace",
+                          color: p.proj.pra - propLines.pra.line >= 0.5 ? "#22c55e"
+                               : p.proj.pra - propLines.pra.line <= -0.5 ? "#ef4444" : T.textDim }}>
+                          {p.proj.pra - propLines.pra.line > 0 ? "+" : ""}
+                          {+(p.proj.pra - propLines.pra.line).toFixed(1)}
                         </div>
                       )}
                     </div>
-                  ))}
-                  <div style={{ textAlign:"right", fontSize: isMobile ? 12 : 13, fontWeight:700,
-                    color:T.blue, fontFamily:"'JetBrains Mono',monospace" }}>
-                    {(p.proj?.pra ?? ((p.live.pts || 0) + (p.live.reb || 0) + (p.live.ast || 0))) || "—"}
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </>
@@ -3155,10 +3758,33 @@ export default function App() {
             </span>
           )}
         </div>
+        {useProjections && (
+          <div style={{ display:"flex", alignItems:"center", gap:10, padding:"7px 12px",
+            background:`${T.blue}0a`, border:`1px solid ${T.blue}22`, borderRadius:6, marginBottom:12 }}>
+            <span style={{ fontSize:9, fontWeight:700, color:T.blue, letterSpacing:"0.1em",
+              textTransform:"uppercase", fontFamily:"'Barlow',sans-serif", flexShrink:0 }}>
+              ESPN Season Avg
+            </span>
+            <span style={{ fontSize:10, color:T.textDim, fontFamily:"'Barlow',sans-serif" }}>
+              No prop lines yet — showing season averages as projections. Book lines appear 2–3 hrs before tip-off.
+            </span>
+          </div>
+        )}
         {displayProps.length > 0 ? (
           <PropsTable props={displayProps} ppMap={prizePicksMap} isMobile={isMobile} />
         ) : useProjections ? (
-          <ProjectionsTable projections={projections} propCat={propCat} isMobile={isMobile} />
+          <ProjectionsTable projections={projections} propCat={propCat} isMobile={isMobile} propLinesMap={(() => {
+            const MARKET_TO_STAT = { player_points:"pts", player_rebounds:"reb", player_assists:"ast", player_threes:"tpm", player_points_rebounds_assists:"pra" };
+            const normStr = s => (s||"").toLowerCase().replace(/[^a-z]/g," ").replace(/\s+/g," ").trim();
+            const map = {};
+            for (const prop of allPropsList) {
+              const k = normStr(prop.player||"");
+              if (!map[k]) map[k] = {};
+              const sk = MARKET_TO_STAT[prop.market];
+              if (sk && prop.line != null && (!map[k][sk] || prop.side === "Over")) map[k][sk] = { line: prop.line, side: prop.side };
+            }
+            return map;
+          })()}/>
         ) : (
           <div style={{ textAlign:"center", padding:"40px 20px", color:T.textDim }}>
             <div style={{ fontSize:24, marginBottom:8 }}>🎯</div>
@@ -3247,7 +3873,15 @@ export default function App() {
             <div style={{ fontSize:14, color:T.textMid }}>No bet history yet</div>
             <div style={{ fontSize:11, marginTop:6 }}>Placed bets will appear here after games complete</div>
           </div>
+        ) : isMobile ? (
+          /* ── Mobile: card list, no horizontal scroll ── */
+          <div style={{ background:T.surface, border:`1px solid ${T.border}`, borderRadius:10, overflow:"hidden" }}>
+            {filteredHistory.slice().sort((a, b) => new Date(b.date) - new Date(a.date)).map((h, i) => (
+              <HistoryRow key={h.id || i} h={h} rowIndex={i} isMobile={true} />
+            ))}
+          </div>
         ) : (
+          /* ── Desktop: scrollable blotter table ── */
           <div style={{ background:T.surface, border:`1px solid ${T.border}`, borderRadius:10, overflow:"hidden" }}>
             <div style={{ overflowX:"auto" }}>
               {/* Blotter header */}
@@ -3272,7 +3906,7 @@ export default function App() {
                 <div style={{ textAlign:"right" }}>P&L</div>
               </div>
               {filteredHistory.slice().sort((a, b) => new Date(b.date) - new Date(a.date)).map((h, i) => (
-                <HistoryRow key={h.id || i} h={h} rowIndex={i} />
+                <HistoryRow key={h.id || i} h={h} rowIndex={i} isMobile={false} />
               ))}
             </div>
           </div>
@@ -3303,6 +3937,16 @@ export default function App() {
           fontFamily:"'JetBrains Mono',monospace" }}>{value}</span>
       </div>
     );
+    const Row = ({ label, desc, color }) => (
+      <div style={{ padding:"8px 12px", background:T.surfaceHi, borderRadius:6, marginBottom:6,
+        border:`1px solid ${T.border}` }}>
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:3 }}>
+          <span style={{ fontSize:11, fontWeight:700, color: color || T.text,
+            fontFamily:"'Barlow',sans-serif" }}>{label}</span>
+        </div>
+        <div style={{ fontSize:10, color:T.textDim, fontFamily:"'Barlow',sans-serif", lineHeight:1.6 }}>{desc}</div>
+      </div>
+    );
     return (
       <div style={{ maxWidth:660, margin:"0 auto", padding:"24px 20px 40px" }}>
         <div style={{ fontSize:18, fontWeight:900, color:T.text, marginBottom:4,
@@ -3314,58 +3958,88 @@ export default function App() {
         </div>
 
         <Section title="What Is NBA Edge?">
-          <P>NBA Edge is a fully automated sports betting intelligence engine. Every few hours, it scans every NBA game on the schedule, analyzes the betting markets across multiple sportsbooks, and surfaces plays where the math says the odds are in your favor.</P>
-          <P>Think of it like a stock screener — but for bets. Instead of finding undervalued stocks, it finds undervalued bets: situations where a sportsbook is offering better odds than the true probability of the outcome.</P>
+          <P>NBA Edge is a fully automated sports betting intelligence engine. Every few hours, it scans every NBA game, analyzes betting markets across 14 sportsbooks, and surfaces plays where the math says the odds are in your favor.</P>
+          <P>It combines algorithm-driven conviction plays, real-time live game tracking, full line comparison across books, player projections, and prop line shopping — all in one place.</P>
+        </Section>
+
+        <Section title="Tabs Overview">
+          <Row label="All / EV Plays — Conviction Plays" color={T.blue}
+            desc="Algorithm-generated plays ranked by conviction score. These are the engine's best bets of the day, updated each morning. Includes Moneyline, Spread, Total, and Player Prop picks." />
+          <Row label="Moneyline · Spread · Game Total — Line Comparison" color={T.blue}
+            desc="Full odds grid for every game today across DraftKings, FanDuel, BetMGM, Caesars, and 10+ other books. Purple row = algorithm consensus. Green highlights = best available line. Use this to shop for the best price before you bet." />
+          <Row label="Props — Player Projections" color={T.blue}
+            desc="Season-average stat projections for every player in today's games, sourced from ESPN. Shows PTS / REB / AST / TPM projections alongside the current PrizePicks line and the edge (projection minus line). Sort by edge to find the best value props." />
+          <Row label="Live — Real-Time Game Tracker" color={T.blue}
+            desc="Live scores, period, and clock for every in-progress game. Shows algorithm's predicted ML, spread, and game total alongside real-time player stat lines and pace-adjusted projections. Updates every ~25 seconds." />
+          <Row label="History — Bet Record" color={T.blue}
+            desc="Full log of all past algorithm picks with result, profit/loss, and cumulative performance. Filter by bet type, outcome, or date range." />
         </Section>
 
         <Section title="Conviction Score (0–100)">
-          <P>Every play gets a Conviction Score from 0–100. This is the engine's overall confidence rating, combining multiple signals:</P>
+          <P>Every algorithm play gets a Conviction Score from 0–100 — the engine's overall confidence rating, combining multiple signals:</P>
           <Highlight label="Expected Value (EV)" value="Is the bet mathematically profitable long-term?" color={T.green} />
           <Highlight label="ML Model Signal" value="What does the machine learning model predict?" color={T.blue} />
           <Highlight label="Market Consensus" value="Do multiple books agree on the line?" color={T.amber} />
           <Highlight label="Line Movement" value="Is the line moving in our favor or against us?" color={T.textMid} />
           <P>Higher score = higher confidence. A score of 85 doesn't mean the team wins 85% of the time — it means the engine is 85% confident this is a good value bet.</P>
-        </Section>
-
-        <Section title="Bet Tiers">
           <Highlight label="⚡ AUTO-BET (Score ≥ 70)" value="Strongest plays — bet these" color={T.green} />
-          <Highlight label="MEDIUM (Score 55–69)" value="Solid plays — bet selectively" color={T.amber} />
+          <Highlight label="MEDIUM (Score 55–69)" value="Solid plays — consider selectively" color={T.amber} />
           <Highlight label="WATCHLIST (Score < 55)" value="Monitor only — skip unless you have a strong read" color={T.textDim} />
-          <P>The AUTO-BET threshold of 70 is where the historical edge is most consistent. Below 55, the edge shrinks enough that variance can easily wipe out your profit.</P>
         </Section>
 
-        <Section title="Bet Types">
-          <Highlight label="ML — Moneyline" value="Pick who wins the game outright" color={T.blue} />
-          <Highlight label="SPR — Spread" value="Pick who covers the point spread" color={T.blue} />
-          <Highlight label="TOT — Game Total" value="Pick if the combined score goes Over or Under" color={T.blue} />
-          <Highlight label="PP — Player Prop" value="Pick a player stat: points, rebounds, assists, etc." color={T.blue} />
-          <P>Moneylines are the simplest: team wins, you win. Spreads add a handicap (e.g., Lakers -5.5 means they must win by 6+). Totals ignore who wins and just focus on scoring. Props are independent of the game result — you're betting on a single player's performance.</P>
+        <Section title="Get At Or Better">
+          <P>Every play shows a "Get At Or Better" threshold — the worst acceptable line before the edge disappears. Don't place the bet if your book is worse than this number.</P>
+          <Row label="Moneyline" color={T.gold}
+            desc="Minimum payout (American odds). Example: Get at -130 or better means don't take -145 or worse. Shop books until you find -130 or better — otherwise skip." />
+          <Row label="Spread" color={T.gold}
+            desc="The line point you need. Example: Get at -3.5 or better means don't take more coverage than -3.5. If one book has -4 and another has -3, take -3. The closer to 0, the better for the favorite side." />
+          <Row label="Game Total (Over)" color={T.gold}
+            desc="Get at or LOWER — a lower total is easier to go over. Example: Get at 224.5 or lower means don't take 226.5 if you can find 224 somewhere else." />
+          <Row label="Game Total (Under)" color={T.gold}
+            desc="Get at or HIGHER — a higher total is easier to go under. Example: Get at 226 or higher means don't take 223 if you can find 226 somewhere else." />
+          <Row label="Player Prop (Over)" color={T.gold}
+            desc="MAX LINE — don't take this prop if the line is higher than the threshold. Example: Max line 22.5 means don't bet Over if the book has it at 23.5 or higher." />
+          <Row label="Player Prop (Under)" color={T.gold}
+            desc="MIN LINE — don't take this prop if the line is lower than the threshold. Example: Min line 21.5 means don't bet Under if the book has it at 20.5 or lower." />
         </Section>
 
-        <Section title="Expected Value (EV)">
-          <P>EV is the most important number in sports betting. It tells you how much you expect to profit (or lose) on average per $100 wagered.</P>
-          <Highlight label="+EV" value="The bet pays more than it should, long-term profit" color={T.green} />
-          <Highlight label="-EV" value="The bet pays less than it should, long-term loss" color={T.red} />
-          <P>Example: A coin flip at +100 (even money) is 0 EV — fair. But if a book offers +120 on a true 50/50, that's +EV. For every $100 you bet on plays like that, you expect to profit $10 on average over many bets. The key word is "average" — any single bet can still lose. EV only wins over volume.</P>
+        <Section title="Line Shopping (Moneyline / Spread / Total Tabs)">
+          <P>The Moneyline, Spread, and Game Total tabs show live odds from 14 books simultaneously. The algorithm consensus (purple row) shows what the engine expects. Green-highlighted cells are the best available odds across all books.</P>
+          <P>Even small differences in the line matter over time. Moving from -115 to -105 on a spread bet saves you $10 per $100 wagered — that's the difference between breaking even and being profitable long-term.</P>
+          <Highlight label="Consensus" value="Average odds across all books" color="#a78bfa" />
+          <Highlight label="Best ML (home/away)" value="Highest moneyline payout available" color={T.green} />
+          <Highlight label="Best Spread" value="Lowest (most favorable) spread point" color={T.green} />
+          <Highlight label="Best Over" value="Lowest total available (easier to hit)" color={T.green} />
         </Section>
 
-        <Section title="Kelly Criterion (Kelly %)">
-          <P>Kelly % tells you how much of your bankroll to wager on each bet. It's a formula that maximizes long-term bankroll growth without over-betting.</P>
-          <Highlight label="Example: Kelly 4.2%" value="Bet 4.2% of your current bankroll" color={T.amber} />
-          <P>If your bankroll is $500 and Kelly says 4.2%, the optimal wager is $21. Betting more is greedier than the math supports and increases your risk of ruin. Many sharp bettors use "half Kelly" (bet half the suggested amount) to reduce volatility while still growing the bankroll.</P>
+        <Section title="Props Tab — ESPN Projections">
+          <P>Player projections are calculated from each player's season averages using ESPN's statistics API. The edge column shows the gap between the projection and the current PrizePicks line.</P>
+          <Highlight label="Edge = Projection − Line" value="Positive edge = projection beats the line" color={T.green} />
+          <Highlight label="Positive edge (Over)" value="Projection is above the line — lean Over" color={T.green} />
+          <Highlight label="Negative edge (Under)" value="Projection is below the line — lean Under" color={T.amber} />
+          <P>Filter by game or market (PTS, REB, AST, etc.) and sort by edge to identify the strongest props. Always cross-reference with the Max Line or Min Line threshold before placing.</P>
         </Section>
 
-        <Section title="How to Use the Filters">
-          <Highlight label="⚡ Auto-Bet Only" value="Show only plays with Score ≥ 70" color={T.green} />
-          <Highlight label="🤖 ML Engine" value="Show only plays the ML model flagged" color={T.blue} />
-          <Highlight label="📈 EV+ Only" value="Show only positive expected value plays" color={T.green} />
-          <Highlight label="🎯 Cross-Confirmed" value="Show plays confirmed across multiple models" color={T.amber} />
-          <P>Stack filters to narrow your focus. For the tightest edge, enable both Auto-Bet and EV+ together — these are plays where the conviction is high AND the math is positive.</P>
+        <Section title="Live Tab — Real-Time Tracker">
+          <P>The Live tab pulls from ESPN's scoreboard and box score APIs every ~25 seconds. For in-progress games, it shows:</P>
+          <Highlight label="Predicted ML" value="Algorithm's win probability as American odds (both teams)" color="#a78bfa" />
+          <Highlight label="Predicted Spread" value="Algorithm's expected final margin (positive = away favored)" color="#a78bfa" />
+          <Highlight label="Predicted Total" value="Algorithm's expected combined score" color="#a78bfa" />
+          <Highlight label="Live Player Stats" value="Current PTS / REB / AST / TPM in this game" color={T.blue} />
+          <Highlight label="Season Avg" value="Player's per-game averages this season" color={T.textMid} />
+          <P>Live data refreshes automatically while you have the Live tab open.</P>
+        </Section>
+
+        <Section title="Expected Value (EV) & Kelly Criterion">
+          <P>EV tells you how much you expect to profit on average per $100 wagered. Kelly % tells you how much of your bankroll to wager.</P>
+          <Highlight label="+EV" value="The bet pays more than it should — long-term profit" color={T.green} />
+          <Highlight label="-EV" value="The bet pays less than it should — long-term loss" color={T.red} />
+          <Highlight label="Kelly 4.2%" value="Bet 4.2% of your current bankroll on this play" color={T.amber} />
+          <P>If your bankroll is $500 and Kelly says 4.2%, the optimal wager is $21. Many sharp bettors use half-Kelly to reduce variance while still growing the bankroll over time.</P>
         </Section>
 
         <Section title="Sportsbook Filter">
-          <P>Use the sportsbook selector in the left sidebar to show only plays available at a specific book. Different books offer different lines — the engine always shows the best available odds across all books you have access to.</P>
-          <P>If you only have DraftKings, filter to DraftKings so you only see plays you can actually place. Opening accounts at 3–5 books dramatically improves your ability to find the best lines.</P>
+          <P>Use the sportsbook selector to show only plays available at a specific book. If you only have DraftKings, filter to DraftKings to avoid seeing plays you can't place. Opening accounts at 3–5 books dramatically improves your ability to line shop and find the best available odds.</P>
         </Section>
 
         <Section title="Risk Disclaimer">
@@ -3423,6 +4097,10 @@ export default function App() {
         @import url('https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700;800;900&family=Barlow+Condensed:wght@600;700;800;900&family=JetBrains+Mono:wght@400;500;700&display=swap');
         * { box-sizing: border-box; }
         html, body { height: 100%; margin: 0; }
+        @keyframes spin {
+          0%   { transform: rotate(0deg); }
+          100% { transform: rotate(360deg); }
+        }
         @keyframes scrollTicker {
           0%   { transform: translateX(0); }
           100% { transform: translateX(-50%); }
